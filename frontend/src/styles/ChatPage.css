@@ -1,0 +1,43 @@
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.split-view {
+  display: flex;
+  height: calc(100vh - 60px);
+}
+
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #ddd;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tool-container {
+  flex: 1;
+  height: 100%;
+  overflow: auto;
+  padding: 10px;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #888;
+  font-size: 1.2rem;
+}
+
+.error-message {
+  color: #d32f2f;
+  padding: 10px;
+  margin: 10px;
+  background-color: #ffebee;
+  border-radius: 4px;
+}
