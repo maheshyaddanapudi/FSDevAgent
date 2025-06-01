@@ -21,12 +21,16 @@ const ChatPage = () => {
   
   const messagesEndRef = useRef(null);
   
+  // Add state for active view
+  const [activeView, setActiveView] = useState('chat');
+  
   // Connect to WebSocket for real-time tool outputs
+  // Removed sessionId parameter to make connection session-independent
   const { 
     isConnected: wsConnected, 
     error: wsError, 
     messages: wsMessages 
-  } = useWebSocket('tools', sessionId);
+  } = useWebSocket('tools');
 
   useEffect(() => {
     if (!sessionId) {
@@ -70,7 +74,7 @@ const ChatPage = () => {
 
   return (
     <div className="chat-page">
-      <Header />
+      <Header activeView={activeView} setActiveView={setActiveView} />
       
       <div className="split-view">
         <div className="chat-container">
@@ -84,6 +88,7 @@ const ChatPage = () => {
           <UnifiedEmulator 
             toolOutputs={toolOutputs} 
             wsConnected={wsConnected}
+            currentToolType={activeView !== 'chat' ? activeView : 'terminal'}
           />
           {wsError && <div className="ws-error">WebSocket Error: {wsError}</div>}
         </div>
