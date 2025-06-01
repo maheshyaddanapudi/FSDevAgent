@@ -145,7 +145,30 @@ public class ClaudeLLMProvider implements LLMProvider {
                                     try {
                                         ClaudeResponse claudeResponse = objectMapper.readValue(rawResponse, ClaudeResponse.class);
                                         if (claudeResponse.getContent() != null && !claudeResponse.getContent().isEmpty()) {
-                                            return claudeResponse.getContent().get(0).getText();
+                                            StringBuilder responseBuilder = new StringBuilder();
+                                            
+                                            for (ClaudeResponseContent content : claudeResponse.getContent()) {
+                                                if ("text".equals(content.getType()) && content.getText() != null) {
+                                                    responseBuilder.append(content.getText());
+                                                } else if ("tool_use".equals(content.getType())) {
+                                                    // Handle tool use in non-streaming response
+                                                    try {
+                                                        ToolUseBlock toolUseBlock = ToolUseBlock.builder()
+                                                            .id(content.getId())
+                                                            .name(content.getName())
+                                                            .input(content.getInput() != null ? content.getInput() : new HashMap<>())
+                                                            .build();
+                                                        
+                                                        String toolUseJson = objectMapper.writeValueAsString(toolUseBlock);
+                                                        responseBuilder.append("<tool_use>").append(toolUseJson).append("</tool_use>");
+                                                    } catch (Exception e) {
+                                                        log.error("Error processing tool use in response: {}", e.getMessage());
+                                                        responseBuilder.append("Error processing tool use: ").append(e.getMessage());
+                                                    }
+                                                }
+                                            }
+                                            
+                                            return responseBuilder.toString();
                                         } else {
                                             log.error("Empty content in Claude response");
                                             return "Error: Empty content in Claude response";
@@ -186,6 +209,7 @@ public class ClaudeLLMProvider implements LLMProvider {
             
             // Track the current tool use block being built
             AtomicReference<ToolUseBlock> currentToolUseBlock = new AtomicReference<>(null);
+            AtomicReference<StringBuilder> toolInputJson = new AtomicReference<>(new StringBuilder());
             
             return webClient.post()
                     .body(BodyInserters.fromValue(requestJson))
@@ -222,8 +246,9 @@ public class ClaudeLLMProvider implements LLMProvider {
                                                 .input(new HashMap<String, Object>())
                                                 .build();
                                             
-                                            // Store the current tool use block
+                                            // Store the current tool use block and reset JSON accumulator
                                             currentToolUseBlock.set(toolUseBlock);
+                                            toolInputJson.set(new StringBuilder());
                                             
                                             // Don't emit anything yet, wait for the complete tool use block
                                             return Mono.empty();
@@ -234,14 +259,12 @@ public class ClaudeLLMProvider implements LLMProvider {
                                                  "input_json_delta".equals(streamingResponse.getDelta().getType())) {
                                             
                                             // This is a delta update to the tool use block (input parameters)
-                                            log.info("Detected tool use delta: {}", rawChunk);
+                                            log.debug("Detected tool use delta: {}", rawChunk);
                                             
-                                            // Update the current tool use block with the input parameters
-                                            ToolUseBlock toolUseBlock = currentToolUseBlock.get();
-                                            if (toolUseBlock != null && streamingResponse.getDelta().getPartialJson() != null) {
-                                                // For now, we'll accumulate the partial JSON and parse at the end
-                                                // This is a simplified approach - production code might need more sophisticated JSON streaming
-                                                log.debug("Accumulating partial JSON: {}", streamingResponse.getDelta().getPartialJson());
+                                            // Accumulate the partial JSON
+                                            if (streamingResponse.getDelta().getPartialJson() != null) {
+                                                toolInputJson.get().append(streamingResponse.getDelta().getPartialJson());
+                                                log.debug("Accumulated JSON so far: {}", toolInputJson.get().toString());
                                             }
                                             
                                             // Don't emit anything yet, wait for the complete tool use block
@@ -252,16 +275,33 @@ public class ClaudeLLMProvider implements LLMProvider {
                                             // This is the end of a content block
                                             ToolUseBlock toolUseBlock = currentToolUseBlock.get();
                                             if (toolUseBlock != null) {
-                                                log.info("Tool use block completed: {}", toolUseBlock);
-                                                
-                                                // Convert the tool use block to a JSON string for the tool execution handler
-                                                String toolUseJson = objectMapper.writeValueAsString(toolUseBlock);
-                                                
-                                                // Reset the current tool use block
-                                                currentToolUseBlock.set(null);
-                                                
-                                                // Return a special marker with the tool use information
-                                                return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
+                                                try {
+                                                    // Parse the accumulated JSON input
+                                                    String jsonInput = toolInputJson.get().toString();
+                                                    if (!jsonInput.isEmpty()) {
+                                                        @SuppressWarnings("unchecked")
+                                                        Map<String, Object> inputMap = objectMapper.readValue(jsonInput, Map.class);
+                                                        toolUseBlock.setInput(inputMap);
+                                                    }
+                                                    
+                                                    log.info("Tool use block completed: {} with input: {}", 
+                                                            toolUseBlock.getName(), toolUseBlock.getInput());
+                                                    
+                                                    // Convert the tool use block to a JSON string for the tool execution handler
+                                                    String toolUseJson = objectMapper.writeValueAsString(toolUseBlock);
+                                                    
+                                                    // Reset the current tool use block and JSON accumulator
+                                                    currentToolUseBlock.set(null);
+                                                    toolInputJson.set(new StringBuilder());
+                                                    
+                                                    // Return a special marker with the tool use information
+                                                    return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
+                                                } catch (Exception e) {
+                                                    log.error("Error parsing tool input JSON: {}", e.getMessage());
+                                                    currentToolUseBlock.set(null);
+                                                    toolInputJson.set(new StringBuilder());
+                                                    return Mono.just("Error parsing tool input: " + e.getMessage());
+                                                }
                                             }
                                             
                                             return Mono.empty();
@@ -274,12 +314,31 @@ public class ClaudeLLMProvider implements LLMProvider {
                                             // This is a regular text delta
                                             return Mono.just(streamingResponse.getDelta().getText());
                                         }
+                                        else if ("content_block_start".equals(streamingResponse.getType()) && 
+                                                 streamingResponse.getContentBlock() != null &&
+                                                 "text".equals(streamingResponse.getContentBlock().getType())) {
+                                            
+                                            // This is the start of a text block
+                                            return Mono.empty();
+                                        }
+                                        else if ("message_start".equals(streamingResponse.getType())) {
+                                            // This is the start of a message
+                                            return Mono.empty();
+                                        }
+                                        else if ("message_delta".equals(streamingResponse.getType())) {
+                                            // This is a message delta (usually the end)
+                                            return Mono.empty();
+                                        }
+                                        else if ("message_stop".equals(streamingResponse.getType())) {
+                                            // This is the end of a message
+                                            return Mono.empty();
+                                        }
                                         else if ("ping".equals(streamingResponse.getType())) {
-                                            // Ignore ping events
+                                            // This is a ping event to keep connection alive
                                             return Mono.empty();
                                         }
                                         else {
-                                            log.debug("Unhandled streaming response type: {}", streamingResponse.getType());
+                                            log.warn("Unknown streaming response type: {}", streamingResponse.getType());
                                             return Mono.empty();
                                         }
                                     } catch (Exception e) {
@@ -290,42 +349,43 @@ public class ClaudeLLMProvider implements LLMProvider {
                         } else {
                             return response.bodyToMono(String.class)
                                 .doOnNext(errorBody -> {
-                                    log.error("Claude API streaming error: {} - {}", response.statusCode(), errorBody);
+                                    log.error("Claude API error: {} - {}", response.statusCode(), errorBody);
                                 })
                                 .flatMapMany(errorBody -> Flux.just("Error from Claude API: " + response.statusCode() + " - " + errorBody));
                         }
                     })
                     .onErrorResume(error -> {
-                        log.error("Error in streaming response: {}", error.getMessage(), error);
-                        return Flux.just("Error in streaming response: " + error.getMessage());
+                        log.error("Error calling Claude API: {}", error.getMessage(), error);
+                        return Flux.just("Error calling Claude API: " + error.getMessage());
                     });
         } catch (JsonProcessingException e) {
-            log.error("Error serializing streaming request: {}", e.getMessage());
+            log.error("Error serializing request: {}", e.getMessage());
             return Flux.just("Error serializing request: " + e.getMessage());
         }
     }
     
     private ClaudeRequest buildClaudeRequest(String prompt, ChatContext context, boolean stream) {
         List<ClaudeMessage> messages = new ArrayList<>();
+        String systemPrompt = "You are an AI Developer Agent, designed to help with coding, debugging, and development tasks. Use tools when appropriate to help solve problems.";
         
-        // Process existing messages from context
+        // Convert the context messages to Claude format
         if (context != null && context.getMessages() != null) {
             for (Message message : context.getMessages()) {
-                ClaudeMessage claudeMessage = new ClaudeMessage();
-                
                 switch (message.getRole()) {
                     case "system":
-                        // Skip system messages in the messages array
-                        // System prompt is set as a top-level parameter
-                        log.debug("Skipping system message in messages array: {}", message.getContent());
+                        // System messages go into the top-level system field, not in messages array
+                        systemPrompt = message.getContent();
+                        // Don't add to messages array - this was the bug
                         break;
                     case "user":
-                        claudeMessage.setRole("user");
-                        claudeMessage.setContent(List.of(ClaudeContent.createTextContent(message.getContent())));
-                        messages.add(claudeMessage);
+                        ClaudeMessage userMessage = new ClaudeMessage();
+                        userMessage.setRole("user");
+                        userMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
+                        messages.add(userMessage);
                         break;
                     case "assistant":
-                        claudeMessage.setRole("assistant");
+                        ClaudeMessage assistantMessage = new ClaudeMessage();
+                        assistantMessage.setRole("assistant");
                         
                         // Handle tool calls in assistant messages
                         if (message.getToolCall() != null) {
@@ -334,39 +394,35 @@ public class ClaudeLLMProvider implements LLMProvider {
                             
                             // Add text content if present
                             if (message.getContent() != null && !message.getContent().isEmpty()) {
-                                contents.add(ClaudeContent.createTextContent(message.getContent()));
+                                contents.add(new ClaudeContent("text", message.getContent()));
                             }
                             
                             // Add tool use content
                             Map<String, Object> toolUse = new HashMap<>();
+                            toolUse.put("id", message.getToolCall().getId());
                             toolUse.put("name", message.getToolCall().getName());
                             toolUse.put("input", message.getToolCall().getArguments());
-                            toolUse.put("id", message.getToolCall().getId());
                             
-                            contents.add(ClaudeContent.createToolUseContent(toolUse));
-                            
-                            claudeMessage.setContent(contents);
+                            contents.add(ClaudeContent.toolUse("tool_use", toolUse));
+                            assistantMessage.setContent(contents);
                         } else {
                             // Regular assistant message
-                            claudeMessage.setContent(List.of(ClaudeContent.createTextContent(message.getContent())));
+                            assistantMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
                         }
                         
-                        messages.add(claudeMessage);
+                        messages.add(assistantMessage);
                         break;
                     case "tool":
-                        // Tool messages are added as user messages with tool_result content
+                        // Tool results are sent as user messages with tool_result content
                         ClaudeMessage toolResultMessage = new ClaudeMessage();
                         toolResultMessage.setRole("user");
                         
-                        List<ClaudeContent> contents = new ArrayList<>();
-                        
-                        // Add tool result content
                         Map<String, Object> toolResult = new HashMap<>();
-                        toolResult.put("content", message.getContent());
                         toolResult.put("tool_use_id", message.getToolCallId());
+                        toolResult.put("content", message.getContent());
                         
-                        contents.add(ClaudeContent.createToolResultContent(toolResult));
-                        
+                        List<ClaudeContent> contents = new ArrayList<>();
+                        contents.add(ClaudeContent.toolResult("tool_result", toolResult));
                         toolResultMessage.setContent(contents);
                         messages.add(toolResultMessage);
                         break;
@@ -381,8 +437,13 @@ public class ClaudeLLMProvider implements LLMProvider {
         if (prompt != null && !prompt.isEmpty()) {
             ClaudeMessage promptMessage = new ClaudeMessage();
             promptMessage.setRole("user");
-            promptMessage.setContent(List.of(ClaudeContent.createTextContent(prompt)));
+            promptMessage.setContent(List.of(new ClaudeContent("text", prompt)));
             messages.add(promptMessage);
+        }
+        
+        // Ensure messages array starts with a user message (Claude API requirement)
+        if (!messages.isEmpty() && !"user".equals(messages.get(0).getRole())) {
+            log.warn("First message is not from user, this may cause API errors");
         }
         
         // Build the tools list
@@ -401,28 +462,25 @@ public class ClaudeLLMProvider implements LLMProvider {
             
             for (Map.Entry<String, ParameterInfo> entry : tool.getParameters().entrySet()) {
                 ParameterInfo param = entry.getValue();
-                
-                // Skip parameters with null names
-                if (param.getName() == null) {
+                if (param.getName() != null) {
+                    ClaudePropertySchema propertySchema = new ClaudePropertySchema();
+                    propertySchema.setType(param.getType());
+                    propertySchema.setDescription(param.getDescription());
+                    
+                    properties.put(param.getName(), propertySchema);
+                    
+                    if (param.isRequired()) {
+                        required.add(param.getName());
+                    }
+                } else {
                     log.warn("Skipping parameter with null name in tool: {}", tool.getName());
-                    continue;
-                }
-                
-                ClaudePropertySchema propertySchema = new ClaudePropertySchema();
-                propertySchema.setType(param.getType());
-                propertySchema.setDescription(param.getDescription());
-                
-                properties.put(param.getName(), propertySchema);
-                
-                if (param.isRequired()) {
-                    required.add(param.getName());
                 }
             }
             
             inputSchema.setProperties(properties);
             inputSchema.setRequired(required);
-            
             claudeTool.setInputSchema(inputSchema);
+            
             tools.add(claudeTool);
         }
         
@@ -430,18 +488,20 @@ public class ClaudeLLMProvider implements LLMProvider {
         ClaudeRequest request = new ClaudeRequest();
         request.setModel(config.getModel() != null ? config.getModel() : "claude-3-5-sonnet-20241022");
         request.setMessages(messages);
-        request.setSystem("You are an AI Developer Agent, designed to help with coding, debugging, and development tasks. Use tools when appropriate to help solve problems.");
+        request.setSystem(systemPrompt);
         request.setMaxTokens(config.getMaxTokens() != null ? config.getMaxTokens() : 4000);
         request.setTemperature(config.getTemperature() != null ? config.getTemperature() : 0.7);
         request.setStream(stream);
-        request.setTools(tools);
+        if (!tools.isEmpty()) {
+            request.setTools(tools);
+        }
         
         return request;
     }
     
     @Override
     public String getProviderName() {
-        return "Claude 3.5 (Custom Implementation)";
+        return "Claude (Anthropic API)";
     }
     
     // Claude API request/response models
@@ -478,25 +538,25 @@ public class ClaudeLLMProvider implements LLMProvider {
         @JsonProperty("tool_result")
         private Map<String, Object> toolResult;
         
-        // Static factory methods to ensure proper content structure
-        public static ClaudeContent createTextContent(String text) {
+        // Constructor for text content
+        public ClaudeContent(String type, String text) {
+            this.type = type;
+            this.text = text;
+        }
+        
+        // Constructor for tool_use content
+        public static ClaudeContent toolUse(String type, Map<String, Object> toolUse) {
             ClaudeContent content = new ClaudeContent();
-            content.setType("text");
-            content.setText(text);
+            content.type = type;
+            content.toolUse = toolUse;
             return content;
         }
         
-        public static ClaudeContent createToolUseContent(Map<String, Object> toolUse) {
+        // Constructor for tool_result content  
+        public static ClaudeContent toolResult(String type, Map<String, Object> toolResult) {
             ClaudeContent content = new ClaudeContent();
-            content.setType("tool_use");
-            content.setToolUse(toolUse);
-            return content;
-        }
-        
-        public static ClaudeContent createToolResultContent(Map<String, Object> toolResult) {
-            ClaudeContent content = new ClaudeContent();
-            content.setType("tool_result");
-            content.setToolResult(toolResult);
+            content.type = type;
+            content.toolResult = toolResult;
             return content;
         }
     }
@@ -530,21 +590,56 @@ public class ClaudeLLMProvider implements LLMProvider {
     public static class ClaudeResponse {
         private String id;
         private String type;
+        private String model;
         private String role;
         private List<ClaudeResponseContent> content;
-        private String model;
         @JsonProperty("stop_reason")
         private String stopReason;
-        @JsonProperty("stop_sequence")
-        private String stopSequence;
         private Usage usage;
     }
     
     @Data
     @NoArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ClaudeResponseContent {
         private String type;
         private String text;
+        private String id;
+        private String name;
+        private Map<String, Object> input;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    public static class ClaudeStreamingResponse {
+        private String type;
+        private String message;
+        @JsonProperty("content_block")
+        private ContentBlock contentBlock;
+        private Delta delta;
+        private Integer index;
+        private Usage usage;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    public static class ContentBlock {
+        private String type;
+        private String text;
+        private String id;
+        private String name;
+        private Map<String, Object> input;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    public static class Delta {
+        private String type;
+        private String text;
+        @JsonProperty("stop_reason")
+        private String stopReason;
+        @JsonProperty("partial_json")
+        private String partialJson;
     }
     
     @Data
@@ -554,33 +649,9 @@ public class ClaudeLLMProvider implements LLMProvider {
         private Integer inputTokens;
         @JsonProperty("output_tokens")
         private Integer outputTokens;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    public static class ClaudeStreamingResponse {
-        private String type;
-        private String index;
-        @JsonProperty("content_block")
-        private ClaudeContentBlock contentBlock;
-        private ClaudeDelta delta;
-        private String message;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    public static class ClaudeContentBlock {
-        private String type;
-        private String id;
-        private String name;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    public static class ClaudeDelta {
-        private String type;
-        private String text;
-        @JsonProperty("partial_json")
-        private String partialJson;
+        @JsonProperty("cache_creation_input_tokens")
+        private Integer cacheCreationInputTokens;
+        @JsonProperty("cache_read_input_tokens")
+        private Integer cacheReadInputTokens;
     }
 }

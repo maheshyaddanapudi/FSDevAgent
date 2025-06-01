@@ -52,6 +52,13 @@ public class TerminalTool implements Tool {
         
         return Flux.create(sink -> {
             try {
+                // Add null check for command parameter
+                if (command == null) {
+                    log.error("Command parameter is null");
+                    sink.error(new IllegalArgumentException("Command parameter cannot be null"));
+                    return;
+                }
+                
                 Map<String, String> env = new HashMap<>(System.getenv());
                 String[] cmd = command.split(" ");
                 
