@@ -346,9 +346,9 @@ public class ClaudeLLMProvider implements LLMProvider {
                 
                 switch (message.getRole()) {
                     case "system":
-                        claudeMessage.setRole("system");
-                        claudeMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
-                        messages.add(claudeMessage);
+                        // Skip system messages in the messages array
+                        // System prompt is set as a top-level parameter
+                        log.debug("Skipping system message in messages array: {}", message.getContent());
                         break;
                     case "user":
                         claudeMessage.setRole("user");
@@ -451,7 +451,10 @@ public class ClaudeLLMProvider implements LLMProvider {
             parameters.put("properties", properties);
             parameters.put("required", required);
             
-            toolDef.put("parameters", parameters);
+            // Add input_schema as a direct property of the tool definition
+            // per Claude API documentation requirements
+            toolDef.put("input_schema", parameters);
+            
             tools.add(toolDef);
         }
         
