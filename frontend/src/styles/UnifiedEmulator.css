@@ -194,6 +194,109 @@
   word-break: break-word;
 }
 
+/* Fallback terminal styling */
+.fallback-terminal {
+  padding: 16px;
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+  border-radius: 6px;
+  height: 100%;
+  overflow: auto;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.fallback-terminal h4 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: #f0f0f0;
+  border-bottom: 1px solid #444;
+  padding-bottom: 8px;
+}
+
+.tool-group {
+  margin-bottom: 20px;
+}
+
+.tool-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background-color: #333;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.tool-name {
+  font-weight: bold;
+  color: #4fc3f7;
+}
+
+.output-count {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.fallback-output {
+  margin-bottom: 16px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.fallback-output.terminal {
+  border-left: 3px solid #4fc3f7;
+}
+
+.fallback-output.file {
+  border-left: 3px solid #81c784;
+}
+
+.fallback-output.git {
+  border-left: 3px solid #ff8a65;
+}
+
+.fallback-output.build {
+  border-left: 3px solid #ba68c8;
+}
+
+.fallback-output.code {
+  border-left: 3px solid #ffb74d;
+}
+
+.fallback-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background-color: #2a2a2a;
+  border-bottom: 1px solid #444;
+}
+
+.fallback-tool {
+  font-weight: bold;
+  color: #e0e0e0;
+}
+
+.fallback-index {
+  color: #aaa;
+}
+
+.fallback-timestamp {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.fallback-content {
+  margin: 0;
+  padding: 12px;
+  background-color: #252525;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* Streaming indicator */
 .streaming-indicator {
   position: absolute;

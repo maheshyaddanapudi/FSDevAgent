@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080/ws/tools';
+const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080';
 
 // Modified to be session-independent and more robust with browser compatibility
 const useWebSocket = (endpoint) => {
@@ -20,7 +20,10 @@ const useWebSocket = (endpoint) => {
       return;
     }
 
-    // Using a simple URL without sessionId parameter
+    // Fix: Check if endpoint already includes 'ws/' prefix to avoid double prefixing
+    const wsEndpoint = endpoint.startsWith('ws/') ? endpoint : `ws/${endpoint}`;
+    
+    // Fix: Use the correct endpoint without double prefixing
     const wsUrl = `${WS_BASE_URL}/${endpoint}`;
       
     console.log(`Connecting to WebSocket: ${wsUrl}`);

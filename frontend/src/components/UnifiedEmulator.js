@@ -441,44 +441,218 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
       );
     }
     
+    // Group outputs by tool type for better organization
+    const groupedOutputs = toolOutputs.reduce((acc, output) => {
+      const toolName = output.toolName || 'unknown';
+      if (!acc[toolName]) {
+        acc[toolName] = [];
+      }
+      acc[toolName].push(output);
+      return acc;
+    }, {});
+    
     return (
       <div className="fallback-terminal">
-        <h4>Tool Outputs (Fallback View)</h4>
-        {toolOutputs.map((output, index) => {
-          let outputContent = '';
-          
-          try {
-            if (output.output !== undefined) {
-              outputContent = typeof output.output === 'object' 
-                ? JSON.stringify(output.output, null, 2) 
-                : String(output.output);
-            } else if (output.data !== undefined) {
-              outputContent = typeof output.data === 'object' 
-                ? JSON.stringify(output.data, null, 2) 
-                : String(output.data);
-            } else {
-              outputContent = JSON.stringify(output, null, 2);
-            }
-          } catch (error) {
-            outputContent = `Error parsing output: ${error.message}`;
-          }
-          
-          return (
-            <div key={index} className="fallback-output">
-              <div className="fallback-header">
-                <span className="fallback-tool">{output.toolName || 'unknown'}</span>
-                <span className="fallback-index">#{index}</span>
-              </div>
-              <pre className="fallback-content">{outputContent}</pre>
+        <h4>Tool Outputs</h4>
+        {Object.entries(groupedOutputs).map(([toolName, outputs], groupIndex) => (
+          <div key={groupIndex} className="tool-group">
+            <div className="tool-group-header">
+              <span className="tool-name">{toolName}</span>
+              <span className="output-count">{outputs.length} outputs</span>
             </div>
-          );
-        })}
+            
+            {outputs.map((output, index) => {
+              // Determine output content based on tool type
+              let formattedOutput = '';
+              let outputType = '';
+              
+              try {
+                if (toolName === 'execute_command') {
+                  outputType = 'terminal';
+                  if (typeof output.output === 'string') {
+                    formattedOutput = output.output;
+                  } else if (output.output && output.output.content) {
+                    formattedOutput = output.output.content;
+                  } else {
+                    formattedOutput = JSON.stringify(output.output, null, 2);
+                  }
+                } else if (toolName === 'file_system') {
+                  outputType = 'file';
+                  if (output.output && output.output.type === 'file_content') {
+                    formattedOutput = output.output.content;
+                  } else if (output.output && output.output.type === 'directory_listing') {
+                    formattedOutput = formatDirectoryListing(output.output.metadata?.entries);
+                  } else {
+                    formattedOutput = JSON.stringify(output.output, null, 2);
+                  }
+                } else if (toolName === 'git_operations') {
+                  outputType = 'git';
+                  if (output.output && output.output.type === 'git_status') {
+                    formattedOutput = formatGitStatus(output.output.metadata);
+                  } else if (output.output && output.output.type === 'git_log') {
+                    formattedOutput = formatGitLog(output.output.metadata?.commits);
+                  } else if (output.output && output.output.content) {
+                    formattedOutput = output.output.content;
+                  } else {
+                    formattedOutput = JSON.stringify(output.output, null, 2);
+                  }
+                } else if (toolName === 'build_tool') {
+                  outputType = 'build';
+                  if (Array.isArray(output.output)) {
+                    formattedOutput = output.output.map(line => line.content).join('\n');
+                  } else if (output.output && output.output.content) {
+                    formattedOutput = output.output.content;
+                  } else {
+                    formattedOutput = JSON.stringify(output.output, null, 2);
+                  }
+                } else if (toolName === 'code_intelligence') {
+                  outputType = 'code';
+                  if (output.output && output.output.type === 'analysis_result') {
+                    formattedOutput = formatCodeAnalysis(output.output.metadata);
+                  } else if (output.output && output.output.type === 'method_search_result') {
+                    formattedOutput = formatMethodSearch(output.output.metadata?.methods);
+                  } else {
+                    formattedOutput = JSON.stringify(output.output, null, 2);
+                  }
+                } else {
+                  // Default handling for other tool types
+                  if (output.output !== undefined) {
+                    formattedOutput = typeof output.output === 'object' 
+                      ? JSON.stringify(output.output, null, 2) 
+                      : String(output.output);
+                  } else if (output.data !== undefined) {
+                    formattedOutput = typeof output.data === 'object' 
+                      ? JSON.stringify(output.data, null, 2) 
+                      : String(output.data);
+                  } else {
+                    formattedOutput = JSON.stringify(output, null, 2);
+                  }
+                }
+              } catch (error) {
+                formattedOutput = `Error parsing output: ${error.message}`;
+              }
+              
+              return (
+                <div key={index} className={`fallback-output ${outputType}`}>
+                  <div className="fallback-header">
+                    <span className="fallback-tool">{output.toolName || 'unknown'}</span>
+                    <span className="fallback-index">#{index + 1}</span>
+                    <span className="fallback-timestamp">
+                      {output.timestamp ? new Date(output.timestamp).toLocaleTimeString() : ''}
+                    </span>
+                  </div>
+                  <pre className="fallback-content">{formattedOutput}</pre>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     );
   };
   
+  // Helper function to format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Helper function to format directory listing
+  const formatDirectoryListing = (entries) => {
+    if (!entries || !Array.isArray(entries)) {
+      return 'No entries available';
+    }
+    
+    return entries.map(entry => {
+      const size = entry.isDirectory ? '-' : formatFileSize(entry.size);
+      return `${entry.isDirectory ? 'd' : '-'} ${entry.name.padEnd(30)} ${size}`;
+    }).join('\n');
+  };
+  
+  // Helper function to format git status
+  const formatGitStatus = (metadata) => {
+    if (!metadata) {
+      return 'No git status information available';
+    }
+    
+    let result = '';
+    
+    if (metadata.modified && metadata.modified.length > 0) {
+      result += 'Modified files:\n';
+      result += metadata.modified.map(file => `  M ${file}`).join('\n');
+      result += '\n\n';
+    }
+    
+    if (metadata.untracked && metadata.untracked.length > 0) {
+      result += 'Untracked files:\n';
+      result += metadata.untracked.map(file => `  ? ${file}`).join('\n');
+    }
+    
+    return result || 'Working directory clean';
+  };
+  
+  // Helper function to format git log
+  const formatGitLog = (commits) => {
+    if (!commits || !Array.isArray(commits)) {
+      return 'No commit history available';
+    }
+    
+    return commits.map(commit => {
+      return `commit ${commit.id.substring(0, 7)}\nAuthor: ${commit.author}\nDate: ${commit.date}\n\n    ${commit.message}`;
+    }).join('\n\n');
+  };
+  
+  // Helper function to format code analysis
+  const formatCodeAnalysis = (metadata) => {
+    if (!metadata) {
+      return 'No code analysis information available';
+    }
+    
+    let result = '';
+    
+    if (metadata.classes && metadata.classes.length > 0) {
+      result += 'Classes:\n';
+      result += metadata.classes.map(cls => `  - ${cls}`).join('\n');
+      result += '\n\n';
+    }
+    
+    if (metadata.methods && metadata.methods.length > 0) {
+      result += 'Methods:\n';
+      result += metadata.methods.map(method => `  - ${method}`).join('\n');
+    }
+    
+    return result || 'No classes or methods found';
+  };
+  
+  // Helper function to format method search
+  const formatMethodSearch = (methods) => {
+    if (!methods || !Array.isArray(methods)) {
+      return 'No methods found';
+    }
+    
+    return methods.map(method => {
+      return `${method.returnType} ${method.name}\n  ${method.file}:${method.line}`;
+    }).join('\n\n');
+  };
+  
   // Render appropriate content based on tool type
   const renderContent = () => {
+    // Debug: Log tool outputs and state to console
+    console.log('UnifiedEmulator state:', {
+      toolOutputs: toolOutputs ? toolOutputs.length : 0,
+      wsConnected,
+      terminalInitialized,
+      terminalReady,
+      currentToolType
+    });
+    
+    if (toolOutputs && toolOutputs.length > 0) {
+      console.log('Tool outputs available:', toolOutputs);
+    }
+    
     // If there's an error, show error state
     if (errorState) {
       return renderErrorState();
@@ -519,35 +693,15 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
       );
     }
     
-    // Render based on current tool type
-    switch (currentToolType) {
-      case 'terminal':
-        return (
-          <>
-            <div className="terminal-container" ref={terminalContainerRef}></div>
-            {!terminalInitialized && renderFallbackTerminal()}
-          </>
-        );
-      case 'browser':
-        return (
-          <div className="browser-container" ref={browserRef}>
-            {renderBrowserContent()}
-          </div>
-        );
-      case 'code':
-        return (
-          <div className="code-container" ref={codeEditorRef}>
-            {renderCodeContent()}
-          </div>
-        );
-      default:
-        return (
-          <>
-            <div className="terminal-container" ref={terminalContainerRef}></div>
-            {!terminalInitialized && renderFallbackTerminal()}
-          </>
-        );
+    // If there are tool outputs, always render them in the fallback terminal
+    // This is the key fix - we always render the fallback terminal when tool outputs exist
+    if (toolOutputs && toolOutputs.length > 0) {
+      console.log('Rendering fallback terminal with tool outputs:', toolOutputs);
+      return renderFallbackTerminal();
     }
+    
+    // Default fallback if no other conditions are met
+    return renderFallbackTerminal();
   };
   
   // Debug button to force terminal refresh
