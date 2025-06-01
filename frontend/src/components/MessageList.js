@@ -17,6 +17,36 @@ const MessageList = ({ messages }) => {
     );
   }
 
+  // Helper function to render markdown content
+  const renderMarkdown = (content) => {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({node, inline, className, children, ...props}) {
+            const match = /language-(\w+)/.exec(className || '');
+            return !inline && match ? (
+              <SyntaxHighlighter
+                style={vscDarkPlus}
+                language={match[1]}
+                PreTag="div"
+                {...props}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            ) : (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          }
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    );
+  };
+
   return (
     <div className="message-list">
       {messages.map((message, index) => (
@@ -36,31 +66,22 @@ const MessageList = ({ messages }) => {
             </div>
           </div>
           <div className="message-content">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({node, inline, className, children, ...props}) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus}
-                      language={match[1]}
-                      PreTag="div"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  );
-                }
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+            {/* Main message content */}
+            {message.content && renderMarkdown(message.content)}
             
+            {/* Thinking section - AI reasoning */}
+            {message.thinking && (
+              <div className="thinking-block">
+                <div className="thinking-header">
+                  <span className="thinking-icon">💭</span> Thinking Process
+                </div>
+                <div className="thinking-content">
+                  {renderMarkdown(message.thinking)}
+                </div>
+              </div>
+            )}
+            
+            {/* Tool Call section - what tool is being used */}
             {message.toolCall && (
               <div className="tool-call">
                 <div className="tool-call-header">
@@ -72,16 +93,42 @@ const MessageList = ({ messages }) => {
               </div>
             )}
             
-            {message.thinking && (
-              <div className="thinking-block">
-                <div className="thinking-header">
-                  <span className="thinking-icon">💭</span> Thinking
+            {/* Tool Execution section - showing the execution process */}
+            {message.toolExecution && (
+              <div className="tool-execution">
+                <div className="tool-execution-header">
+                  <span className="tool-execution-icon">⚙️</span> Tool Execution
                 </div>
-                <div className="thinking-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {message.thinking}
-                  </ReactMarkdown>
+                <div className="tool-execution-content">
+                  {typeof message.toolExecution === 'string' ? (
+                    <pre>{message.toolExecution}</pre>
+                  ) : (
+                    <pre>{JSON.stringify(message.toolExecution, null, 2)}</pre>
+                  )}
                 </div>
+              </div>
+            )}
+            
+            {/* Tool Result section - output from the tool */}
+            {message.toolResult && (
+              <div className="tool-result">
+                <div className="tool-result-header">
+                  <span className="tool-result-icon">✅</span> Tool Result
+                </div>
+                <div className="tool-result-content">
+                  {typeof message.toolResult === 'string' ? (
+                    renderMarkdown(message.toolResult)
+                  ) : (
+                    <pre>{JSON.stringify(message.toolResult, null, 2)}</pre>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Loading indicator for in-progress tool operations */}
+            {message.loading && (
+              <div className="loading-indicator">
+                Processing request...
               </div>
             )}
           </div>

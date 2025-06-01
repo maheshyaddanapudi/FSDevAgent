@@ -250,7 +250,23 @@ public class ClaudeLLMProvider implements LLMProvider {
                                         // Handle different event types with proper null checking
                                         switch (streamingResponse.getType()) {
                                             case "message_start":
-                                                log.debug("Message start event received");
+                                                log.debug("Message start event received: {}", streamingResponse.getMessageData());
+                                                // Handle message start event properly instead of ignoring it
+                                                try {
+                                                    // Log detailed message data for debugging
+                                                    if (streamingResponse.getMessageData() != null) {
+                                                        log.debug("Message ID: {}, Model: {}, Role: {}", 
+                                                            streamingResponse.getMessageData().getId(),
+                                                            streamingResponse.getMessageData().getModel(),
+                                                            streamingResponse.getMessageData().getRole());
+                                                    } else if (streamingResponse.getAdditionalProperties() != null && 
+                                                               !streamingResponse.getAdditionalProperties().isEmpty()) {
+                                                        log.debug("Message start with additional properties: {}", 
+                                                            streamingResponse.getAdditionalProperties());
+                                                    }
+                                                } catch (Exception e) {
+                                                    log.warn("Error processing message_start event: {}", e.getMessage());
+                                                }
                                                 return Mono.empty();
                                                 
                                             case "content_block_start":
@@ -715,6 +731,31 @@ public class ClaudeLLMProvider implements LLMProvider {
         
         // Add error field for error events
         private Map<String, Object> error;
+        
+        // Add message_start event fields
+        @JsonProperty("message")
+        private MessageData messageData;
+        
+        // Generic field to catch any unmapped properties
+        @JsonProperty(value = "")
+        private Map<String, Object> additionalProperties = new HashMap<>();
+    }
+    
+    @Data
+    @NoArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class MessageData {
+        private String id;
+        private String model;
+        private String role;
+        private List<ContentBlock> content;
+        @JsonProperty("stop_reason")
+        private String stopReason;
+        private Usage usage;
+        
+        // Generic field to catch any unmapped properties
+        @JsonProperty(value = "")
+        private Map<String, Object> additionalProperties = new HashMap<>();
     }
     
     @Data

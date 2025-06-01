@@ -2,6 +2,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+  background-color: #f9f9fb;
 }
 
 .message-list.empty {
@@ -14,11 +15,15 @@
   text-align: center;
   max-width: 500px;
   padding: 40px;
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 }
 
 .empty-state h2 {
   margin-bottom: 20px;
   color: #2c3e50;
+  font-weight: 600;
 }
 
 .empty-state p {
@@ -27,58 +32,101 @@
 }
 
 .message {
-  margin-bottom: 20px;
-  max-width: 85%;
-  border-radius: 8px;
+  margin-bottom: 24px;
+  max-width: 90%;
+  border-radius: 12px;
   overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease;
+}
+
+.message:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .user-message {
   margin-left: auto;
   background-color: #e1f5fe;
+  border: 1px solid #b3e5fc;
 }
 
 .assistant-message {
   margin-right: auto;
-  background-color: #f5f5f5;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
 }
 
 .tool-message {
   margin-right: auto;
   background-color: #fff7e6;
+  border: 1px solid #ffe7ba;
   border-left: 4px solid #fa8c16;
 }
 
 .system-message {
   margin-right: auto;
   background-color: #f9f0ff;
+  border: 1px solid #efdbff;
   border-left: 4px solid #722ed1;
 }
 
 .message-header {
-  padding: 8px 15px;
+  padding: 10px 15px;
   font-size: 0.9rem;
   font-weight: bold;
+  display: flex;
+  align-items: center;
+}
+
+.message-role {
+  display: flex;
+  align-items: center;
+}
+
+.message-role::before {
+  margin-right: 8px;
+  font-size: 16px;
 }
 
 .user-message .message-header {
   background-color: #b3e5fc;
+  color: #01579b;
+}
+
+.user-message .message-role::before {
+  content: "👤";
 }
 
 .assistant-message .message-header {
   background-color: #e0e0e0;
+  color: #424242;
+}
+
+.assistant-message .message-role::before {
+  content: "🤖";
 }
 
 .tool-message .message-header {
   background-color: #ffe7ba;
+  color: #d46b08;
+}
+
+.tool-message .message-role::before {
+  content: "🔧";
 }
 
 .system-message .message-header {
   background-color: #efdbff;
+  color: #531dab;
+}
+
+.system-message .message-role::before {
+  content: "ℹ️";
 }
 
 .message-content {
   padding: 15px;
+  line-height: 1.6;
 }
 
 .message-content p {
@@ -90,60 +138,190 @@
   margin-bottom: 0;
 }
 
+/* Tool call styling - enhanced */
 .tool-call {
   margin-top: 15px;
-  padding: 10px;
-  background-color: #f8f9fa;
-  border-radius: 4px;
-  border-left: 3px solid #3498db;
+  padding: 12px;
+  background-color: #f0f7ff;
+  border-radius: 8px;
+  border-left: 3px solid #1890ff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .tool-call-header {
-  font-weight: bold;
-  margin-bottom: 5px;
-  color: #2c3e50;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #0050b3;
   display: flex;
   align-items: center;
+  font-size: 0.95rem;
 }
 
 .tool-icon {
   margin-right: 8px;
+  font-size: 18px;
 }
 
 .tool-call-args {
-  font-family: monospace;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
   font-size: 0.9rem;
   overflow-x: auto;
-  background-color: #f1f1f1;
-  padding: 8px;
-  border-radius: 4px;
+  background-color: #f5f5f5;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #e8e8e8;
 }
 
-/* Thinking block styling */
+/* Thinking block styling - enhanced */
 .thinking-block {
   margin-top: 15px;
-  padding: 10px;
-  background-color: #f8f9fa;
-  border-radius: 4px;
-  border-left: 3px solid #9c27b0;
+  padding: 12px;
+  background-color: #f6ffed;
+  border-radius: 8px;
+  border-left: 3px solid #52c41a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .thinking-header {
-  font-weight: bold;
-  margin-bottom: 5px;
-  color: #2c3e50;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #237804;
   display: flex;
   align-items: center;
+  font-size: 0.95rem;
 }
 
 .thinking-icon {
   margin-right: 8px;
+  font-size: 18px;
 }
 
 .thinking-content {
   font-style: italic;
-  color: #555;
-  padding: 8px;
+  color: #444;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-radius: 6px;
+  border: 1px solid #f0f0f0;
+}
+
+/* Tool execution styling - new */
+.tool-execution {
+  margin-top: 15px;
+  padding: 12px;
+  background-color: #fcf4ff;
+  border-radius: 8px;
+  border-left: 3px solid #722ed1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.tool-execution-header {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #531dab;
+  display: flex;
+  align-items: center;
+  font-size: 0.95rem;
+}
+
+.tool-execution-icon {
+  margin-right: 8px;
+  font-size: 18px;
+}
+
+.tool-execution-content {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9rem;
+  overflow-x: auto;
+  background-color: #f5f5f5;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #e8e8e8;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Tool result styling - new */
+.tool-result {
+  margin-top: 15px;
+  padding: 12px;
+  background-color: #f0f5ff;
+  border-radius: 8px;
+  border-left: 3px solid #2f54eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.tool-result-header {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #10239e;
+  display: flex;
+  align-items: center;
+  font-size: 0.95rem;
+}
+
+.tool-result-icon {
+  margin-right: 8px;
+  font-size: 18px;
+}
+
+.tool-result-content {
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-radius: 6px;
+  border: 1px solid #f0f0f0;
+}
+
+/* Code block styling */
+pre, code {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  border-radius: 6px;
+}
+
+pre {
+  padding: 12px;
+  background-color: #282c34;
+  color: #abb2bf;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+code {
   background-color: #f1f1f1;
-  border-radius: 4px;
+  padding: 2px 5px;
+  color: #e83e8c;
+}
+
+/* Animation for new messages */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Loading indicator for tool execution */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  margin: 10px 0;
+  color: #666;
+  font-style: italic;
+}
+
+.loading-indicator::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  border: 2px solid #ddd;
+  border-top-color: #666;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

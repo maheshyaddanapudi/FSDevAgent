@@ -4,6 +4,10 @@ import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import '../styles/UnifiedEmulator.css';
 
+/**
+ * UnifiedEmulator component - Enhanced version with improved visualization
+ * Handles different tool types and provides real-time visualization of tool outputs
+ */
 const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
   // Tool types supported by the backend
   const toolTypes = ['terminal', 'browser', 'file_system', 'code_intelligence', 'git_operations', 'build_tool', 'data_visualization'];
@@ -114,7 +118,7 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
     }
   }, [terminalInitialized]);
   
-  // Update terminal with new outputs
+  // Update terminal with new outputs - enhanced for better streaming visualization
   useEffect(() => {
     if (terminalInstanceRef.current && toolOutputs && toolOutputs.length > 0) {
       const terminalOutputs = toolOutputs.filter(output => 
@@ -125,18 +129,34 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
         const latestOutput = terminalOutputs[terminalOutputs.length - 1];
         if (latestOutput && latestOutput.output) {
           try {
-            // Handle different output formats
+            // Handle different output formats with improved visualization
             let outputText = '';
+            
+            // Add timestamp for better context
+            const timestamp = new Date().toLocaleTimeString();
+            terminalInstanceRef.current.terminal.write(`\r\n[${timestamp}] `);
+            
+            // Format the output based on type
             if (typeof latestOutput.output === 'string') {
               outputText = latestOutput.output;
             } else if (typeof latestOutput.output === 'object') {
+              // Pretty print JSON with colors
               outputText = JSON.stringify(latestOutput.output, null, 2);
+              
+              // Add tool name as context if available
+              if (latestOutput.toolName) {
+                terminalInstanceRef.current.terminal.write(`\x1b[36m[${latestOutput.toolName}]\x1b[0m\r\n`);
+              }
             }
             
-            // Write to terminal
+            // Write to terminal with proper formatting
             terminalInstanceRef.current.terminal.write(outputText + '\r\n');
+            
+            // Add visual separator for better readability
+            terminalInstanceRef.current.terminal.write('\x1b[90m' + '-'.repeat(40) + '\x1b[0m\r\n');
           } catch (error) {
             console.error('Error updating terminal:', error);
+            terminalInstanceRef.current.terminal.write(`\x1b[31mError displaying output: ${error.message}\x1b[0m\r\n`);
           }
         }
       }
