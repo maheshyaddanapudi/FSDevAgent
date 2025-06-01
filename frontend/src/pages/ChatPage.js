@@ -19,7 +19,6 @@ const ChatPage = () => {
     executeTool 
   } = useChatStore();
   
-  const [activeToolType, setActiveToolType] = useState('all');
   const messagesEndRef = useRef(null);
   
   // Connect to WebSocket for real-time tool outputs
@@ -69,14 +68,6 @@ const ChatPage = () => {
     sendMessage(message);
   };
 
-  const handleToolExecution = (toolName, args) => {
-    executeTool(toolName, args);
-  };
-
-  const handleToolTypeChange = (toolType) => {
-    setActiveToolType(toolType);
-  };
-
   return (
     <div className="chat-page">
       <Header />
@@ -92,8 +83,6 @@ const ChatPage = () => {
         <div className="tool-container">
           <UnifiedEmulator 
             toolOutputs={toolOutputs} 
-            activeToolType={activeToolType}
-            onToolTypeChange={handleToolTypeChange}
             wsConnected={wsConnected}
           />
           {wsError && <div className="ws-error">WebSocket Error: {wsError}</div>}
