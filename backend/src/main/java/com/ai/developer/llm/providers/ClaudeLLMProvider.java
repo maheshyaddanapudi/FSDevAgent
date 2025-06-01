@@ -222,128 +222,71 @@ public class ClaudeLLMProvider implements LLMProvider {
                                 })
                                 .flatMap(rawChunk -> {
                                     try {
+                                        // Clean up the chunk data
                                         if (rawChunk.startsWith("data: ")) {
                                             rawChunk = rawChunk.substring(6);
                                         }
-                                        if (rawChunk.equals("[DONE]")) {
+                                        
+                                        // Skip empty lines and done markers
+                                        if (rawChunk.trim().isEmpty() || rawChunk.equals("[DONE]")) {
                                             return Mono.empty();
                                         }
                                         
-                                        ClaudeStreamingResponse streamingResponse = objectMapper.readValue(rawChunk, ClaudeStreamingResponse.class);
+                                        // Parse the streaming response with error handling
+                                        ClaudeStreamingResponse streamingResponse;
+                                        try {
+                                            streamingResponse = objectMapper.readValue(rawChunk, ClaudeStreamingResponse.class);
+                                        } catch (JsonProcessingException e) {
+                                            log.error("Failed to parse streaming response: {}, Raw chunk: {}", e.getMessage(), rawChunk);
+                                            return Mono.empty(); // Skip malformed chunks instead of failing
+                                        }
                                         
-                                        // Handle different types of streaming responses
-                                        if ("content_block_start".equals(streamingResponse.getType()) && 
-                                            streamingResponse.getContentBlock() != null &&
-                                            "tool_use".equals(streamingResponse.getContentBlock().getType())) {
-                                            
-                                            // This is the start of a tool use block
-                                            log.info("Detected tool use block start: {}", rawChunk);
-                                            
-                                            // Extract tool use information
-                                            ToolUseBlock toolUseBlock = ToolUseBlock.builder()
-                                                .id(streamingResponse.getContentBlock().getId())
-                                                .name(streamingResponse.getContentBlock().getName())
-                                                .input(new HashMap<String, Object>())
-                                                .build();
-                                            
-                                            // Store the current tool use block and reset JSON accumulator
-                                            currentToolUseBlock.set(toolUseBlock);
-                                            toolInputJson.set(new StringBuilder());
-                                            
-                                            // Don't emit anything yet, wait for the complete tool use block
-                                            return Mono.empty();
-                                        } 
-                                        else if ("content_block_delta".equals(streamingResponse.getType()) && 
-                                                 streamingResponse.getDelta() != null &&
-                                                 streamingResponse.getDelta().getType() != null &&
-                                                 "input_json_delta".equals(streamingResponse.getDelta().getType())) {
-                                            
-                                            // This is a delta update to the tool use block (input parameters)
-                                            log.debug("Detected tool use delta: {}", rawChunk);
-                                            
-                                            // Accumulate the partial JSON
-                                            if (streamingResponse.getDelta().getPartialJson() != null) {
-                                                toolInputJson.get().append(streamingResponse.getDelta().getPartialJson());
-                                                log.debug("Accumulated JSON so far: {}", toolInputJson.get().toString());
-                                            }
-                                            
-                                            // Don't emit anything yet, wait for the complete tool use block
+                                        // Validate response has required type field
+                                        if (streamingResponse.getType() == null) {
+                                            log.warn("Streaming response missing type field: {}", rawChunk);
                                             return Mono.empty();
                                         }
-                                        else if ("content_block_stop".equals(streamingResponse.getType())) {
-                                            
-                                            // This is the end of a content block
-                                            ToolUseBlock toolUseBlock = currentToolUseBlock.get();
-                                            if (toolUseBlock != null) {
-                                                try {
-                                                    // Parse the accumulated JSON input
-                                                    String jsonInput = toolInputJson.get().toString();
-                                                    if (!jsonInput.isEmpty()) {
-                                                        @SuppressWarnings("unchecked")
-                                                        Map<String, Object> inputMap = objectMapper.readValue(jsonInput, Map.class);
-                                                        toolUseBlock.setInput(inputMap);
-                                                    }
-                                                    
-                                                    log.info("Tool use block completed: {} with input: {}", 
-                                                            toolUseBlock.getName(), toolUseBlock.getInput());
-                                                    
-                                                    // Convert the tool use block to a JSON string for the tool execution handler
-                                                    String toolUseJson = objectMapper.writeValueAsString(toolUseBlock);
-                                                    
-                                                    // Reset the current tool use block and JSON accumulator
-                                                    currentToolUseBlock.set(null);
-                                                    toolInputJson.set(new StringBuilder());
-                                                    
-                                                    // Return a special marker with the tool use information
-                                                    return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
-                                                } catch (Exception e) {
-                                                    log.error("Error parsing tool input JSON: {}", e.getMessage());
-                                                    currentToolUseBlock.set(null);
-                                                    toolInputJson.set(new StringBuilder());
-                                                    return Mono.just("Error parsing tool input: " + e.getMessage());
-                                                }
-                                            }
-                                            
-                                            return Mono.empty();
-                                        }
-                                        else if ("content_block_delta".equals(streamingResponse.getType()) && 
-                                                 streamingResponse.getDelta() != null &&
-                                                 "text_delta".equals(streamingResponse.getDelta().getType()) &&
-                                                 streamingResponse.getDelta().getText() != null) {
-                                            
-                                            // This is a regular text delta
-                                            return Mono.just(streamingResponse.getDelta().getText());
-                                        }
-                                        else if ("content_block_start".equals(streamingResponse.getType()) && 
-                                                 streamingResponse.getContentBlock() != null &&
-                                                 "text".equals(streamingResponse.getContentBlock().getType())) {
-                                            
-                                            // This is the start of a text block
-                                            return Mono.empty();
-                                        }
-                                        else if ("message_start".equals(streamingResponse.getType())) {
-                                            // This is the start of a message
-                                            return Mono.empty();
-                                        }
-                                        else if ("message_delta".equals(streamingResponse.getType())) {
-                                            // This is a message delta (usually the end)
-                                            return Mono.empty();
-                                        }
-                                        else if ("message_stop".equals(streamingResponse.getType())) {
-                                            // This is the end of a message
-                                            return Mono.empty();
-                                        }
-                                        else if ("ping".equals(streamingResponse.getType())) {
-                                            // This is a ping event to keep connection alive
-                                            return Mono.empty();
-                                        }
-                                        else {
-                                            log.warn("Unknown streaming response type: {}", streamingResponse.getType());
-                                            return Mono.empty();
+                                        
+                                        // Handle different event types with proper null checking
+                                        switch (streamingResponse.getType()) {
+                                            case "message_start":
+                                                log.debug("Message start event received");
+                                                return Mono.empty();
+                                                
+                                            case "content_block_start":
+                                                return handleContentBlockStart(streamingResponse, currentToolUseBlock, toolInputJson);
+                                                
+                                            case "content_block_delta":
+                                                return handleContentBlockDelta(streamingResponse, currentToolUseBlock, toolInputJson);
+                                                
+                                            case "content_block_stop":
+                                                return handleContentBlockStop(streamingResponse, currentToolUseBlock, toolInputJson);
+                                                
+                                            case "message_delta":
+                                                log.debug("Message delta event: {}", streamingResponse.getDelta() != null ? 
+                                                         streamingResponse.getDelta().getStopReason() : "no delta");
+                                                return Mono.empty();
+                                                
+                                            case "message_stop":
+                                                log.debug("Message stop event received");
+                                                return Mono.empty();
+                                                
+                                            case "ping":
+                                                log.debug("Ping event received");
+                                                return Mono.empty();
+                                                
+                                            case "error":
+                                                log.error("Error event received: {}", rawChunk);
+                                                return Mono.just("Error from Claude API: " + rawChunk);
+                                                
+                                            default:
+                                                log.warn("Unknown streaming response type: {} in chunk: {}", 
+                                                        streamingResponse.getType(), rawChunk);
+                                                return Mono.empty();
                                         }
                                     } catch (Exception e) {
-                                        log.error("Error processing streaming chunk: {}", e.getMessage());
-                                        return Mono.just("Error processing streaming chunk: " + e.getMessage());
+                                        log.error("Error processing streaming chunk: {} - Chunk: {}", e.getMessage(), rawChunk, e);
+                                        return Mono.empty(); // Continue processing other chunks
                                     }
                                 });
                         } else {
@@ -499,6 +442,155 @@ public class ClaudeLLMProvider implements LLMProvider {
         return request;
     }
     
+    // Helper methods for handling different streaming event types
+    
+    private Mono<String> handleContentBlockStart(ClaudeStreamingResponse response, 
+                                               AtomicReference<ToolUseBlock> currentToolUseBlock,
+                                               AtomicReference<StringBuilder> toolInputJson) {
+        if (response.getContentBlock() == null) {
+            log.warn("Content block start event missing content block data");
+            return Mono.empty();
+        }
+        
+        String blockType = response.getContentBlock().getType();
+        if (blockType == null) {
+            log.warn("Content block start event missing block type");
+            return Mono.empty();
+        }
+        
+        switch (blockType) {
+            case "tool_use":
+                log.info("Starting tool use block: id={}, name={}", 
+                        response.getContentBlock().getId(), response.getContentBlock().getName());
+                
+                // Validate required fields
+                if (response.getContentBlock().getId() == null || response.getContentBlock().getName() == null) {
+                    log.error("Tool use block missing required id or name");
+                    return Mono.empty();
+                }
+                
+                // Create new tool use block
+                ToolUseBlock toolUseBlock = ToolUseBlock.builder()
+                    .id(response.getContentBlock().getId())
+                    .name(response.getContentBlock().getName())
+                    .input(new HashMap<String, Object>())
+                    .build();
+                
+                // Store the current tool use block and reset JSON accumulator
+                currentToolUseBlock.set(toolUseBlock);
+                toolInputJson.set(new StringBuilder());
+                break;
+                
+            case "text":
+                log.debug("Starting text block");
+                break;
+                
+            default:
+                log.warn("Unknown content block type: {}", blockType);
+                break;
+        }
+        
+        return Mono.empty();
+    }
+    
+    private Mono<String> handleContentBlockDelta(ClaudeStreamingResponse response,
+                                                AtomicReference<ToolUseBlock> currentToolUseBlock,
+                                                AtomicReference<StringBuilder> toolInputJson) {
+        if (response.getDelta() == null) {
+            log.warn("Content block delta event missing delta data");
+            return Mono.empty();
+        }
+        
+        String deltaType = response.getDelta().getType();
+        if (deltaType == null) {
+            log.warn("Content block delta event missing delta type");
+            return Mono.empty();
+        }
+        
+        switch (deltaType) {
+            case "text_delta":
+                // Handle text content updates
+                if (response.getDelta().getText() != null) {
+                    return Mono.just(response.getDelta().getText());
+                }
+                break;
+                
+            case "input_json_delta":
+                // Handle tool input JSON accumulation
+                log.debug("Accumulating tool input JSON delta");
+                if (response.getDelta().getPartialJson() != null) {
+                    StringBuilder currentJson = toolInputJson.get();
+                    if (currentJson != null) {
+                        currentJson.append(response.getDelta().getPartialJson());
+                        log.debug("Accumulated JSON length: {}", currentJson.length());
+                    } else {
+                        log.warn("Received input JSON delta but no accumulator found");
+                    }
+                }
+                break;
+                
+            default:
+                log.warn("Unknown delta type: {}", deltaType);
+                break;
+        }
+        
+        return Mono.empty();
+    }
+    
+    private Mono<String> handleContentBlockStop(ClaudeStreamingResponse response,
+                                              AtomicReference<ToolUseBlock> currentToolUseBlock,
+                                              AtomicReference<StringBuilder> toolInputJson) {
+        ToolUseBlock toolUseBlock = currentToolUseBlock.get();
+        if (toolUseBlock == null) {
+            log.debug("Content block stop - no active tool use block");
+            return Mono.empty();
+        }
+        
+        try {
+            // Parse the accumulated JSON input
+            StringBuilder jsonBuilder = toolInputJson.get();
+            if (jsonBuilder != null && jsonBuilder.length() > 0) {
+                String jsonInput = jsonBuilder.toString();
+                log.debug("Parsing tool input JSON: {}", jsonInput);
+                
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> inputMap = objectMapper.readValue(jsonInput, Map.class);
+                    toolUseBlock.setInput(inputMap);
+                } catch (JsonProcessingException e) {
+                    log.error("Failed to parse tool input JSON: {} - JSON: {}", e.getMessage(), jsonInput);
+                    toolUseBlock.setInput(new HashMap<>()); // Use empty map as fallback
+                }
+            } else {
+                log.debug("No JSON input accumulated for tool use block");
+                toolUseBlock.setInput(new HashMap<>());
+            }
+            
+            log.info("Completed tool use block: {} with input keys: {}", 
+                    toolUseBlock.getName(), 
+                    toolUseBlock.getInput() != null ? ((Map<String, Object>)toolUseBlock.getInput()).keySet() : "none");
+            
+            // Convert the tool use block to a JSON string for the tool execution handler
+            String toolUseJson = objectMapper.writeValueAsString(toolUseBlock);
+            
+            // Reset state
+            currentToolUseBlock.set(null);
+            toolInputJson.set(new StringBuilder());
+            
+            // Return a special marker with the tool use information
+            return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
+            
+        } catch (Exception e) {
+            log.error("Error processing completed tool use block: {}", e.getMessage(), e);
+            
+            // Reset state even on error
+            currentToolUseBlock.set(null);
+            toolInputJson.set(new StringBuilder());
+            
+            return Mono.just("Error processing tool use: " + e.getMessage());
+        }
+    }
+    
     @Override
     public String getProviderName() {
         return "Claude (Anthropic API)";
@@ -611,6 +703,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ClaudeStreamingResponse {
         private String type;
         private String message;
@@ -619,10 +712,14 @@ public class ClaudeLLMProvider implements LLMProvider {
         private Delta delta;
         private Integer index;
         private Usage usage;
+        
+        // Add error field for error events
+        private Map<String, Object> error;
     }
     
     @Data
     @NoArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ContentBlock {
         private String type;
         private String text;
@@ -633,6 +730,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Delta {
         private String type;
         private String text;
