@@ -722,7 +722,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ClaudeStreamingResponse {
         private String type;
-        private String message;
+        // Removed conflicting String message field
         @JsonProperty("content_block")
         private ContentBlock contentBlock;
         private Delta delta;
@@ -732,7 +732,7 @@ public class ClaudeLLMProvider implements LLMProvider {
         // Add error field for error events
         private Map<String, Object> error;
         
-        // Add message_start event fields
+        // Single field for message data with proper annotation
         @JsonProperty("message")
         private MessageData messageData;
         
