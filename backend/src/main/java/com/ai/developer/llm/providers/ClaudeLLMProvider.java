@@ -21,6 +21,7 @@ import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @Slf4j
 @Component
@@ -39,21 +40,40 @@ public class ClaudeLLMProvider implements LLMProvider {
     }
     
     @PostConstruct
+    @Override
     public void init() {
         // No initialization to prevent this bean from being used
     }
     
     @Override
+    public String getCompletion(ChatContext context) {
+        throw new UnsupportedOperationException("This provider is disabled");
+    }
+    
+    @Override
+    public String streamingCompletion(ChatContext context, Consumer<String> onPartialResponse) {
+        throw new UnsupportedOperationException("This provider is disabled");
+    }
+    
+    @Override
+    public List<ToolCall> extractToolCalls(String response) {
+        throw new UnsupportedOperationException("This provider is disabled");
+    }
+    
+    @Override
+    public List<ToolUseBlock> extractToolUseBlocks(String response) {
+        throw new UnsupportedOperationException("This provider is disabled");
+    }
+    
+    // Legacy methods - kept for backward compatibility
     public Mono<String> generateResponse(String prompt, ChatContext context) {
         return Mono.error(new UnsupportedOperationException("This provider is disabled"));
     }
     
-    @Override
     public Flux<String> streamResponse(String prompt, ChatContext context) {
         return Flux.error(new UnsupportedOperationException("This provider is disabled"));
     }
     
-    @Override
     public String getProviderName() {
         return "Claude (Disabled LangChain4j)";
     }

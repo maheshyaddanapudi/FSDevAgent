@@ -3,7 +3,7 @@ import useChatStore from '../hooks/useChatStore';
 import useWebSocket from '../hooks/useWebSocket';
 import ChatInput from '../components/ChatInput';
 import MessageList from '../components/MessageList';
-import ToolOutput from '../components/ToolOutput';
+import UnifiedEmulator from '../components/UnifiedEmulator';
 import Header from '../components/Header';
 import '../styles/ChatPage.css';
 
@@ -19,7 +19,7 @@ const ChatPage = () => {
     executeTool 
   } = useChatStore();
   
-  const [activeView, setActiveView] = useState('chat'); // 'chat', 'terminal', 'browser', 'code'
+  const [activeToolType, setActiveToolType] = useState('all');
   const messagesEndRef = useRef(null);
   
   // Connect to WebSocket for real-time tool outputs
@@ -47,10 +47,21 @@ const ChatPage = () => {
       const latestMessage = wsMessages[wsMessages.length - 1];
       console.log('Received tool output via WebSocket:', latestMessage);
       
-      // Add to tool outputs in store
-      useChatStore.setState(state => ({
-        toolOutputs: [...state.toolOutputs, latestMessage]
-      }));
+      // Validate and sanitize the WebSocket message before adding to store
+      try {
+        // Ensure the message has the required structure
+        if (!latestMessage) {
+          console.warn('Empty WebSocket message received');
+          return;
+        }
+        
+        // Add validated message to tool outputs in store
+        useChatStore.setState(state => ({
+          toolOutputs: [...state.toolOutputs, latestMessage]
+        }));
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
+      }
     }
   }, [wsMessages]);
 
@@ -62,30 +73,13 @@ const ChatPage = () => {
     executeTool(toolName, args);
   };
 
-  const renderToolView = () => {
-    // Show WebSocket connection status
-    if (wsError) {
-      console.error('WebSocket error:', wsError);
-    }
-    
-    if (toolOutputs.length === 0) {
-      return (
-        <div className="empty-state">
-          <div>No tool output yet</div>
-          <div className="ws-status">
-            WebSocket: {wsConnected ? 'Connected ✅' : 'Disconnected ❌'}
-          </div>
-        </div>
-      );
-    }
-
-    const latestOutput = toolOutputs[toolOutputs.length - 1];
-    return <ToolOutput output={latestOutput} />;
+  const handleToolTypeChange = (toolType) => {
+    setActiveToolType(toolType);
   };
 
   return (
     <div className="chat-page">
-      <Header activeView={activeView} setActiveView={setActiveView} />
+      <Header />
       
       <div className="split-view">
         <div className="chat-container">
@@ -96,7 +90,13 @@ const ChatPage = () => {
         </div>
         
         <div className="tool-container">
-          {renderToolView()}
+          <UnifiedEmulator 
+            toolOutputs={toolOutputs} 
+            activeToolType={activeToolType}
+            onToolTypeChange={handleToolTypeChange}
+            wsConnected={wsConnected}
+          />
+          {wsError && <div className="ws-error">WebSocket Error: {wsError}</div>}
         </div>
       </div>
     </div>

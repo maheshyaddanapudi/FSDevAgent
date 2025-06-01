@@ -5,7 +5,7 @@ import com.ai.developer.llm.ChatContext;
 import com.ai.developer.llm.LLMProvider;
 import com.ai.developer.llm.Message;
 import com.ai.developer.llm.ToolCall;
-import com.ai.developer.service.ChatService;
+import com.ai.developer.llm.ToolUseBlock;
 import com.ai.developer.tools.ParameterInfo;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolRegistry;
@@ -66,9 +66,15 @@ public class CustomClaudeLLMProvider implements LLMProvider {
                 .filter(logResponse())
                 .build();
                 
+        // Fix for StringIndexOutOfBoundsException - safely handle null or empty API key
+        String apiKeyDisplay = "not set";
+        if (config.getApiKey() != null && !config.getApiKey().isEmpty()) {
+            apiKeyDisplay = config.getApiKey().substring(0, Math.min(4, config.getApiKey().length())) + "...";
+        }
+        
         log.info("Custom Claude LLM Provider initialized with model: {}, API key: {}", 
-                config.getModel(), 
-                config.getApiKey() != null ? (config.getApiKey().substring(0, 4) + "...") : "null");
+                config.getModel() != null ? config.getModel() : "not set", 
+                apiKeyDisplay);
     }
     
     // Add request logging filter
@@ -213,7 +219,7 @@ public class CustomClaudeLLMProvider implements LLMProvider {
                                             ToolUseBlock toolUseBlock = ToolUseBlock.builder()
                                                 .id(streamingResponse.getContentBlock().getId())
                                                 .name(streamingResponse.getContentBlock().getName())
-                                                .input(new HashMap<>())
+                                                .input(new HashMap<String, Object>())
                                                 .build();
                                             
                                             // Store the current tool use block
@@ -234,10 +240,14 @@ public class CustomClaudeLLMProvider implements LLMProvider {
                                             ToolUseBlock toolUseBlock = currentToolUseBlock.get();
                                             if (toolUseBlock != null && streamingResponse.getDelta().getInput() != null) {
                                                 // Merge the input parameters
-                                                if (toolUseBlock.getInput() == null) {
-                                                    toolUseBlock.setInput(new HashMap<>());
+                                                Map<String, Object> currentInput;
+                                                if (toolUseBlock.getInput() instanceof Map) {
+                                                    currentInput = (Map<String, Object>) toolUseBlock.getInput();
+                                                } else {
+                                                    currentInput = new HashMap<>();
                                                 }
-                                                toolUseBlock.getInput().putAll(streamingResponse.getDelta().getInput());
+                                                currentInput.putAll(streamingResponse.getDelta().getInput());
+                                                toolUseBlock.setInput(currentInput);
                                                 currentToolUseBlock.set(toolUseBlock);
                                             }
                                             
@@ -264,7 +274,7 @@ public class CustomClaudeLLMProvider implements LLMProvider {
                                                 currentToolUseBlock.set(null);
                                                 
                                                 // Return a special marker with the tool use information
-                                                return Mono.just("[TOOL_USE:" + toolUseJson + "]");
+                                                return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
                                             }
                                             
                                             return Mono.empty();
@@ -273,297 +283,270 @@ public class CustomClaudeLLMProvider implements LLMProvider {
                                                  streamingResponse.getDelta() != null &&
                                                  streamingResponse.getDelta().getText() != null) {
                                             
-                                            // Regular text response
+                                            // This is a regular text delta
                                             return Mono.just(streamingResponse.getDelta().getText());
                                         }
-                                        
-                                        return Mono.empty();
-                                    } catch (JsonProcessingException e) {
-                                        log.error("Error parsing streaming chunk: {}", e.getMessage());
-                                        return Mono.empty();
+                                        else if (streamingResponse.getType().equals("content_block_start") && 
+                                                 streamingResponse.getContentBlock() != null &&
+                                                 "text".equals(streamingResponse.getContentBlock().getType())) {
+                                            
+                                            // This is the start of a text block
+                                            return Mono.empty();
+                                        }
+                                        else if (streamingResponse.getType().equals("content_block_stop")) {
+                                            // This is the end of a content block
+                                            return Mono.empty();
+                                        }
+                                        else if (streamingResponse.getType().equals("message_start")) {
+                                            // This is the start of a message
+                                            return Mono.empty();
+                                        }
+                                        else if (streamingResponse.getType().equals("message_delta")) {
+                                            // This is a message delta (usually the end)
+                                            return Mono.empty();
+                                        }
+                                        else if (streamingResponse.getType().equals("message_stop")) {
+                                            // This is the end of a message
+                                            return Mono.empty();
+                                        }
+                                        else {
+                                            log.warn("Unknown streaming response type: {}", streamingResponse.getType());
+                                            return Mono.empty();
+                                        }
+                                    } catch (Exception e) {
+                                        log.error("Error processing streaming chunk: {}", e.getMessage());
+                                        return Mono.just("Error processing streaming chunk: " + e.getMessage());
                                     }
                                 });
                         } else {
                             return response.bodyToMono(String.class)
                                 .doOnNext(errorBody -> {
-                                    log.error("Claude API streaming error: {} - {}", response.statusCode(), errorBody);
+                                    log.error("Claude API error: {} - {}", response.statusCode(), errorBody);
                                 })
                                 .flatMapMany(errorBody -> Flux.just("Error from Claude API: " + response.statusCode() + " - " + errorBody));
                         }
                     })
-                    .doOnSubscribe(s -> log.info("Starting Claude API streaming request"))
-                    .doOnComplete(() -> log.info("Completed Claude API streaming request"))
-                    .doOnError(error -> log.error("Error streaming from Claude API: {}", error.getMessage(), error));
+                    .onErrorResume(error -> {
+                        log.error("Error calling Claude API: {}", error.getMessage(), error);
+                        return Flux.just("Error calling Claude API: " + error.getMessage());
+                    });
         } catch (JsonProcessingException e) {
-            log.error("Error serializing streaming request: {}", e.getMessage());
-            return Flux.just("Error serializing streaming request: " + e.getMessage());
+            log.error("Error serializing request: {}", e.getMessage());
+            return Flux.just("Error serializing request: " + e.getMessage());
         }
+    }
+    
+    private ClaudeRequest buildClaudeRequest(String prompt, ChatContext context, boolean stream) {
+        List<ClaudeMessage> messages = new ArrayList<>();
+        
+        // Convert the context messages to Claude format
+        if (context != null && context.getMessages() != null) {
+            for (Message message : context.getMessages()) {
+                ClaudeMessage claudeMessage = new ClaudeMessage();
+                
+                switch (message.getRole()) {
+                    case "system":
+                        claudeMessage.setRole("system");
+                        claudeMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
+                        messages.add(claudeMessage);
+                        break;
+                    case "user":
+                        claudeMessage.setRole("user");
+                        claudeMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
+                        messages.add(claudeMessage);
+                        break;
+                    case "assistant":
+                        claudeMessage.setRole("assistant");
+                        
+                        // Handle tool calls in assistant messages
+                        if (message.getToolCall() != null) {
+                            // This is a tool call message
+                            List<ClaudeContent> contents = new ArrayList<>();
+                            contents.add(new ClaudeContent("text", message.getContent() != null ? message.getContent() : ""));
+                            
+                            // Add tool use content
+                            Map<String, Object> toolUse = new HashMap<>();
+                            toolUse.put("name", message.getToolCall().getName());
+                            toolUse.put("input", message.getToolCall().getArguments());
+                            toolUse.put("id", message.getToolCall().getId());
+                            
+                            ClaudeContent toolUseContent = new ClaudeContent("tool_use", null);
+                            toolUseContent.setToolUse(toolUse);
+                            contents.add(toolUseContent);
+                            
+                            claudeMessage.setContent(contents);
+                        } else {
+                            // Regular assistant message
+                            claudeMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
+                        }
+                        
+                        messages.add(claudeMessage);
+                        break;
+                    case "tool":
+                        // Tool messages are added as assistant messages with tool_result content
+                        ClaudeMessage toolResultMessage = new ClaudeMessage();
+                        toolResultMessage.setRole("assistant");
+                        
+                        List<ClaudeContent> contents = new ArrayList<>();
+                        
+                        // Add tool result content
+                        Map<String, Object> toolResult = new HashMap<>();
+                        toolResult.put("content", message.getContent());
+                        toolResult.put("tool_use_id", message.getToolCallId());
+                        
+                        ClaudeContent toolResultContent = new ClaudeContent("tool_result", null);
+                        toolResultContent.setToolResult(toolResult);
+                        contents.add(toolResultContent);
+                        
+                        toolResultMessage.setContent(contents);
+                        messages.add(toolResultMessage);
+                        break;
+                    default:
+                        log.warn("Unknown message role: {}", message.getRole());
+                        break;
+                }
+            }
+        }
+        
+        // Add the prompt as a user message if provided
+        if (prompt != null && !prompt.isEmpty()) {
+            ClaudeMessage promptMessage = new ClaudeMessage();
+            promptMessage.setRole("user");
+            promptMessage.setContent(List.of(new ClaudeContent("text", prompt)));
+            messages.add(promptMessage);
+        }
+        
+        // Build the tools list
+        List<Map<String, Object>> tools = new ArrayList<>();
+        for (Tool tool : toolRegistry.getAllTools()) {
+            Map<String, Object> toolDef = new HashMap<>();
+            toolDef.put("name", tool.getName());
+            toolDef.put("description", tool.getDescription());
+            
+            // Add parameters
+            Map<String, Object> parameters = new HashMap<>();
+            parameters.put("type", "object");
+            
+            Map<String, Object> properties = new HashMap<>();
+            List<String> required = new ArrayList<>();
+            
+            for (Map.Entry<String, ParameterInfo> entry : tool.getParameters().entrySet()) {
+                ParameterInfo param = entry.getValue();
+                Map<String, Object> paramDef = new HashMap<>();
+                paramDef.put("type", param.getType());
+                paramDef.put("description", param.getDescription());
+                
+                properties.put(param.getName(), paramDef);
+                
+                if (param.isRequired()) {
+                    required.add(param.getName());
+                }
+            }
+            
+            parameters.put("properties", properties);
+            parameters.put("required", required);
+            
+            toolDef.put("parameters", parameters);
+            tools.add(toolDef);
+        }
+        
+        // Build the request
+        ClaudeRequest request = new ClaudeRequest();
+        request.setModel(config.getModel() != null ? config.getModel() : "claude-3-7-sonnet-latest");
+        request.setMessages(messages);
+        request.setSystem("You are an AI Developer Agent, designed to help with coding, debugging, and development tasks. Use tools when appropriate to help solve problems.");
+        request.setMaxTokens(config.getMaxTokens() != null ? config.getMaxTokens() : 4000);
+        request.setTemperature(config.getTemperature() != null ? config.getTemperature() : 0.7);
+        request.setStream(stream);
+        request.setTools(tools);
+        
+        return request;
     }
     
     @Override
     public String getProviderName() {
-        return "Claude (Custom Anthropic)";
+        return "Claude 3.7 (Custom Implementation)";
     }
     
-    private ClaudeRequest buildClaudeRequest(String prompt, ChatContext context, boolean stream) {
-        // Extract system message if present (now as top-level parameter)
-        Optional<String> systemMessage = context.getMessages().stream()
-                .filter(msg -> "system".equals(msg.getRole()))
-                .map(Message::getContent)
-                .findFirst();
-        
-        // Log if system message is found
-        systemMessage.ifPresent(sysMsg -> {
-            log.info("Found system message: {}", 
-                    sysMsg.length() > 50 ? sysMsg.substring(0, 50) + "..." : sysMsg);
-        });
-        
-        // Add only user and assistant messages to the messages array
-        List<ClaudeMessage> messages = new ArrayList<>();
-        
-        // Add user and assistant messages in order (excluding system messages)
-        List<Message> conversationMessages = context.getMessages().stream()
-                .filter(msg -> {
-                    // Strictly filter to only include user and assistant roles
-                    // Claude API does not accept system role in messages array
-                    String role = msg.getRole();
-                    boolean isValidRole = "user".equals(role) || "assistant".equals(role);
-                    if (!isValidRole && !"system".equals(role)) {
-                        log.warn("Ignoring message with unsupported role: {}", role);
-                    }
-                    return isValidRole;
-                })
-                .toList();
-        
-        for (Message msg : conversationMessages) {
-            log.info("Adding {} message: {}", msg.getRole(),
-                    msg.getContent().length() > 50 ? 
-                    msg.getContent().substring(0, 50) + "..." : 
-                    msg.getContent());
-            
-            // Validate role is strictly "user" or "assistant" before adding
-            if ("user".equals(msg.getRole()) || "assistant".equals(msg.getRole())) {
-                messages.add(ClaudeMessage.builder()
-                        .role(msg.getRole())
-                        .content(msg.getContent())
-                        .build());
-            }
-        }
-        
-        // Add the current prompt as a user message if it's not empty
-        if (prompt != null && !prompt.trim().isEmpty()) {
-            log.info("Adding current prompt as user message: {}", 
-                    prompt.length() > 50 ? prompt.substring(0, 50) + "..." : prompt);
-            
-            messages.add(ClaudeMessage.builder()
-                    .role("user")
-                    .content(prompt)
-                    .build());
-        }
-        
-        // Ensure we have at least one message - Claude API requires at least one message
-        if (messages.isEmpty()) {
-            log.warn("No messages found in context, adding default user message");
-            messages.add(ClaudeMessage.builder()
-                    .role("user")
-                    .content(prompt != null && !prompt.trim().isEmpty() ? 
-                            prompt : "Hello, I need help with development.")
-                    .build());
-        }
-        
-        // Use default values if config values are null
-        String modelName = config.getModel() != null ? config.getModel() : "claude-3-sonnet-20240229";
-        Integer maxTokens = config.getMaxTokens() != null ? config.getMaxTokens() : 4000;
-        Double temperature = config.getTemperature() != null ? config.getTemperature() : 0.7;
-        
-        log.info("Using model: {}, maxTokens: {}, temperature: {}, messageCount: {}", 
-                modelName, maxTokens, temperature, messages.size());
-        
-        // Build the request with system as a top-level parameter
-        ClaudeRequest.ClaudeRequestBuilder requestBuilder = ClaudeRequest.builder()
-                .model(modelName)
-                .messages(messages)
-                .max_tokens(maxTokens)  // Using snake_case field name to match API expectation
-                .temperature(temperature)
-                .stream(stream);
-        
-        // Add system message as top-level parameter if present
-        if (systemMessage.isPresent()) {
-            requestBuilder.system(systemMessage.get());
-        } else {
-            // Add default system message if none exists
-            String defaultSystemMessage = "You are a helpful AI developer assistant. You can help with coding, debugging, and using various development tools.";
-            log.info("No system message found, using default: {}", defaultSystemMessage);
-            requestBuilder.system(defaultSystemMessage);
-        }
-        
-        // Add tools to the request if available
-        List<ClaudeTool> tools = buildToolDefinitions();
-        if (!tools.isEmpty()) {
-            log.info("Adding {} tools to Claude API request", tools.size());
-            requestBuilder.tools(tools);
-        }
-        
-        return requestBuilder.build();
-    }
-    
-    /**
-     * Build tool definitions for Claude API request
-     */
-    private List<ClaudeTool> buildToolDefinitions() {
-        List<ClaudeTool> tools = new ArrayList<>();
-        
-        // Get all registered tools from the registry
-        List<Tool> registeredTools = toolRegistry.getAllTools();
-        
-        for (Tool tool : registeredTools) {
-            // Create input schema for the tool
-            Map<String, Object> inputSchema = new HashMap<>();
-            inputSchema.put("type", "object");
-            
-            // Add properties to the schema
-            Map<String, Object> properties = new HashMap<>();
-            List<String> required = new ArrayList<>();
-            
-            // Add each parameter to the properties
-            for (Map.Entry<String, ParameterInfo> entry : tool.getParameters().entrySet()) {
-                String paramName = entry.getKey();
-                ParameterInfo param = entry.getValue();
-                
-                Map<String, Object> paramSchema = new HashMap<>();
-                paramSchema.put("type", param.getType());
-                paramSchema.put("description", param.getDescription());
-                
-                // Add enum values if available
-                if (param.getEnumValues() != null && !param.getEnumValues().isEmpty()) {
-                    paramSchema.put("enum", param.getEnumValues());
-                }
-                
-                properties.put(paramName, paramSchema);
-                
-                // Add to required list if parameter is required
-                if (param.isRequired()) {
-                    required.add(paramName);
-                }
-            }
-            
-            inputSchema.put("properties", properties);
-            inputSchema.put("required", required);
-            
-            // Create the tool definition
-            ClaudeTool claudeTool = ClaudeTool.builder()
-                    .name(tool.getName())
-                    .description(tool.getDescription())
-                    .inputSchema(inputSchema)
-                    .build();
-            
-            tools.add(claudeTool);
-            log.info("Added tool definition for: {}", tool.getName());
-        }
-        
-        return tools;
-    }
+    // Claude API request/response models
     
     @Data
-    @Builder
     @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ToolUseBlock {
-        private String id;
-        private String name;
-        private Map<String, Object> input;
-    }
-    
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
     public static class ClaudeRequest {
         private String model;
         private List<ClaudeMessage> messages;
         private String system;
+        private Integer maxTokens;
         private Double temperature;
-        
-        @JsonProperty("max_tokens")  // Use snake_case for API compatibility
-        private Integer max_tokens;
-        
         private Boolean stream;
-        private List<ClaudeTool> tools;
+        private List<Map<String, Object>> tools;
     }
     
     @Data
-    @Builder
     @NoArgsConstructor
-    @AllArgsConstructor
     public static class ClaudeMessage {
         private String role;
-        private String content;
+        private List<ClaudeContent> content;
     }
     
     @Data
-    @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeTool {
-        private String name;
-        private String description;
+    public static class ClaudeContent {
+        private String type;
+        private String text;
+        private Map<String, Object> toolUse;
+        private Map<String, Object> toolResult;
         
-        @JsonProperty("input_schema")
-        private Map<String, Object> inputSchema;
+        public ClaudeContent(String type, String text) {
+            this.type = type;
+            this.text = text;
+        }
+        
+        public void setToolUse(Map<String, Object> toolUse) {
+            this.toolUse = toolUse;
+        }
+        
+        public void setToolResult(Map<String, Object> toolResult) {
+            this.toolResult = toolResult;
+        }
     }
     
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
     public static class ClaudeResponse {
         private String id;
         private String type;
-        private String role;
-        private List<ContentBlock> content;
         private String model;
+        private String role;
+        private List<ClaudeResponseContent> content;
         private String stopReason;
-        private String stopSequence;
         private Usage usage;
     }
     
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ContentBlock {
+    public static class ClaudeResponseContent {
         private String type;
         private String text;
     }
     
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
-    public static class Usage {
-        @JsonProperty("input_tokens")
-        private Integer inputTokens;
-        
-        @JsonProperty("output_tokens")
-        private Integer outputTokens;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
     public static class ClaudeStreamingResponse {
         private String type;
-        private Integer index;
-        
-        @JsonProperty("content_block")
-        private ContentBlockInfo contentBlock;
-        
+        private String message;
+        private ContentBlock contentBlock;
         private Delta delta;
+        private String index;
         private Usage usage;
     }
     
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ContentBlockInfo {
+    public static class ContentBlock {
         private String type;
+        private String text;
         private String id;
         private String name;
         private Map<String, Object> input;
@@ -571,16 +554,17 @@ public class CustomClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
     public static class Delta {
         private String type;
         private String text;
-        private Map<String, Object> input;
-        
-        @JsonProperty("stop_reason")
         private String stopReason;
-        
-        @JsonProperty("stop_sequence")
-        private String stopSequence;
+        private Map<String, Object> input;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    public static class Usage {
+        private Integer inputTokens;
+        private Integer outputTokens;
     }
 }

@@ -43,15 +43,53 @@ const useWebSocket = (endpoint, sessionId) => {
     
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        // Enhanced error handling for WebSocket message parsing
+        if (!event || !event.data) {
+          console.warn('Empty WebSocket message received');
+          return;
+        }
+        
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (parseError) {
+          console.error('Failed to parse WebSocket message:', parseError);
+          console.log('Raw message:', event.data);
+          // Try to salvage the message if it's a string
+          if (typeof event.data === 'string') {
+            data = { 
+              toolName: 'unknown',
+              timestamp: new Date().toISOString(),
+              output: event.data
+            };
+          } else {
+            return; // Can't salvage, skip this message
+          }
+        }
+        
         console.log('WebSocket message received:', data);
+        
+        // Validate message structure
+        if (!data) {
+          console.warn('Invalid WebSocket message structure');
+          return;
+        }
+        
+        // Ensure required fields exist
+        if (!data.toolName) {
+          data.toolName = 'unknown';
+        }
+        
+        if (!data.timestamp) {
+          data.timestamp = new Date().toISOString();
+        }
         
         // Filter messages by sessionId if provided
         if (!sessionId || data.sessionId === sessionId) {
           setMessages((prevMessages) => [...prevMessages, data]);
         }
       } catch (err) {
-        console.error('Error parsing WebSocket message:', err);
+        console.error('Error processing WebSocket message:', err);
       }
     };
     

@@ -5,10 +5,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
 import com.ai.developer.config.ToolOutputWebSocketHandler;
+import com.ai.developer.llm.ChatContext;
 import com.ai.developer.llm.Message;
 import com.ai.developer.llm.ToolCall;
 import com.ai.developer.llm.ToolUseBlock;
 import com.ai.developer.llm.providers.LLMProvider;
+import com.ai.developer.model.ChatRequest;
+import com.ai.developer.model.ChatResponse;
+import com.ai.developer.model.SessionResponse;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolOutput;
 import com.ai.developer.tools.ToolRegistry;
@@ -23,6 +27,7 @@ import reactor.core.publisher.Mono;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -59,7 +64,7 @@ public class ChatService {
     /**
      * Create a new chat session
      */
-    public String createSession() {
+    public Mono<SessionResponse> createSession() {
         String sessionId = UUID.randomUUID().toString();
         ChatContext context = new ChatContext();
         
@@ -93,7 +98,10 @@ public class ChatService {
         sessions.put(sessionId, context);
         log.info("Created new session: {}", sessionId);
         
-        return sessionId;
+        return Mono.just(SessionResponse.builder()
+                .sessionId(sessionId)
+                .createdAt(Instant.now())
+                .build());
     }
     
     /**
@@ -118,6 +126,30 @@ public class ChatService {
     }
     
     /**
+     * Get session history
+     */
+    public Mono<List<ChatResponse>> getSessionHistory(String sessionId) {
+        log.info("Getting history for session: {}", sessionId);
+        ChatContext context = sessions.get(sessionId);
+        if (context == null) {
+            log.warn("Session not found: {}", sessionId);
+            return Mono.error(new IllegalArgumentException("Session not found: " + sessionId));
+        }
+        
+        List<ChatResponse> history = new ArrayList<>();
+        for (Message message : context.getMessages()) {
+            history.add(ChatResponse.builder()
+                    .sessionId(sessionId)
+                    .role(message.getRole())
+                    .message(message.getContent())
+                    .timestamp(message.getTimestamp())
+                    .build());
+        }
+        
+        return Mono.just(history);
+    }
+    
+    /**
      * Delete a session
      */
     public boolean deleteSession(String sessionId) {
@@ -134,7 +166,10 @@ public class ChatService {
     /**
      * Process a user message and get a response
      */
-    public Flux<String> processMessage(String sessionId, String message) {
+    public Flux<ChatResponse> processMessage(ChatRequest request) {
+        String sessionId = request.getSessionId();
+        String message = request.getMessage();
+        
         log.info("Processing message for session {}: {}", sessionId, message);
         
         ChatContext context = sessions.get(sessionId);
@@ -153,44 +188,97 @@ public class ChatService {
         // Log the current context
         log.debug("Current context for session {}: {} messages", sessionId, context.getMessages().size());
         
+        // Create a consumer for streaming responses
+        final StringBuilder responseBuilder = new StringBuilder();
+        Consumer<String> responseConsumer = chunk -> {
+            responseBuilder.append(chunk);
+            log.debug("Received chunk: {}", chunk);
+            
+            // Update the assistant's message in the context
+            updateAssistantMessage(context, chunk);
+        };
+        
         // Get response from LLM
-        return llmProvider.streamingCompletion(context.getMessages())
-                .map(chunk -> {
-                    log.debug("Received chunk: {}", chunk);
-                    
-                    // Check if this chunk contains a tool use request
-                    Matcher matcher = TOOL_USE_PATTERN.matcher(chunk);
-                    if (matcher.find()) {
-                        try {
-                            // Extract the tool use JSON from the marker
-                            String toolUseJson = matcher.group(1);
-                            log.info("Extracted tool use JSON: {}", toolUseJson);
-                            
-                            // Parse the tool use block
-                            ToolUseBlock toolUseBlock = objectMapper.readValue(toolUseJson, ToolUseBlock.class);
-                            log.info("Parsed tool use block: {}", toolUseBlock);
-                            
-                            // Handle the tool use request
-                            return handleToolUse(sessionId, toolUseBlock)
-                                    .flatMapMany(result -> Flux.just(
-                                            // Replace the tool use marker with a cleaner message
-                                            chunk.replace(matcher.group(0), 
-                                                    "\n\nI'll use the " + toolUseBlock.getName() + " tool to help with this.\n\n"),
-                                            // Add the tool result
-                                            "\n\n**Tool Result:**\n```\n" + result + "\n```\n\n"
-                                    ));
-                        } catch (JsonProcessingException e) {
-                            log.error("Error parsing tool use JSON: {}", e.getMessage());
-                            return Flux.just(chunk);
-                        }
-                    }
-                    
-                    // Update the assistant's message in the context
-                    updateAssistantMessage(context, chunk);
-                    
-                    return Flux.just(chunk);
-                })
-                .flatMap(flux -> flux);
+        String llmResponse = llmProvider.streamingCompletion(context, responseConsumer);
+        
+        // Process the response for tool use blocks
+        return processResponseForToolUse(sessionId, context, llmResponse);
+    }
+    
+    /**
+     * Process a response for tool use blocks
+     */
+    private Flux<ChatResponse> processResponseForToolUse(String sessionId, ChatContext context, String response) {
+        List<ChatResponse> responses = new ArrayList<>();
+        
+        // Check if the response contains tool use blocks
+        Matcher matcher = TOOL_USE_PATTERN.matcher(response);
+        if (matcher.find()) {
+            try {
+                // Extract the tool use JSON from the marker
+                String toolUseJson = matcher.group(1);
+                log.info("Extracted tool use JSON: {}", toolUseJson);
+                
+                // Parse the tool use block
+                ToolUseBlock toolUseBlock = objectMapper.readValue(toolUseJson, ToolUseBlock.class);
+                log.info("Parsed tool use block: {}", toolUseBlock);
+                
+                // Replace the tool use marker with a cleaner message
+                String cleanedResponse = response.replace(matcher.group(0), 
+                        "\n\nI'll use the " + toolUseBlock.getName() + " tool to help with this.\n\n");
+                
+                // Add the cleaned response
+                responses.add(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("assistant")
+                        .message(cleanedResponse)
+                        .timestamp(Instant.now())
+                        .build());
+                
+                // Handle the tool use and add the result
+                String toolResult = handleToolUseSync(sessionId, toolUseBlock);
+                responses.add(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("tool")
+                        .message("\n\n**Tool Result:**\n```\n" + toolResult + "\n```\n\n")
+                        .timestamp(Instant.now())
+                        .build());
+                
+            } catch (JsonProcessingException e) {
+                log.error("Error parsing tool use JSON: {}", e.getMessage());
+                responses.add(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("assistant")
+                        .message(response)
+                        .timestamp(Instant.now())
+                        .build());
+            }
+        } else {
+            // No tool use blocks, just return the response
+            responses.add(ChatResponse.builder()
+                    .sessionId(sessionId)
+                    .role("assistant")
+                    .message(response)
+                    .timestamp(Instant.now())
+                    .build());
+        }
+        
+        return Flux.fromIterable(responses);
+    }
+    
+    /**
+     * Process a user message and get a response (legacy method signature)
+     */
+    public Flux<String> processMessage(String sessionId, String message) {
+        log.info("Processing message for session {} (legacy method): {}", sessionId, message);
+        
+        ChatRequest request = ChatRequest.builder()
+                .sessionId(sessionId)
+                .message(message)
+                .build();
+                
+        return processMessage(request)
+                .map(ChatResponse::getMessage);
     }
     
     /**
@@ -226,22 +314,42 @@ public class ChatService {
     }
     
     /**
-     * Handle a tool use request
+     * Handle a tool use request synchronously
      */
-    private Mono<String> handleToolUse(String sessionId, ToolUseBlock toolUseBlock) {
-        log.info("Handling tool use for session {}: {}", sessionId, toolUseBlock);
+    private String handleToolUseSync(String sessionId, ToolUseBlock toolUseBlock) {
+        log.info("Handling tool use synchronously for session {}: {}", sessionId, toolUseBlock);
         
         ChatContext context = sessions.get(sessionId);
         if (context == null) {
             log.error("Session not found: {}", sessionId);
-            return Mono.just("Error: Session not found");
+            return "Error: Session not found";
         }
         
         // Create a tool call message to add to the context
         String toolCallId = toolUseBlock.getId();
         
         try {
-            String argumentsJson = objectMapper.writeValueAsString(toolUseBlock.getInput());
+            // Convert input to Map if it's a string
+            Map<String, Object> inputMap = new HashMap<>();
+            Object input = toolUseBlock.getInput();
+            
+            if (input instanceof String) {
+                // Parse the string as JSON to a Map
+                try {
+                    inputMap = objectMapper.readValue((String)input, Map.class);
+                } catch (Exception e) {
+                    log.error("Error parsing tool input as JSON: {}", e.getMessage());
+                    inputMap.put("input", input);
+                }
+            } else if (input instanceof Map) {
+                // Already a Map, just cast it
+                inputMap = (Map<String, Object>) input;
+            } else if (input != null) {
+                // Not a string or map, but not null - add as generic input
+                inputMap.put("input", input.toString());
+            }
+            
+            String argumentsJson = objectMapper.writeValueAsString(inputMap);
             
             // Add tool call message to context
             Message toolCallMessage = Message.builder()
@@ -259,31 +367,35 @@ public class ChatService {
             log.info("Added tool call message to context for tool: {}", toolUseBlock.getName());
             
             // Execute the tool and collect results
-            return executeToolCall(sessionId, toolUseBlock.getName(), toolUseBlock.getInput())
+            List<ToolOutput> outputs = executeToolCall(sessionId, toolUseBlock.getName(), inputMap)
                     .collectList()
-                    .map(outputs -> {
-                        // Combine all outputs into a single string
-                        StringBuilder result = new StringBuilder();
-                        for (ToolOutput output : outputs) {
-                            result.append(output.getContent()).append("\n");
-                        }
-                        
-                        // Add tool result message to context
-                        Message toolResultMessage = Message.builder()
-                                .role("tool")
-                                .toolCallId(toolCallId)
-                                .content(result.toString())
-                                .timestamp(Instant.now())
-                                .build();
-                                
-                        context.getMessages().add(toolResultMessage);
-                        log.info("Added tool result message to context for tool: {}", toolUseBlock.getName());
-                        
-                        return result.toString();
-                    });
+                    .block();
+                    
+            // Combine all outputs into a single string
+            StringBuilder result = new StringBuilder();
+            if (outputs != null) {
+                for (ToolOutput output : outputs) {
+                    result.append(output.getContent()).append("\n");
+                }
+            } else {
+                result.append("No output from tool execution");
+            }
+            
+            // Add tool result message to context
+            Message toolResultMessage = Message.builder()
+                    .role("tool")
+                    .toolCallId(toolCallId)
+                    .content(result.toString())
+                    .timestamp(Instant.now())
+                    .build();
+                    
+            context.getMessages().add(toolResultMessage);
+            log.info("Added tool result message to context for tool: {}", toolUseBlock.getName());
+            
+            return result.toString();
         } catch (JsonProcessingException e) {
             log.error("Error serializing tool arguments: {}", e.getMessage());
-            return Mono.just("Error executing tool: " + e.getMessage());
+            return "Error executing tool: " + e.getMessage();
         }
     }
     
@@ -350,16 +462,5 @@ public class ChatService {
         }
         
         return copy;
-    }
-    
-    /**
-     * Chat context class to store messages
-     */
-    public static class ChatContext {
-        private final List<Message> messages = new ArrayList<>();
-        
-        public List<Message> getMessages() {
-            return messages;
-        }
     }
 }

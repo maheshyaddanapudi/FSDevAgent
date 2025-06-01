@@ -21,6 +21,7 @@ import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Slf4j
@@ -35,6 +36,7 @@ public class OpenAILLMProvider implements LLMProvider {
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     @PostConstruct
+    @Override
     public void init() {
         this.chatModel = OpenAiChatModel.builder()
                 .apiKey(config.getApiKey())
@@ -52,6 +54,56 @@ public class OpenAILLMProvider implements LLMProvider {
     }
     
     @Override
+    public String getCompletion(ChatContext context) {
+        List<ChatMessage> messages = convertMessages(context);
+        Response<AiMessage> response = chatModel.generate(messages);
+        return response.content().text();
+    }
+    
+    @Override
+    public String streamingCompletion(ChatContext context, Consumer<String> onPartialResponse) {
+        List<ChatMessage> messages = convertMessages(context);
+        StringBuilder fullResponse = new StringBuilder();
+        
+        streamingModel.generate(messages, new StreamingResponseHandler<AiMessage>() {
+            @Override
+            public void onNext(String token) {
+                fullResponse.append(token);
+                onPartialResponse.accept(token);
+            }
+            
+            @Override
+            public void onComplete(Response<AiMessage> response) {
+                // Completion handled by return value
+            }
+            
+            @Override
+            public void onError(Throwable error) {
+                log.error("Error streaming response from OpenAI", error);
+                onPartialResponse.accept("[ERROR: " + error.getMessage() + "]");
+            }
+        });
+        
+        return fullResponse.toString();
+    }
+    
+    @Override
+    public List<ToolCall> extractToolCalls(String response) {
+        // Simple implementation - in a real system this would parse JSON tool calls
+        List<ToolCall> toolCalls = new ArrayList<>();
+        // Parsing logic would go here
+        return toolCalls;
+    }
+    
+    @Override
+    public List<ToolUseBlock> extractToolUseBlocks(String response) {
+        // Simple implementation - in a real system this would parse tool use blocks
+        List<ToolUseBlock> toolUseBlocks = new ArrayList<>();
+        // Parsing logic would go here
+        return toolUseBlocks;
+    }
+    
+    // Legacy methods - kept for backward compatibility
     public Mono<String> generateResponse(String prompt, ChatContext context) {
         return Mono.fromCallable(() -> {
             List<ChatMessage> messages = convertMessages(context);
@@ -62,7 +114,6 @@ public class OpenAILLMProvider implements LLMProvider {
         });
     }
     
-    @Override
     public Flux<String> streamResponse(String prompt, ChatContext context) {
         return Flux.create(sink -> {
             List<ChatMessage> messages = convertMessages(context);
@@ -88,7 +139,6 @@ public class OpenAILLMProvider implements LLMProvider {
         });
     }
     
-    @Override
     public String getProviderName() {
         return "OpenAI";
     }
