@@ -1,0 +1,206 @@
+.code-output {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.code-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #252526;
+  border-bottom: 1px solid #333;
+}
+
+.code-tabs {
+  display: flex;
+  gap: 5px;
+}
+
+.code-tab {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  font-size: 13px;
+}
+
+.code-tab:hover {
+  background-color: #3a3a3a;
+  color: #fff;
+}
+
+.code-tab.active {
+  background-color: #0e639c;
+  color: #fff;
+}
+
+.code-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 12px;
+}
+
+.code-language {
+  color: #569cd6;
+}
+
+.code-status {
+  font-size: 12px;
+}
+
+.code-content {
+  flex: 1;
+  overflow: auto;
+  padding: 15px;
+}
+
+.code-block {
+  margin: 0;
+  padding: 15px;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.language-javascript {
+  color: #dcdcaa;
+}
+
+.language-java {
+  color: #569cd6;
+}
+
+.language-python {
+  color: #4ec9b0;
+}
+
+.language-cpp {
+  color: #9cdcfe;
+}
+
+.language-php {
+  color: #c586c0;
+}
+
+.language-html {
+  color: #ce9178;
+}
+
+.language-css {
+  color: #d7ba7d;
+}
+
+.code-analysis-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.code-analysis-item {
+  background-color: #252526;
+  border-radius: 4px;
+  padding: 12px;
+  border-left: 4px solid #555;
+}
+
+.code-analysis-error {
+  border-left-color: #f48771;
+}
+
+.code-analysis-warning {
+  border-left-color: #cca700;
+}
+
+.code-analysis-info {
+  border-left-color: #75beff;
+}
+
+.code-analysis-success {
+  border-left-color: #89d185;
+}
+
+.code-analysis-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.code-analysis-type {
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.code-analysis-error .code-analysis-type {
+  color: #f48771;
+}
+
+.code-analysis-warning .code-analysis-type {
+  color: #cca700;
+}
+
+.code-analysis-info .code-analysis-type {
+  color: #75beff;
+}
+
+.code-analysis-success .code-analysis-type {
+  color: #89d185;
+}
+
+.code-analysis-location {
+  font-size: 12px;
+  color: #999;
+}
+
+.code-analysis-message {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.code-analysis-suggestion {
+  font-style: italic;
+  color: #999;
+  font-size: 12px;
+}
+
+.code-analysis-raw {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.code-empty-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-style: italic;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .code-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .code-info {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

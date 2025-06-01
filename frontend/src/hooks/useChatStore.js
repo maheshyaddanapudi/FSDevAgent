@@ -2,14 +2,34 @@ import { create } from 'zustand';
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
-const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080/ws';
+// Removed unused WS_BASE_URL variable
 
 const useChatStore = create((set, get) => ({
   sessionId: null,
   messages: [],
   isLoading: false,
+  isProcessing: false,
   error: null,
   toolOutputs: [],
+  
+  // Add synchronous addMessage function for local state updates
+  addMessage: (message) => {
+    set(state => ({
+      messages: [...state.messages, message]
+    }));
+  },
+  
+  // Add synchronous addToolOutput function for local state updates
+  addToolOutput: (toolOutput) => {
+    set(state => ({
+      toolOutputs: [...state.toolOutputs, toolOutput]
+    }));
+  },
+  
+  // Add setter for isProcessing state
+  setIsProcessing: (isProcessing) => {
+    set({ isProcessing });
+  },
   
   initializeSession: async () => {
     set({ isLoading: true, error: null });
@@ -83,6 +103,7 @@ const useChatStore = create((set, get) => ({
     }
   },
   
+  // Keeping executeTool for potential future use
   executeTool: async (toolName, args) => {
     const { sessionId } = get();
     if (!sessionId) {

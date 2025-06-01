@@ -1,0 +1,154 @@
+.dataviz-output {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.dataviz-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #252526;
+  border-bottom: 1px solid #333;
+}
+
+.dataviz-chart-types {
+  display: flex;
+  gap: 5px;
+}
+
+.dataviz-type-button {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  font-size: 16px;
+}
+
+.dataviz-type-button:hover {
+  background-color: #3a3a3a;
+  color: #fff;
+}
+
+.dataviz-type-button.active {
+  background-color: #0e639c;
+  color: #fff;
+}
+
+.dataviz-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 12px;
+}
+
+.dataviz-data-count {
+  color: #999;
+}
+
+.dataviz-status {
+  font-size: 12px;
+}
+
+.dataviz-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dataviz-chart-container {
+  flex: 2;
+  min-height: 300px;
+  padding: 15px;
+  overflow: hidden;
+}
+
+.dataviz-raw-data {
+  flex: 1;
+  min-height: 100px;
+  max-height: 200px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #333;
+}
+
+.dataviz-raw-header {
+  padding: 8px 12px;
+  background-color: #2d2d2d;
+  font-size: 12px;
+  font-weight: bold;
+  color: #999;
+}
+
+.dataviz-raw-content {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dataviz-empty-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-style: italic;
+}
+
+/* Recharts overrides */
+.recharts-default-tooltip {
+  background-color: #252526 !important;
+  border: 1px solid #444 !important;
+  border-radius: 4px !important;
+}
+
+.recharts-tooltip-label {
+  color: #f0f0f0 !important;
+}
+
+.recharts-tooltip-item-list {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.recharts-tooltip-item {
+  color: #f0f0f0 !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .dataviz-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .dataviz-info {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .dataviz-content {
+    flex-direction: column;
+  }
+  
+  .dataviz-chart-container {
+    height: 250px;
+  }
+  
+  .dataviz-raw-data {
+    height: 150px;
+  }
+}

@@ -1,152 +1,129 @@
+// Update ChatPage.js to use the new UnifiedEmulator component and enhanced MessageList
 import React, { useState, useEffect, useRef } from 'react';
+import { useWebSocket } from '../hooks/useWebSocket';
 import useChatStore from '../hooks/useChatStore';
-import useWebSocket from '../hooks/useWebSocket';
-import ChatInput from '../components/ChatInput';
+import UnifiedEmulator from '../components/UnifiedEmulator/UnifiedEmulator';
 import MessageList from '../components/MessageList';
-import UnifiedEmulator from '../components/UnifiedEmulator';
-import Header from '../components/Header';
 import '../styles/ChatPage.css';
 
 const ChatPage = () => {
-  const { 
-    sessionId, 
-    messages, 
-    isLoading, 
-    error, 
-    toolOutputs,
-    initializeSession, 
-    sendMessage, 
-    executeTool 
-  } = useChatStore();
-  
+  // State and refs
+  const [message, setMessage] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
   
-  // Add state for active view
-  const [activeView, setActiveView] = useState('chat');
-  
-  // Connect to WebSocket for real-time tool outputs
-  // Removed sessionId parameter to make connection session-independent
+  // Get chat state from store
   const { 
-    isConnected: wsConnected, 
-    error: wsError, 
-    messages: wsMessages 
-  } = useWebSocket('tools');
-
-  useEffect(() => {
-    if (!sessionId) {
-      initializeSession();
-    }
-  }, [sessionId, initializeSession]);
-
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
+    messages, 
+    addMessage, 
+    toolOutputs,
+    addToolOutput,
+    isProcessing, 
+    setIsProcessing 
+  } = useChatStore();
   
-  // Process WebSocket messages for tool outputs
+  // WebSocket connection
+  const { 
+    connected: wsConnected, 
+    sendMessage: wsSendMessage,
+    lastMessage: wsLastMessage
+  } = useWebSocket();
+  
+  // Handle WebSocket messages
   useEffect(() => {
-    if (wsMessages.length > 0) {
-      const latestMessage = wsMessages[wsMessages.length - 1];
-      console.log('Received tool output via WebSocket:', latestMessage);
-      
-      // Validate and sanitize the WebSocket message before adding to store
+    if (wsLastMessage) {
       try {
-        // Ensure the message has the required structure
-        if (!latestMessage) {
-          console.warn('Empty WebSocket message received');
-          return;
+        const data = JSON.parse(wsLastMessage.data);
+        
+        if (data.type === 'message') {
+          // Handle chat message
+          addMessage({
+            role: 'assistant',
+            content: data.content
+          });
+          setIsProcessing(false);
+        } else if (data.type === 'tool_output') {
+          // Handle tool output
+          addToolOutput(data);
+        } else if (data.type === 'typing') {
+          // Handle typing indicator
+          setIsTyping(data.isTyping);
         }
-        
-        // Ensure output property exists
-        if (!latestMessage.output && latestMessage.data) {
-          latestMessage.output = latestMessage.data;
-        }
-        
-        // Ensure toolName property exists
-        if (!latestMessage.toolName && latestMessage.type) {
-          latestMessage.toolName = latestMessage.type;
-        }
-        
-        console.log('Adding validated message to toolOutputs:', latestMessage);
-        
-        // Add validated message to tool outputs in store
-        useChatStore.setState(state => ({
-          toolOutputs: [...state.toolOutputs, latestMessage]
-        }));
-        
-        // Find existing assistant message to update with tool result
-        // instead of creating a new tool message
-        useChatStore.setState(state => {
-          const outputContent = latestMessage.output || latestMessage.data;
-          const toolCallId = latestMessage.toolCallId;
-          
-          // Find the last assistant message
-          const lastAssistantIndex = [...state.messages].reverse()
-            .findIndex(msg => msg.role === 'assistant');
-          
-          if (lastAssistantIndex !== -1) {
-            // Convert from reverse index to actual index
-            const assistantIndex = state.messages.length - 1 - lastAssistantIndex;
-            const assistantMessage = state.messages[assistantIndex];
-            
-            // Create a copy of the messages array
-            const updatedMessages = [...state.messages];
-            
-            // Update the assistant message with tool result
-            updatedMessages[assistantIndex] = {
-              ...assistantMessage,
-              toolResult: typeof outputContent === 'string' 
-                ? outputContent 
-                : JSON.stringify(outputContent, null, 2),
-              toolName: latestMessage.toolName
-            };
-            
-            return { messages: updatedMessages };
-          }
-          
-          // Fallback: If no assistant message found, create a tool message
-          return {
-            messages: [...state.messages, {
-              role: 'tool',
-              content: `Tool Result (${latestMessage.toolName})`,
-              toolResult: typeof outputContent === 'string' 
-                ? outputContent 
-                : JSON.stringify(outputContent, null, 2),
-              timestamp: new Date().toISOString()
-            }]
-          };
-        });
       } catch (error) {
-        console.error('Error processing WebSocket message:', error);
+        console.error('Error parsing WebSocket message:', error);
       }
     }
-  }, [wsMessages]);
-
-  const handleSendMessage = (message) => {
-    sendMessage(message);
+  }, [wsLastMessage, addMessage, addToolOutput, setIsProcessing]);
+  
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+  
+  // Handle message submission
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    
+    if (!message.trim() || !wsConnected) return;
+    
+    // Add user message to chat
+    addMessage({
+      role: 'user',
+      content: message
+    });
+    
+    // Send message to backend
+    wsSendMessage(JSON.stringify({
+      type: 'message',
+      content: message
+    }));
+    
+    // Clear input and set processing state
+    setMessage('');
+    setIsProcessing(true);
   };
-
+  
   return (
     <div className="chat-page">
-      <Header activeView={activeView} setActiveView={setActiveView} />
-      
-      <div className="split-view">
-        <div className="chat-container">
+      <div className="chat-container">
+        <div className="chat-messages">
+          {/* Use the enhanced MessageList component */}
           <MessageList messages={messages} />
+          
+          {isTyping && (
+            <div className="typing-indicator">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          )}
+          
           <div ref={messagesEndRef} />
-          <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
-          {error && <div className="error-message">{error}</div>}
         </div>
         
-        <div className="tool-container">
-          <UnifiedEmulator 
-            toolOutputs={toolOutputs} 
-            wsConnected={wsConnected}
-            currentToolType={activeView !== 'chat' ? activeView : 'terminal'}
+        <form className="chat-input" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Type your message..."
+            disabled={isProcessing || !wsConnected}
           />
-          {wsError && <div className="ws-error">WebSocket Error: {wsError}</div>}
-        </div>
+          
+          <button 
+            type="submit" 
+            disabled={isProcessing || !wsConnected || !message.trim()}
+          >
+            Send
+          </button>
+        </form>
+      </div>
+      
+      <div className="emulator-container">
+        <UnifiedEmulator 
+          toolOutputs={toolOutputs}
+          wsConnected={wsConnected}
+        />
       </div>
     </div>
   );

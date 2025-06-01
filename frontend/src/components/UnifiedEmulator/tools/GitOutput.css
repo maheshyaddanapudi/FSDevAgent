@@ -1,0 +1,233 @@
+.git-output {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+.git-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background-color: #252526;
+  border-bottom: 1px solid #333;
+}
+
+.git-tabs {
+  display: flex;
+  gap: 5px;
+}
+
+.git-tab {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  font-size: 13px;
+}
+
+.git-tab:hover:not(:disabled) {
+  background-color: #3a3a3a;
+  color: #fff;
+}
+
+.git-tab.active {
+  background-color: #0e639c;
+  color: #fff;
+}
+
+.git-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.git-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  font-size: 12px;
+}
+
+.git-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.git-count {
+  color: #999;
+}
+
+.git-content {
+  flex: 1;
+  overflow: auto;
+  padding: 15px;
+}
+
+.git-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+}
+
+.git-empty-icon {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.git-empty-message {
+  font-size: 16px;
+}
+
+.git-raw-output {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Git status styling */
+.git-status-output {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.git-status-line {
+  padding: 2px 0;
+}
+
+.git-branch-info {
+  color: #61afef;
+  font-weight: bold;
+  padding: 5px 0;
+  border-bottom: 1px solid #333;
+  margin-bottom: 10px;
+}
+
+.git-section-header {
+  color: #e5c07b;
+  font-weight: bold;
+  padding: 5px 0;
+  margin-top: 15px;
+  margin-bottom: 5px;
+}
+
+.git-modified {
+  color: #e5c07b;
+  padding-left: 20px;
+}
+
+.git-new-file {
+  color: #98c379;
+  padding-left: 20px;
+}
+
+.git-deleted {
+  color: #e06c75;
+  padding-left: 20px;
+}
+
+/* Git log styling */
+.git-log-output {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.git-commit {
+  background-color: #252526;
+  border-radius: 4px;
+  padding: 12px;
+  border-left: 3px solid #0e639c;
+}
+
+.git-commit-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.git-commit-hash {
+  color: #61afef;
+  font-family: monospace;
+}
+
+.git-commit-date {
+  color: #999;
+  font-size: 12px;
+}
+
+.git-commit-author {
+  color: #c678dd;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.git-commit-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Git diff styling */
+.git-diff-view {
+  display: flex;
+  flex-direction: column;
+}
+
+.git-diff-header {
+  padding: 10px;
+  background-color: #252526;
+  border-radius: 4px 4px 0 0;
+  margin-bottom: 1px;
+}
+
+.git-diff-filename {
+  color: #61afef;
+  font-weight: bold;
+}
+
+.git-no-diff {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #999;
+  font-style: italic;
+}
+
+/* Override react-diff-viewer styles */
+.diff-container {
+  background-color: #1e1e1e !important;
+}
+
+.diff-gutter {
+  background-color: #252526 !important;
+}
+
+.diff-code {
+  background-color: #1e1e1e !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .git-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .git-info {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

@@ -1,194 +1,102 @@
-import { useState, useEffect, useCallback } from 'react';
+// Update useWebSocket.js to work with the new emulator architecture
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEmulatorStore } from '../store/emulatorStore';
 
-const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080';
-
-// Modified to be session-independent and more robust with browser compatibility
-const useWebSocket = (endpoint) => {
-  const [socket, setSocket] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [reconnectAttempts, setReconnectAttempts] = useState(0);
-  const MAX_RECONNECT_ATTEMPTS = 5;
-  const RECONNECT_DELAY_BASE = 1000; // Start with 1 second delay
+export const useWebSocket = () => {
+  const [connected, setConnected] = useState(false);
+  const [lastMessage, setLastMessage] = useState(null);
+  const socketRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  
+  // Get emulator store functions
+  const { setWebSocket, processWebSocketMessage } = useEmulatorStore();
 
   // Initialize WebSocket connection
-  useEffect(() => {
-    // Don't attempt to connect if we've reached max reconnect attempts
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      setError(`Maximum reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Please refresh the page.`);
-      return;
+  const initializeWebSocket = useCallback(() => {
+    // Clear any existing reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
     }
 
-    // Fix: Check if endpoint already includes 'ws/' prefix to avoid double prefixing
-    const wsEndpoint = endpoint.startsWith('ws/') ? endpoint : `ws/${endpoint}`;
-    
-    // Fix: Use the correct endpoint without double prefixing
-    const wsUrl = `${WS_BASE_URL}/${endpoint}`;
+    // Close existing socket if open
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.close();
+    }
+
+    // Create new WebSocket connection
+    // Using hardcoded URL to avoid the double prefix issue
+    const socket = new WebSocket('ws://localhost:8080/ws/tools');
+    socketRef.current = socket;
+
+    // Set up event handlers
+    socket.onopen = () => {
+      console.log('WebSocket connected');
+      setConnected(true);
+      setWebSocket(socket);
+    };
+
+    socket.onmessage = (event) => {
+      setLastMessage(event);
       
-    console.log(`Connecting to WebSocket: ${wsUrl}`);
-    
-    let ws = null;
-    
-    // Add a small delay before creating the WebSocket to ensure any previous connections are fully closed
-    const connectionTimer = setTimeout(() => {
+      // Process message in emulator store
       try {
-        ws = new WebSocket(wsUrl);
-        
-        // Add specific protocols or headers if needed
-        // ws = new WebSocket(wsUrl, ['protocol1', 'protocol2']);
-        
-        ws.onopen = () => {
-          console.log(`WebSocket connected: ${wsUrl}`);
-          setIsConnected(true);
-          setError(null);
-          setReconnectAttempts(0); // Reset reconnect attempts on successful connection
-          
-          // Send a simple ping message to keep the connection alive
-          // This can help with some proxy/firewall configurations
-          const keepAliveInterval = setInterval(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'ping' }));
-            } else {
-              clearInterval(keepAliveInterval);
-            }
-          }, 30000); // Send ping every 30 seconds
-        };
-        
-        ws.onclose = (event) => {
-          console.log(`WebSocket disconnected: ${wsUrl}`, event);
-          setIsConnected(false);
-          
-          // Only attempt to reconnect if this wasn't a normal closure
-          if (event.code !== 1000) {
-            // Implement exponential backoff for reconnection
-            const nextReconnectAttempt = reconnectAttempts + 1;
-            setReconnectAttempts(nextReconnectAttempt);
-            
-            // Calculate delay with exponential backoff and some jitter
-            const delay = Math.min(
-              RECONNECT_DELAY_BASE * Math.pow(2, nextReconnectAttempt) + Math.random() * 1000,
-              30000 // Max 30 seconds
-            );
-            
-            // Attempt to reconnect after delay
-            setTimeout(() => {
-              console.log(`Attempting to reconnect WebSocket (attempt ${nextReconnectAttempt})...`);
-              setSocket(null); // This will trigger the useEffect to run again
-            }, delay);
-          }
-        };
-        
-        ws.onerror = (event) => {
-          console.error(`WebSocket error: ${wsUrl}`, event);
-          setError('WebSocket connection error');
-          // Don't close the socket here, let the onclose handler deal with reconnection
-        };
-        
-        ws.onmessage = (event) => {
-          try {
-            // Enhanced error handling for WebSocket message parsing
-            if (!event || !event.data) {
-              console.warn('Empty WebSocket message received');
-              return;
-            }
-            
-            let data;
-            try {
-              data = JSON.parse(event.data);
-            } catch (parseError) {
-              console.error('Failed to parse WebSocket message:', parseError);
-              console.log('Raw message:', event.data);
-              // Try to salvage the message if it's a string
-              if (typeof event.data === 'string') {
-                data = { 
-                  toolName: 'unknown',
-                  timestamp: new Date().toISOString(),
-                  output: event.data
-                };
-              } else {
-                return; // Can't salvage, skip this message
-              }
-            }
-            
-            console.log('WebSocket message received:', data);
-            
-            // Validate message structure
-            if (!data) {
-              console.warn('Invalid WebSocket message structure');
-              return;
-            }
-            
-            // Ensure required fields exist
-            if (!data.toolName) {
-              data.toolName = 'unknown';
-            }
-            
-            if (!data.timestamp) {
-              data.timestamp = new Date().toISOString();
-            }
-            
-            // Accept all messages regardless of sessionId
-            setMessages((prevMessages) => [...prevMessages, data]);
-          } catch (err) {
-            console.error('Error processing WebSocket message:', err);
-          }
-        };
-        
-        setSocket(ws);
-      } catch (err) {
-        console.error('Error creating WebSocket connection:', err);
-        setError(`Failed to create WebSocket connection: ${err.message}`);
-        
-        // Attempt to reconnect after delay
-        const nextReconnectAttempt = reconnectAttempts + 1;
-        setReconnectAttempts(nextReconnectAttempt);
-        
-        const delay = Math.min(
-          RECONNECT_DELAY_BASE * Math.pow(2, nextReconnectAttempt) + Math.random() * 1000,
-          30000 // Max 30 seconds
-        );
-        
-        setTimeout(() => {
-          setSocket(null); // This will trigger the useEffect to run again
-        }, delay);
-      }
-    }, 500); // 500ms delay before creating new connection
-    
-    // Clean up on unmount
-    return () => {
-      clearTimeout(connectionTimer);
-      if (ws) {
-        console.log(`Closing WebSocket: ${wsUrl}`);
-        // Use a clean close code to prevent reconnection attempts
-        ws.close(1000, "Component unmounted");
+        const data = JSON.parse(event.data);
+        processWebSocketMessage(data);
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
       }
     };
-  }, [endpoint, reconnectAttempts]); // Dependency only on endpoint and reconnect attempts
-  
+
+    socket.onclose = () => {
+      console.log('WebSocket disconnected');
+      setConnected(false);
+      setWebSocket(null);
+      
+      // Schedule reconnect
+      reconnectTimeoutRef.current = setTimeout(() => {
+        initializeWebSocket();
+      }, 3000);
+    };
+
+    socket.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      socket.close();
+    };
+  }, [setWebSocket, processWebSocketMessage]);
+
+  // Initialize WebSocket on component mount
+  useEffect(() => {
+    initializeWebSocket();
+
+    // Clean up on unmount
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [initializeWebSocket]);
+
   // Send message through WebSocket
-  const sendMessage = useCallback((data) => {
-    if (socket && isConnected) {
-      const message = typeof data === 'string' ? data : JSON.stringify(data);
-      socket.send(message);
+  const sendMessage = useCallback((message) => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(message);
       return true;
     }
     return false;
-  }, [socket, isConnected]);
-  
-  // Clear messages
-  const clearMessages = useCallback(() => {
-    setMessages([]);
   }, []);
-  
+
+  // Manually reconnect
+  const reconnect = useCallback(() => {
+    initializeWebSocket();
+  }, [initializeWebSocket]);
+
   return {
-    isConnected,
-    error,
-    messages,
+    connected,
     sendMessage,
-    clearMessages,
-    reconnectAttempts
+    lastMessage,
+    reconnect
   };
 };
-
-export default useWebSocket;
