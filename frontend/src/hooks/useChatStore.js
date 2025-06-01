@@ -1,8 +1,8 @@
+// Fixed useChatStore.js - Issue #2: Runtime Errors Fix
 import { create } from 'zustand';
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
-// Removed unused WS_BASE_URL variable
 
 const useChatStore = create((set, get) => ({
   sessionId: null,
@@ -12,103 +12,223 @@ const useChatStore = create((set, get) => ({
   error: null,
   toolOutputs: [],
   
-  // Add synchronous addMessage function for local state updates
+  // Issue #2 Fix: Add missing addMessage function with proper error handling
   addMessage: (message) => {
-    set(state => ({
-      messages: [...state.messages, message]
-    }));
+    try {
+      if (!message || typeof message !== 'object') {
+        console.error('Invalid message object provided to addMessage');
+        return;
+      }
+      
+      set(state => ({
+        messages: [...state.messages, {
+          ...message,
+          id: message.id || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: message.timestamp || new Date().toISOString()
+        }]
+      }));
+    } catch (error) {
+      console.error('Error adding message:', error);
+      set(state => ({
+        error: `Failed to add message: ${error.message}`
+      }));
+    }
   },
   
-  // Add synchronous addToolOutput function for local state updates
+  // Issue #2 Fix: Add missing addToolOutput function with proper error handling
   addToolOutput: (toolOutput) => {
-    set(state => ({
-      toolOutputs: [...state.toolOutputs, toolOutput]
-    }));
+    try {
+      if (!toolOutput) {
+        console.error('No tool output provided to addToolOutput');
+        return;
+      }
+      
+      set(state => ({
+        toolOutputs: [...state.toolOutputs, {
+          ...toolOutput,
+          id: toolOutput.id || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: toolOutput.timestamp || new Date().toISOString()
+        }]
+      }));
+    } catch (error) {
+      console.error('Error adding tool output:', error);
+      set(state => ({
+        error: `Failed to add tool output: ${error.message}`
+      }));
+    }
   },
   
-  // Add setter for isProcessing state
+  // Issue #2 Fix: Add setter for isProcessing state with validation
   setIsProcessing: (isProcessing) => {
-    set({ isProcessing });
+    if (typeof isProcessing === 'boolean') {
+      set({ isProcessing });
+    } else {
+      console.error('setIsProcessing expects a boolean value');
+    }
   },
   
+  // Issue #2 Fix: Add clearError function
+  clearError: () => {
+    set({ error: null });
+  },
+  
+  // Issue #2 Fix: Improved session initialization with better error handling
   initializeSession: async () => {
     set({ isLoading: true, error: null });
     try {
-      const response = await axios.post(`${API_BASE_URL}/sessions`);
+      const response = await axios.post(`${API_BASE_URL}/sessions`, {}, {
+        timeout: 10000 // 10 second timeout
+      });
+      
+      if (!response.data || !response.data.sessionId) {
+        throw new Error('Invalid response from server: missing sessionId');
+      }
+      
       set({ 
         sessionId: response.data.sessionId,
         isLoading: false,
-        messages: []
+        messages: [],
+        error: null
       });
+      
+      console.log('Session initialized successfully:', response.data.sessionId);
       return response.data.sessionId;
     } catch (error) {
+      console.error('Session initialization failed:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to initialize session';
       set({ 
-        error: error.message || 'Failed to initialize session',
-        isLoading: false
+        error: errorMessage,
+        isLoading: false,
+        sessionId: null
       });
       return null;
     }
   },
   
+  // Issue #2 Fix: Improved sendMessage with better error handling and validation
   sendMessage: async (message) => {
     const { sessionId } = get();
-    if (!sessionId) {
-      set({ error: 'No active session' });
-      return;
+    
+    if (!message || typeof message !== 'string' || message.trim() === '') {
+      set({ error: 'Message cannot be empty' });
+      return null;
     }
     
-    // Add user message to state
-    set(state => ({
-      messages: [...state.messages, { role: 'user', content: message }],
-      isLoading: true,
-      error: null
-    }));
+    if (!sessionId) {
+      set({ error: 'No active session. Please refresh the page.' });
+      return null;
+    }
+    
+    // Add user message to state first
+    const userMessage = {
+      role: 'user',
+      content: message.trim(),
+      timestamp: new Date().toISOString()
+    };
     
     try {
-      const source = new EventSource(`${API_BASE_URL}/chat?sessionId=${sessionId}&message=${encodeURIComponent(message)}`);
+      get().addMessage(userMessage);
+      set({ isLoading: true, error: null, isProcessing: true });
+      
+      const encodedMessage = encodeURIComponent(message.trim());
+      const eventSource = new EventSource(`${API_BASE_URL}/chat?sessionId=${sessionId}&message=${encodedMessage}`);
       
       let assistantMessage = '';
+      let messageComplete = false;
       
-      source.onmessage = (event) => {
-        const chunk = JSON.parse(event.data);
-        assistantMessage += chunk.message;
+      const cleanup = () => {
+        if (eventSource.readyState !== EventSource.CLOSED) {
+          eventSource.close();
+        }
+        set({ isLoading: false, isProcessing: false });
+      };
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const chunk = JSON.parse(event.data);
+          if (chunk && chunk.message) {
+            assistantMessage += chunk.message;
+            
+            // Update or create assistant message
+            set(state => {
+              const messages = [...state.messages];
+              const lastMessage = messages[messages.length - 1];
+              
+              if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
+                // Update existing assistant message
+                messages[messages.length - 1] = {
+                  ...lastMessage,
+                  content: assistantMessage,
+                  isComplete: false
+                };
+              } else {
+                // Add new assistant message
+                messages.push({
+                  role: 'assistant',
+                  content: assistantMessage,
+                  isComplete: false,
+                  timestamp: new Date().toISOString()
+                });
+              }
+              
+              return { messages };
+            });
+          }
+        } catch (parseError) {
+          console.error('Error parsing SSE message:', parseError, event.data);
+        }
+      };
+      
+      eventSource.onerror = (error) => {
+        console.log('SSE connection ended or error occurred:', error);
         
-        set(state => ({
-          messages: [
-            ...state.messages.filter(m => m.role !== 'assistant' || m.isComplete),
-            { role: 'assistant', content: assistantMessage, isComplete: false }
-          ]
-        }));
+        if (!messageComplete) {
+          // Mark the last assistant message as complete
+          set(state => {
+            const messages = [...state.messages];
+            const lastMessage = messages[messages.length - 1];
+            
+            if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
+              messages[messages.length - 1] = {
+                ...lastMessage,
+                isComplete: true
+              };
+            }
+            
+            return { messages };
+          });
+          messageComplete = true;
+        }
+        
+        cleanup();
       };
       
-      source.onerror = (error) => {
-        source.close();
-        set(state => ({
-          isLoading: false,
-          messages: [
-            ...state.messages.filter(m => m.role !== 'assistant' || m.isComplete),
-            { role: 'assistant', content: assistantMessage, isComplete: true }
-          ]
-        }));
-      };
+      // Return cleanup function
+      return cleanup;
       
-      return () => {
-        source.close();
-      };
     } catch (error) {
+      console.error('Error sending message:', error);
       set({ 
         error: error.message || 'Failed to send message',
-        isLoading: false
+        isLoading: false,
+        isProcessing: false
       });
+      return null;
     }
   },
   
-  // Keeping executeTool for potential future use
+  // Issue #2 Fix: Improved tool execution with better error handling
   executeTool: async (toolName, args) => {
     const { sessionId } = get();
+    
     if (!sessionId) {
       set({ error: 'No active session' });
-      return;
+      return null;
+    }
+    
+    if (!toolName || typeof toolName !== 'string') {
+      set({ error: 'Invalid tool name provided' });
+      return null;
     }
     
     set({ isLoading: true, error: null });
@@ -116,32 +236,40 @@ const useChatStore = create((set, get) => ({
     try {
       const response = await axios.post(
         `${API_BASE_URL}/tools/${toolName}?sessionId=${sessionId}`,
-        args,
-        { responseType: 'stream' }
+        args || {},
+        { 
+          responseType: 'stream',
+          timeout: 30000 // 30 second timeout for tool execution
+        }
       );
       
-      set(state => ({
-        toolOutputs: [...state.toolOutputs, {
-          toolName,
-          args,
-          output: response.data,
-          timestamp: new Date()
-        }],
-        isLoading: false
-      }));
+      const toolOutput = {
+        toolName,
+        args: args || {},
+        output: response.data,
+        timestamp: new Date().toISOString(),
+        sessionId
+      };
+      
+      get().addToolOutput(toolOutput);
+      set({ isLoading: false });
       
       return response.data;
     } catch (error) {
+      console.error(`Error executing tool ${toolName}:`, error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to execute tool';
       set({ 
-        error: error.message || 'Failed to execute tool',
+        error: errorMessage,
         isLoading: false
       });
       return null;
     }
   },
   
+  // Issue #2 Fix: Improved session history with better error handling
   getSessionHistory: async () => {
     const { sessionId } = get();
+    
     if (!sessionId) {
       set({ error: 'No active session' });
       return;
@@ -150,26 +278,72 @@ const useChatStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const response = await axios.get(`${API_BASE_URL}/sessions/${sessionId}/history`);
+      const response = await axios.get(`${API_BASE_URL}/sessions/${sessionId}/history`, {
+        timeout: 10000 // 10 second timeout
+      });
+      
+      if (!response.data || !Array.isArray(response.data)) {
+        throw new Error('Invalid response format from server');
+      }
+      
+      const messages = response.data.map((msg, index) => ({
+        id: msg.id || `history_${index}`,
+        role: msg.role || 'unknown',
+        content: msg.message || msg.content || '',
+        toolCall: msg.toolCall || null,
+        isComplete: true,
+        timestamp: msg.timestamp || new Date().toISOString()
+      }));
+      
       set({ 
-        messages: response.data.map(msg => ({
-          role: msg.role,
-          content: msg.message,
-          toolCall: msg.toolCall,
-          isComplete: true
-        })),
-        isLoading: false
+        messages,
+        isLoading: false,
+        error: null
       });
     } catch (error) {
+      console.error('Error getting session history:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to get session history';
       set({ 
-        error: error.message || 'Failed to get session history',
+        error: errorMessage,
         isLoading: false
       });
     }
   },
   
+  // Issue #2 Fix: Enhanced clearMessages with validation
   clearMessages: () => {
-    set({ messages: [] });
+    try {
+      set({ messages: [], error: null });
+    } catch (error) {
+      console.error('Error clearing messages:', error);
+      set({ error: 'Failed to clear messages' });
+    }
+  },
+  
+  // Issue #2 Fix: Add clearToolOutputs function
+  clearToolOutputs: () => {
+    try {
+      set({ toolOutputs: [], error: null });
+    } catch (error) {
+      console.error('Error clearing tool outputs:', error);
+      set({ error: 'Failed to clear tool outputs' });
+    }
+  },
+  
+  // Issue #2 Fix: Add resetSession function
+  resetSession: () => {
+    try {
+      set({
+        sessionId: null,
+        messages: [],
+        toolOutputs: [],
+        isLoading: false,
+        isProcessing: false,
+        error: null
+      });
+    } catch (error) {
+      console.error('Error resetting session:', error);
+    }
   }
 }));
 
