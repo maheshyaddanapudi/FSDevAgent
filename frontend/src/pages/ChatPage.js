@@ -62,6 +62,26 @@ const ChatPage = () => {
         useChatStore.setState(state => ({
           toolOutputs: [...state.toolOutputs, latestMessage]
         }));
+        
+        // Also add tool output to chat messages for unified experience
+        if (latestMessage.toolName && latestMessage.output) {
+          useChatStore.setState(state => {
+            // Create a new tool message
+            const toolMessage = {
+              role: 'tool',
+              content: `**Tool Result (${latestMessage.toolName}):**\n\`\`\`\n${
+                typeof latestMessage.output === 'string' 
+                  ? latestMessage.output 
+                  : JSON.stringify(latestMessage.output, null, 2)
+              }\n\`\`\``,
+              timestamp: new Date().toISOString()
+            };
+            
+            return {
+              messages: [...state.messages, toolMessage]
+            };
+          });
+        }
       } catch (error) {
         console.error('Error processing WebSocket message:', error);
       }

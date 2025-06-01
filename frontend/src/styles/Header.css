@@ -15,6 +15,7 @@
 
 .nav {
   display: flex;
+  align-items: center;
 }
 
 .nav-button {
@@ -35,4 +36,42 @@
 .nav-button.active {
   color: white;
   border-bottom: 2px solid #3498db;
+}
+
+.tool-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  margin-left: 10px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.tool-status-text {
+  font-size: 0.9rem;
+  color: #ddd;
+}
+
+.tool-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #4caf50;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+  100% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
 }

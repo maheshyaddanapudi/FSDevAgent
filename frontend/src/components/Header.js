@@ -12,24 +12,10 @@ const Header = ({ activeView, setActiveView }) => {
         >
           Chat
         </button>
-        <button 
-          className={`nav-button ${activeView === 'terminal' ? 'active' : ''}`}
-          onClick={() => setActiveView('terminal')}
-        >
-          Terminal
-        </button>
-        <button 
-          className={`nav-button ${activeView === 'browser' ? 'active' : ''}`}
-          onClick={() => setActiveView('browser')}
-        >
-          Browser
-        </button>
-        <button 
-          className={`nav-button ${activeView === 'code' ? 'active' : ''}`}
-          onClick={() => setActiveView('code')}
-        >
-          Code Editor
-        </button>
+        <div className="tool-status-indicator">
+          <span className="tool-status-text">Unified Emulator</span>
+          <span className="tool-status-dot"></span>
+        </div>
       </nav>
     </header>
   );

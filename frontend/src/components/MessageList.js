@@ -22,11 +22,17 @@ const MessageList = ({ messages }) => {
       {messages.map((message, index) => (
         <div 
           key={index} 
-          className={`message ${message.role === 'user' ? 'user-message' : 'assistant-message'}`}
+          className={`message ${message.role === 'user' ? 'user-message' : 
+                              message.role === 'tool' ? 'tool-message' : 
+                              message.role === 'system' ? 'system-message' : 
+                              'assistant-message'}`}
         >
           <div className="message-header">
             <div className="message-role">
-              {message.role === 'user' ? 'You' : 'AI Developer'}
+              {message.role === 'user' ? 'You' : 
+               message.role === 'tool' ? 'Tool Result' : 
+               message.role === 'system' ? 'System' : 
+               'AI Developer'}
             </div>
           </div>
           <div className="message-content">
@@ -58,10 +64,23 @@ const MessageList = ({ messages }) => {
             {message.toolCall && (
               <div className="tool-call">
                 <div className="tool-call-header">
-                  Tool Call: {message.toolCall.name}
+                  <span className="tool-icon">🛠️</span> Using Tool: {message.toolCall.name}
                 </div>
                 <div className="tool-call-args">
                   <pre>{JSON.stringify(message.toolCall.arguments, null, 2)}</pre>
+                </div>
+              </div>
+            )}
+            
+            {message.thinking && (
+              <div className="thinking-block">
+                <div className="thinking-header">
+                  <span className="thinking-icon">💭</span> Thinking
+                </div>
+                <div className="thinking-content">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {message.thinking}
+                  </ReactMarkdown>
                 </div>
               </div>
             )}
