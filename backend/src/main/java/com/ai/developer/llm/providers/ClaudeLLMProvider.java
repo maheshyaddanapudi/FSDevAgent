@@ -9,6 +9,7 @@ import com.ai.developer.llm.ToolUseBlock;
 import com.ai.developer.tools.ParameterInfo;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolRegistry;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -300,7 +301,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                     });
         } catch (JsonProcessingException e) {
             log.error("Error serializing streaming request: {}", e.getMessage());
-            return Flux.just("Error serializing streaming request: " + e.getMessage());
+            return Flux.just("Error serializing request: " + e.getMessage());
         }
     }
     
@@ -320,7 +321,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                         break;
                     case "user":
                         claudeMessage.setRole("user");
-                        claudeMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
+                        claudeMessage.setContent(List.of(ClaudeContent.createTextContent(message.getContent())));
                         messages.add(claudeMessage);
                         break;
                     case "assistant":
@@ -333,7 +334,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                             
                             // Add text content if present
                             if (message.getContent() != null && !message.getContent().isEmpty()) {
-                                contents.add(new ClaudeContent("text", message.getContent()));
+                                contents.add(ClaudeContent.createTextContent(message.getContent()));
                             }
                             
                             // Add tool use content
@@ -342,14 +343,12 @@ public class ClaudeLLMProvider implements LLMProvider {
                             toolUse.put("input", message.getToolCall().getArguments());
                             toolUse.put("id", message.getToolCall().getId());
                             
-                            ClaudeContent toolUseContent = new ClaudeContent("tool_use", null);
-                            toolUseContent.setToolUse(toolUse);
-                            contents.add(toolUseContent);
+                            contents.add(ClaudeContent.createToolUseContent(toolUse));
                             
                             claudeMessage.setContent(contents);
                         } else {
                             // Regular assistant message
-                            claudeMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
+                            claudeMessage.setContent(List.of(ClaudeContent.createTextContent(message.getContent())));
                         }
                         
                         messages.add(claudeMessage);
@@ -366,9 +365,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                         toolResult.put("content", message.getContent());
                         toolResult.put("tool_use_id", message.getToolCallId());
                         
-                        ClaudeContent toolResultContent = new ClaudeContent("tool_result", null);
-                        toolResultContent.setToolResult(toolResult);
-                        contents.add(toolResultContent);
+                        contents.add(ClaudeContent.createToolResultContent(toolResult));
                         
                         toolResultMessage.setContent(contents);
                         messages.add(toolResultMessage);
@@ -384,7 +381,7 @@ public class ClaudeLLMProvider implements LLMProvider {
         if (prompt != null && !prompt.isEmpty()) {
             ClaudeMessage promptMessage = new ClaudeMessage();
             promptMessage.setRole("user");
-            promptMessage.setContent(List.of(new ClaudeContent("text", prompt)));
+            promptMessage.setContent(List.of(ClaudeContent.createTextContent(prompt)));
             messages.add(promptMessage);
         }
         
@@ -451,6 +448,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ClaudeRequest {
         private String model;
         private List<ClaudeMessage> messages;
@@ -471,7 +469,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
-    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ClaudeContent {
         private String type;
         private String text;
@@ -480,17 +478,26 @@ public class ClaudeLLMProvider implements LLMProvider {
         @JsonProperty("tool_result")
         private Map<String, Object> toolResult;
         
-        public ClaudeContent(String type, String text) {
-            this.type = type;
-            this.text = text;
+        // Static factory methods to ensure proper content structure
+        public static ClaudeContent createTextContent(String text) {
+            ClaudeContent content = new ClaudeContent();
+            content.setType("text");
+            content.setText(text);
+            return content;
         }
         
-        public void setToolUse(Map<String, Object> toolUse) {
-            this.toolUse = toolUse;
+        public static ClaudeContent createToolUseContent(Map<String, Object> toolUse) {
+            ClaudeContent content = new ClaudeContent();
+            content.setType("tool_use");
+            content.setToolUse(toolUse);
+            return content;
         }
         
-        public void setToolResult(Map<String, Object> toolResult) {
-            this.toolResult = toolResult;
+        public static ClaudeContent createToolResultContent(Map<String, Object> toolResult) {
+            ClaudeContent content = new ClaudeContent();
+            content.setType("tool_result");
+            content.setToolResult(toolResult);
+            return content;
         }
     }
     
@@ -523,11 +530,13 @@ public class ClaudeLLMProvider implements LLMProvider {
     public static class ClaudeResponse {
         private String id;
         private String type;
-        private String model;
         private String role;
         private List<ClaudeResponseContent> content;
+        private String model;
         @JsonProperty("stop_reason")
         private String stopReason;
+        @JsonProperty("stop_sequence")
+        private String stopSequence;
         private Usage usage;
     }
     
@@ -536,42 +545,6 @@ public class ClaudeLLMProvider implements LLMProvider {
     public static class ClaudeResponseContent {
         private String type;
         private String text;
-        private String id;
-        private String name;
-        private Map<String, Object> input;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    public static class ClaudeStreamingResponse {
-        private String type;
-        private String message;
-        @JsonProperty("content_block")
-        private ContentBlock contentBlock;
-        private Delta delta;
-        private Integer index;
-        private Usage usage;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    public static class ContentBlock {
-        private String type;
-        private String text;
-        private String id;
-        private String name;
-        private Map<String, Object> input;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    public static class Delta {
-        private String type;
-        private String text;
-        @JsonProperty("stop_reason")
-        private String stopReason;
-        @JsonProperty("partial_json")
-        private String partialJson;
     }
     
     @Data
@@ -581,9 +554,33 @@ public class ClaudeLLMProvider implements LLMProvider {
         private Integer inputTokens;
         @JsonProperty("output_tokens")
         private Integer outputTokens;
-        @JsonProperty("cache_creation_input_tokens")
-        private Integer cacheCreationInputTokens;
-        @JsonProperty("cache_read_input_tokens")
-        private Integer cacheReadInputTokens;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    public static class ClaudeStreamingResponse {
+        private String type;
+        private String index;
+        @JsonProperty("content_block")
+        private ClaudeContentBlock contentBlock;
+        private ClaudeDelta delta;
+        private String message;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    public static class ClaudeContentBlock {
+        private String type;
+        private String id;
+        private String name;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    public static class ClaudeDelta {
+        private String type;
+        private String text;
+        @JsonProperty("partial_json")
+        private String partialJson;
     }
 }
