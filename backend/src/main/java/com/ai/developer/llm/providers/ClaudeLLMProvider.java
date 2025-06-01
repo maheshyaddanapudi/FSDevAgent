@@ -436,10 +436,15 @@ public class ClaudeLLMProvider implements LLMProvider {
                 paramDef.put("type", param.getType());
                 paramDef.put("description", param.getDescription());
                 
-                properties.put(param.getName(), paramDef);
-                
-                if (param.isRequired()) {
-                    required.add(param.getName());
+                // Fix for null key serialization error
+                if (param.getName() != null) {
+                    properties.put(param.getName(), paramDef);
+                    
+                    if (param.isRequired()) {
+                        required.add(param.getName());
+                    }
+                } else {
+                    log.warn("Skipping parameter with null name in tool: {}", tool.getName());
                 }
             }
             
