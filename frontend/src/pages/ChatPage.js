@@ -3,7 +3,7 @@ import useChatStore from '../hooks/useChatStore';
 import useWebSocket from '../hooks/useWebSocket';
 import ChatInput from '../components/ChatInput';
 import MessageList from '../components/MessageList';
-import UnifiedEmulator from '../components/UnifiedEmulator';
+import MinimalEmulator from '../components/MinimalEmulator';
 import Header from '../components/Header';
 import '../styles/ChatPage.css';
 
@@ -58,30 +58,65 @@ const ChatPage = () => {
           return;
         }
         
+        // Ensure output property exists
+        if (!latestMessage.output && latestMessage.data) {
+          latestMessage.output = latestMessage.data;
+        }
+        
+        // Ensure toolName property exists
+        if (!latestMessage.toolName && latestMessage.type) {
+          latestMessage.toolName = latestMessage.type;
+        }
+        
+        console.log('Adding validated message to toolOutputs:', latestMessage);
+        
         // Add validated message to tool outputs in store
         useChatStore.setState(state => ({
           toolOutputs: [...state.toolOutputs, latestMessage]
         }));
         
-        // Also add tool output to chat messages for unified experience
-        if (latestMessage.toolName && latestMessage.output) {
-          useChatStore.setState(state => {
-            // Create a new tool message
-            const toolMessage = {
-              role: 'tool',
-              content: `**Tool Result (${latestMessage.toolName}):**\n\`\`\`\n${
-                typeof latestMessage.output === 'string' 
-                  ? latestMessage.output 
-                  : JSON.stringify(latestMessage.output, null, 2)
-              }\n\`\`\``,
-              timestamp: new Date().toISOString()
+        // Find existing assistant message to update with tool result
+        // instead of creating a new tool message
+        useChatStore.setState(state => {
+          const outputContent = latestMessage.output || latestMessage.data;
+          const toolCallId = latestMessage.toolCallId;
+          
+          // Find the last assistant message
+          const lastAssistantIndex = [...state.messages].reverse()
+            .findIndex(msg => msg.role === 'assistant');
+          
+          if (lastAssistantIndex !== -1) {
+            // Convert from reverse index to actual index
+            const assistantIndex = state.messages.length - 1 - lastAssistantIndex;
+            const assistantMessage = state.messages[assistantIndex];
+            
+            // Create a copy of the messages array
+            const updatedMessages = [...state.messages];
+            
+            // Update the assistant message with tool result
+            updatedMessages[assistantIndex] = {
+              ...assistantMessage,
+              toolResult: typeof outputContent === 'string' 
+                ? outputContent 
+                : JSON.stringify(outputContent, null, 2),
+              toolName: latestMessage.toolName
             };
             
-            return {
-              messages: [...state.messages, toolMessage]
-            };
-          });
-        }
+            return { messages: updatedMessages };
+          }
+          
+          // Fallback: If no assistant message found, create a tool message
+          return {
+            messages: [...state.messages, {
+              role: 'tool',
+              content: `Tool Result (${latestMessage.toolName})`,
+              toolResult: typeof outputContent === 'string' 
+                ? outputContent 
+                : JSON.stringify(outputContent, null, 2),
+              timestamp: new Date().toISOString()
+            }]
+          };
+        });
       } catch (error) {
         console.error('Error processing WebSocket message:', error);
       }
@@ -105,7 +140,7 @@ const ChatPage = () => {
         </div>
         
         <div className="tool-container">
-          <UnifiedEmulator 
+          <MinimalEmulator 
             toolOutputs={toolOutputs} 
             wsConnected={wsConnected}
             currentToolType={activeView !== 'chat' ? activeView : 'terminal'}
