@@ -3,7 +3,7 @@ import useChatStore from '../hooks/useChatStore';
 import useWebSocket from '../hooks/useWebSocket';
 import ChatInput from '../components/ChatInput';
 import MessageList from '../components/MessageList';
-import MinimalEmulator from '../components/MinimalEmulator';
+import UnifiedEmulator from '../components/UnifiedEmulator';
 import Header from '../components/Header';
 import '../styles/ChatPage.css';
 
@@ -140,7 +140,7 @@ const ChatPage = () => {
         </div>
         
         <div className="tool-container">
-          <MinimalEmulator 
+          <UnifiedEmulator 
             toolOutputs={toolOutputs} 
             wsConnected={wsConnected}
             currentToolType={activeView !== 'chat' ? activeView : 'terminal'}
