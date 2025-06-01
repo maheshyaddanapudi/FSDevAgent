@@ -19,39 +19,35 @@ import java.util.function.Consumer;
  * Google AI integration is deferred to v2 due to dependency availability issues
  */
 @Slf4j
-@Component
+// Removed @Component annotation to prevent bean registration
+// @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "llm.type", havingValue = "gemini")
-public class GeminiLLMProvider implements LLMProvider {
+public class GeminiLLMProvider {
     
     private final LLMConfig config;
     
     @PostConstruct
-    @Override
     public void init() {
         log.info("Gemini LLM Provider is stubbed in v1 and will not be functional");
         log.info("Google AI integration is planned for v2");
     }
     
-    @Override
     public String getCompletion(ChatContext context) {
         throw new UnsupportedOperationException(
             "Gemini integration is not available in v1. Please use Claude or OpenAI providers.");
     }
     
-    @Override
     public String streamingCompletion(ChatContext context, Consumer<String> onPartialResponse) {
         throw new UnsupportedOperationException(
             "Gemini integration is not available in v1. Please use Claude or OpenAI providers.");
     }
     
-    @Override
     public List<ToolCall> extractToolCalls(String response) {
         throw new UnsupportedOperationException(
             "Gemini integration is not available in v1. Please use Claude or OpenAI providers.");
     }
     
-    @Override
     public List<ToolUseBlock> extractToolUseBlocks(String response) {
         throw new UnsupportedOperationException(
             "Gemini integration is not available in v1. Please use Claude or OpenAI providers.");

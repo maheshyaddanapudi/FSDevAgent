@@ -6,10 +6,10 @@ import org.springframework.beans.factory.annotation.Value;
 
 import com.ai.developer.config.ToolOutputWebSocketHandler;
 import com.ai.developer.llm.ChatContext;
+import com.ai.developer.llm.LLMProvider;
 import com.ai.developer.llm.Message;
 import com.ai.developer.llm.ToolCall;
 import com.ai.developer.llm.ToolUseBlock;
-import com.ai.developer.llm.providers.LLMProvider;
 import com.ai.developer.model.ChatRequest;
 import com.ai.developer.model.ChatResponse;
 import com.ai.developer.model.SessionResponse;
@@ -188,21 +188,26 @@ public class ChatService {
         // Log the current context
         log.debug("Current context for session {}: {} messages", sessionId, context.getMessages().size());
         
-        // Create a consumer for streaming responses
+        // Get streaming response from LLM using reactive API
         final StringBuilder responseBuilder = new StringBuilder();
-        Consumer<String> responseConsumer = chunk -> {
-            responseBuilder.append(chunk);
-            log.debug("Received chunk: {}", chunk);
-            
-            // Update the assistant's message in the context
-            updateAssistantMessage(context, chunk);
-        };
         
-        // Get response from LLM
-        String llmResponse = llmProvider.streamingCompletion(context, responseConsumer);
-        
-        // Process the response for tool use blocks
-        return processResponseForToolUse(sessionId, context, llmResponse);
+        // Process the streaming response
+        return llmProvider.streamResponse(message, context)
+            .doOnNext(chunk -> {
+                responseBuilder.append(chunk);
+                log.debug("Received chunk: {}", chunk);
+                
+                // Update the assistant's message in the context
+                updateAssistantMessage(context, chunk);
+            })
+            .collectList()
+            .flatMapMany(chunks -> {
+                // Combine all chunks into a single response
+                String llmResponse = responseBuilder.toString();
+                
+                // Process the response for tool use blocks
+                return processResponseForToolUse(sessionId, context, llmResponse);
+            });
     }
     
     /**

@@ -2,10 +2,10 @@ package com.ai.developer.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
+// Removed @Configuration to prevent duplicate bean creation
+// since @EnableConfigurationProperties(LLMConfig.class) in main application class already creates a bean
 
 @Data
-@Configuration
 @ConfigurationProperties(prefix = "llm")
 public class LLMConfig {
     private String type = "claude";

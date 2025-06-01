@@ -21,8 +21,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * This test class has been updated to test the CustomClaudeLLMProvider instead of the
- * original ClaudeLLMProvider which has been disabled.
+ * Test class for the ClaudeLLMProvider implementation.
  */
 @ExtendWith(MockitoExtension.class)
 public class ClaudeLLMProviderTest {
@@ -36,18 +35,18 @@ public class ClaudeLLMProviderTest {
     @Mock
     private ToolRegistry toolRegistry;
     
-    private CustomClaudeLLMProvider provider;
+    private ClaudeLLMProvider provider;
     private ChatContext context;
 
     @BeforeEach
     void setUp() {
-        // Setup for CustomClaudeLLMProvider
+        // Setup for ClaudeLLMProvider
         lenient().when(config.getApiKey()).thenReturn("test-api-key");
         lenient().when(config.getModel()).thenReturn("claude-3-7-sonnet-latest");
         lenient().when(config.getMaxTokens()).thenReturn(4000);
         lenient().when(config.getTemperature()).thenReturn(0.7);
         
-        provider = new CustomClaudeLLMProvider(config, objectMapper, toolRegistry);
+        provider = new ClaudeLLMProvider(config, objectMapper, toolRegistry);
         
         // Initialize provider but skip actual HTTP client creation
         // This is a test-only approach to avoid real API calls

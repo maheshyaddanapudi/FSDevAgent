@@ -25,10 +25,11 @@ import java.util.function.Consumer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Slf4j
-@Component
+// Removed @Component annotation to prevent bean registration
+// @Component
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "llm.type", havingValue = "openai")
-public class OpenAILLMProvider implements LLMProvider {
+public class OpenAILLMProvider {
     
     private final LLMConfig config;
     private OpenAiChatModel chatModel;
@@ -36,7 +37,6 @@ public class OpenAILLMProvider implements LLMProvider {
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     @PostConstruct
-    @Override
     public void init() {
         this.chatModel = OpenAiChatModel.builder()
                 .apiKey(config.getApiKey())
@@ -53,14 +53,12 @@ public class OpenAILLMProvider implements LLMProvider {
                 .build();
     }
     
-    @Override
     public String getCompletion(ChatContext context) {
         List<ChatMessage> messages = convertMessages(context);
         Response<AiMessage> response = chatModel.generate(messages);
         return response.content().text();
     }
     
-    @Override
     public String streamingCompletion(ChatContext context, Consumer<String> onPartialResponse) {
         List<ChatMessage> messages = convertMessages(context);
         StringBuilder fullResponse = new StringBuilder();
@@ -87,7 +85,6 @@ public class OpenAILLMProvider implements LLMProvider {
         return fullResponse.toString();
     }
     
-    @Override
     public List<ToolCall> extractToolCalls(String response) {
         // Simple implementation - in a real system this would parse JSON tool calls
         List<ToolCall> toolCalls = new ArrayList<>();
@@ -95,7 +92,6 @@ public class OpenAILLMProvider implements LLMProvider {
         return toolCalls;
     }
     
-    @Override
     public List<ToolUseBlock> extractToolUseBlocks(String response) {
         // Simple implementation - in a real system this would parse tool use blocks
         List<ToolUseBlock> toolUseBlocks = new ArrayList<>();
