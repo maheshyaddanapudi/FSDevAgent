@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080/ws';
+const WS_BASE_URL = process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080/ws/tools';
 
 // Modified to be session-independent and more robust with browser compatibility
 const useWebSocket = (endpoint) => {
