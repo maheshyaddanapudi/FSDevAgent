@@ -2,7 +2,6 @@ package com.ai.developer.controller;
 
 import com.ai.developer.model.*;
 import com.ai.developer.service.ChatService;
-import com.ai.developer.tools.ToolOutput;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -62,7 +61,7 @@ public class ChatController {
     }
     
     @PostMapping(value = "/tools/{toolName}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ToolOutput> executeTool(
+    public Flux<com.ai.developer.tools.ToolOutput> executeTool(
             @PathVariable String toolName,
             @RequestParam String sessionId,
             @RequestBody Map<String, Object> arguments) {

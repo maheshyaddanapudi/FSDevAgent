@@ -154,12 +154,23 @@ const useChatStore = create((set, get) => ({
               const messages = [...state.messages];
               const lastMessage = messages[messages.length - 1];
               
+              // Check if the message contains tool-related content
+              const hasToolCall = chunk.toolCall || false;
+              const hasThinking = chunk.thinking || false;
+              const hasToolExecution = chunk.toolExecution || false;
+              const hasToolResult = chunk.toolResult || false;
+              
               if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
                 // Update existing assistant message
                 messages[messages.length - 1] = {
                   ...lastMessage,
                   content: assistantMessage,
-                  isComplete: false
+                  isComplete: false,
+                  // Add tool-related properties if present in the chunk
+                  ...(hasToolCall && { toolCall: chunk.toolCall }),
+                  ...(hasThinking && { thinking: chunk.thinking }),
+                  ...(hasToolExecution && { toolExecution: chunk.toolExecution }),
+                  ...(hasToolResult && { toolResult: chunk.toolResult })
                 };
               } else {
                 // Add new assistant message
@@ -167,7 +178,12 @@ const useChatStore = create((set, get) => ({
                   role: 'assistant',
                   content: assistantMessage,
                   isComplete: false,
-                  timestamp: new Date().toISOString()
+                  timestamp: new Date().toISOString(),
+                  // Add tool-related properties if present in the chunk
+                  ...(hasToolCall && { toolCall: chunk.toolCall }),
+                  ...(hasThinking && { thinking: chunk.thinking }),
+                  ...(hasToolExecution && { toolExecution: chunk.toolExecution }),
+                  ...(hasToolResult && { toolResult: chunk.toolResult })
                 });
               }
               

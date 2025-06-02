@@ -9,8 +9,9 @@ import com.ai.developer.llm.ToolUseBlock;
 import com.ai.developer.model.ChatRequest;
 import com.ai.developer.model.ChatResponse;
 import com.ai.developer.model.SessionResponse;
+import com.ai.developer.model.ToolCallResponse;
+import com.ai.developer.model.ToolOutput;
 import com.ai.developer.tools.Tool;
-import com.ai.developer.tools.ToolOutput;
 import com.ai.developer.tools.ToolRegistry;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,7 +42,7 @@ public class ChatService {
     private final ConcurrentHashMap<String, ChatContext> sessions = new ConcurrentHashMap<>();
     
     // Pattern to match tool use blocks in LLM responses
-    private static final Pattern TOOL_USE_PATTERN = Pattern.compile("<tool_use>(.*?)</tool_use>", Pattern.DOTALL);
+    private static final Pattern TOOL_USE_PATTERN = Pattern.compile("<tool_use>(.*?)</tool_use>|\\{\"type\":\"content_block_start\".*?\"type\":\"tool_use\".*?\\}", Pattern.DOTALL);
     
     public ChatService(LLMProvider llmProvider, ToolRegistry toolRegistry, ObjectMapper objectMapper, ToolOutputWebSocketHandler webSocketHandler) {
         this.llmProvider = llmProvider;
@@ -222,6 +223,110 @@ public class ChatService {
         // ADDED DEBUG LOGGING: Log that we're checking for tool use blocks
         log.info("Checking for tool use blocks in response for session {}", sessionId);
         
+        // Check for special EVENT: prefixed messages
+        if (response.startsWith("EVENT:")) {
+            log.info("Found special event in response: {}", response.substring(0, Math.min(50, response.length())));
+            
+            // Extract event type and payload
+            String[] parts = response.split(":", 3);
+            if (parts.length >= 3) {
+                String eventType = parts[1];
+                String eventPayload = parts[2];
+                
+                // Handle different event types
+                if ("toolCall".equals(eventType)) {
+                    log.info("Processing toolCall event: {}", eventPayload);
+                    try {
+                        // Parse the tool call JSON
+                        ToolCall toolCall = objectMapper.readValue(eventPayload, ToolCall.class);
+                        
+                        // Create the initial response with the tool call
+                        ChatResponse initialResponse = ChatResponse.builder()
+                                .sessionId(sessionId)
+                                .role("assistant")
+                                .message("I'll use the " + toolCall.getName() + " tool to help with this.")
+                                .toolCall(ToolCallResponse.builder()
+                                        .name(toolCall.getName())
+                                        .arguments(objectMapper.convertValue(toolCall.getArguments(), Map.class))
+                                        .build())
+                                .timestamp(Instant.now())
+                                .build();
+                        
+                        // Extract the tool use block from the remaining response
+                        String remainingResponse = response.substring(response.indexOf("<tool_use>"));
+                        Matcher matcher = TOOL_USE_PATTERN.matcher(remainingResponse);
+                        if (matcher.find()) {
+                            // Extract the tool use JSON from the marker
+                            String toolUseJson = matcher.group(1);
+                            log.info("Extracted tool use JSON: {}", toolUseJson);
+                            
+                            // Parse the tool use block
+                            ToolUseBlock toolUseBlock = objectMapper.readValue(toolUseJson, ToolUseBlock.class);
+                            log.info("Parsed tool use block: {}", toolUseBlock);
+                            
+                            // Handle the tool use in a non-blocking way and chain the result
+                            return handleToolUse(sessionId, toolUseBlock)
+                                    .flatMapMany(toolResult -> {
+                                        // ADDED DEBUG LOGGING: Log the tool result
+                                        log.info("Tool {} execution completed for session {}: {}", toolUseBlock.getName(), sessionId, toolResult);
+                                        
+                                        // Send tool result to WebSocket for emulator visualization
+                                        try {
+                                            ToolOutput toolOutput = ToolOutput.builder()
+                                                .type("terminal")
+                                                .output(toolResult)
+                                                .mimeType("text/plain")
+                                                .build();
+                                            String toolOutputJson = objectMapper.writeValueAsString(toolOutput);
+                                            webSocketHandler.broadcastToolOutput(toolOutputJson);
+                                            log.info("Broadcasted tool output to WebSocket: {}", toolOutputJson);
+                                        } catch (Exception e) {
+                                            log.error("Error broadcasting tool output to WebSocket: {}", e.getMessage());
+                                        }
+                                        
+                                        // Create the tool result response
+                                        ChatResponse toolResponse = ChatResponse.builder()
+                                                .sessionId(sessionId)
+                                                .role("tool")
+                                                .message(toolResult)
+                                                .toolCallId(toolUseBlock.getId())
+                                                .timestamp(Instant.now())
+                                                .build();
+                                        
+                                        // Return both responses as a flux
+                                        return Flux.just(initialResponse, toolResponse);
+                                    })
+                                    .onErrorResume(e -> {
+                                        log.error("Error handling tool use: {}", e.getMessage());
+                                        return Flux.just(ChatResponse.builder()
+                                                .sessionId(sessionId)
+                                                .role("assistant")
+                                                .message("Error executing tool: " + e.getMessage())
+                                                .timestamp(Instant.now())
+                                                .build());
+                                    });
+                        } else {
+                            log.error("Found toolCall event but no tool_use block in response");
+                            return Flux.just(initialResponse);
+                        }
+                    } catch (JsonProcessingException e) {
+                        log.error("Error parsing toolCall event: {}", e.getMessage());
+                        return Flux.just(ChatResponse.builder()
+                                .sessionId(sessionId)
+                                .role("assistant")
+                                .message(response.replaceAll("EVENT:.*?\\n", ""))
+                                .timestamp(Instant.now())
+                                .build());
+                    }
+                } else {
+                    log.warn("Unknown event type: {}", eventType);
+                }
+            }
+            
+            // Remove the EVENT: prefix and continue with normal processing
+            response = response.replaceAll("EVENT:.*?\\n", "");
+        }
+        
         // Check if the response contains tool use blocks
         Matcher matcher = TOOL_USE_PATTERN.matcher(response);
         if (matcher.find()) {
@@ -255,11 +360,26 @@ public class ChatService {
                             // ADDED DEBUG LOGGING: Log the tool result
                             log.info("Tool {} execution completed for session {}: {}", toolUseBlock.getName(), sessionId, toolResult);
                             
+                            // Send tool result to WebSocket for emulator visualization
+                            try {
+                                ToolOutput toolOutput = ToolOutput.builder()
+                                    .type("terminal")
+                                    .output(toolResult)
+                                    .mimeType("text/plain")
+                                    .build();
+                                String toolOutputJson = objectMapper.writeValueAsString(toolOutput);
+                                webSocketHandler.broadcastToolOutput(toolOutputJson);
+                                log.info("Broadcasted tool output to WebSocket: {}", toolOutputJson);
+                            } catch (Exception e) {
+                                log.error("Error broadcasting tool output to WebSocket: {}", e.getMessage());
+                            }
+                            
                             // Create the tool result response
                             ChatResponse toolResponse = ChatResponse.builder()
                                     .sessionId(sessionId)
                                     .role("tool")
                                     .message("\n\n**Tool Result:**\n```\n" + toolResult + "\n```\n\n")
+                                    .toolCallId(toolUseBlock.getId())
                                     .timestamp(Instant.now())
                                     .build();
                             
@@ -423,13 +543,12 @@ public class ChatService {
                         // Combine all outputs into a single string
                         StringBuilder result = new StringBuilder();
                         if (outputs != null) {
-                            for (ToolOutput output : outputs) {
+                            for (com.ai.developer.tools.ToolOutput output : outputs) {
                                 result.append(output.getContent()).append("\n");
                             }
                         } else {
                             result.append("No output from tool execution");
-                        }
-                        
+                        }                 
                         // Add tool result message to context
                         Message toolResultMessage = Message.builder()
                                 .role("tool")
@@ -456,7 +575,7 @@ public class ChatService {
     /**
      * Execute a tool call and return the results
      */
-    public Flux<ToolOutput> executeToolCall(String sessionId, String toolName, Map<String, Object> arguments) {
+    public Flux<com.ai.developer.tools.ToolOutput> executeToolCall(String sessionId, String toolName, Map<String, Object> arguments) {
         log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
         
         ChatContext context = sessions.get(sessionId);

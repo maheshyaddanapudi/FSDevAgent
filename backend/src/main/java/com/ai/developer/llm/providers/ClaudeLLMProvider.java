@@ -613,8 +613,24 @@ public class ClaudeLLMProvider implements LLMProvider {
             currentToolUseBlock.set(null);
             toolInputJson.set(new StringBuilder());
             
-            // Return a special marker with the tool use information
-            return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
+            // Create a special event for the frontend to display tool call
+            try {
+                Map<String, Object> toolCallEvent = new HashMap<>();
+                toolCallEvent.put("id", toolUseBlock.getId());
+                toolCallEvent.put("name", toolUseBlock.getName());
+                toolCallEvent.put("arguments", toolUseBlock.getInput());
+                
+                String toolCallEventJson = objectMapper.writeValueAsString(toolCallEvent);
+                log.info("Emitting tool call event: {}", toolCallEventJson);
+                
+                // Return a special marker with the tool use information
+                // The EVENT: prefix signals to the frontend this is a special event
+                return Mono.just("EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>");
+            } catch (Exception e) {
+                log.error("Error creating tool call event: {}", e.getMessage());
+                // Fall back to just the tool use marker
+                return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
+            }
             
         } catch (Exception e) {
             log.error("Error processing completed tool use block: {}", e.getMessage(), e);
