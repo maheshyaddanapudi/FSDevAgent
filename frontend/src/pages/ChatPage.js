@@ -181,12 +181,8 @@ const ChatPage = () => {
       // This ensures the backend's ChatService.processMessage is always called
       console.log('Using HTTP REST API for message submission...');
       
-      // Add user message to chat immediately
-      addMessage({
-        role: 'user',
-        content: messageText,
-        timestamp: new Date().toISOString()
-      });
+      // REMOVED: Don't add user message here to prevent duplication
+      // User message is already added in useChatStore.js sendMessage function
       
       // Send via REST API
       const cleanup = await sendChatMessage(messageText);
@@ -196,18 +192,8 @@ const ChatPage = () => {
         window._currentChatCleanup = cleanup;
       }
       
-      // Only use WebSocket for notifications, not for primary message submission
-      if (wsConnected) {
-        // Send a notification via WebSocket that a message was submitted
-        const wsNotification = {
-          type: 'notification',
-          action: 'message_submitted',
-          sessionId: sessionId,
-          timestamp: new Date().toISOString()
-        };
-        
-        wsSendMessage(JSON.stringify(wsNotification));
-      }
+      // REMOVED: WebSocket message sending for chat to prevent duplication
+      // Only WebSocket should be used for emulator, not for chat messages
     } catch (error) {
       console.error('Error sending message:', error);
       setError(`Failed to send message: ${error.message}`);

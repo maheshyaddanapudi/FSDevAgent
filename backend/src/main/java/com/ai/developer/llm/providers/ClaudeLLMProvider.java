@@ -632,7 +632,11 @@ public class ClaudeLLMProvider implements LLMProvider {
         private String model;
         private List<ClaudeMessage> messages;
         private String system;
+        
+        @JsonProperty("max_tokens")
+        @JsonInclude(JsonInclude.Include.ALWAYS)
         private Integer maxTokens;
+        
         private Double temperature;
         private Boolean stream;
         private List<ClaudeTool> tools;
@@ -671,6 +675,8 @@ public class ClaudeLLMProvider implements LLMProvider {
     public static class ClaudeTool {
         private String name;
         private String description;
+        
+        @JsonProperty("input_schema")
         private ClaudeInputSchema inputSchema;
     }
     
