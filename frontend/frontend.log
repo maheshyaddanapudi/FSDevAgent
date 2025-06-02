@@ -1,4 +1,3 @@
-nohup: ignoring input
 
 > ai-developer-agent-ui@1.0.0 start
 > react-app-rewired start
@@ -7,35 +6,4 @@ Attempting to bind to HOST environment variable: 0.0.0.0
 If this was unintentional, check that you haven't mistakenly set it in your shell.
 Learn more here: https://cra.link/advanced-config
 
-[HPM] Proxy created: /  -> http://localhost:8080
-[HPM] Subscribed to http-proxy events: [ 'error', 'close' ]
-(node:47525) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: 'onAfterSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
-(Use `node --trace-deprecation ...` to show where the warning was created)
-(node:47525) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: 'onBeforeSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
-Starting the development server...
-
-Failed to compile.
-
-[eslint] 
-src/components/UnifiedEmulator.js
-  Line 81:30:  'setActiveToolType' is not defined  no-undef
-
-Search for the keywords to learn more about each error.
-WARNING in [eslint] 
-src/components/UnifiedEmulator.js
-  Line 128:9:  The 'fitAddon' object construction makes the dependencies of useEffect Hook (at line 159) change on every render. To fix this, wrap the initialization of 'fitAddon' in its own useMemo() Hook  react-hooks/exhaustive-deps
-
-src/hooks/useChatStore.js
-  Line 5:7:  'WS_BASE_URL' is assigned a value but never used  no-unused-vars
-
-src/pages/ChatPage.js
-  Line 72:9:  'handleToolExecution' is assigned a value but never used  no-unused-vars
-
-ERROR in [eslint] 
-src/components/UnifiedEmulator.js
-  Line 81:30:  'setActiveToolType' is not defined  no-undef
-
-Search for the keywords to learn more about each error.
-
-webpack compiled with 1 error and 1 warning
-(node:47525) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+Something is already running on port 3001.

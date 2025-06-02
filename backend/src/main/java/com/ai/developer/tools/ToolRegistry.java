@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.ApplicationContext;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,12 @@ public class ToolRegistry {
     
     public List<Tool> getAllTools() {
         return new ArrayList<>(tools.values());
+    }
+    
+    public List<String> getToolNames() {
+        return tools.values().stream()
+                .map(Tool::getName)
+                .collect(Collectors.toList());
     }
     
     public Flux<ToolOutput> executeTool(String name, Map<String, Object> arguments) {

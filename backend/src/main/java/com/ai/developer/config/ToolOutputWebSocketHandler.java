@@ -1,6 +1,7 @@
 package com.ai.developer.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -12,7 +13,14 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
     
     private final ConcurrentHashMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
+    
+    public ToolOutputWebSocketHandler() {
+        this.objectMapper = new ObjectMapper();
+        // Register JavaTimeModule to handle Java 8 date/time types
+        this.objectMapper.registerModule(new JavaTimeModule());
+        log.info("ToolOutputWebSocketHandler initialized with JavaTimeModule for Java 8 date/time support");
+    }
     
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {

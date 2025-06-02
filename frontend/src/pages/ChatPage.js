@@ -148,7 +148,8 @@ const ChatPage = () => {
     }
   }, [storeError, clearError]);
   
-  // Issue #5 Fix: Enhanced message submission with multiple fallback methods
+  // FIXED: Modified message submission to prioritize REST API over WebSocket
+  // This ensures all prompts are properly processed by the backend's ChatService
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     
@@ -176,33 +177,18 @@ const ChatPage = () => {
     setIsProcessing(true);
     
     try {
-      // Method 1: Try WebSocket first if connected
-      if (wsConnected) {
-        console.log('Attempting WebSocket message send...');
-        const wsMessage = {
-          type: 'chat_message',
-          sessionId: sessionId,
-          content: messageText,
-          timestamp: new Date().toISOString()
-        };
-        
-        const sent = wsSendMessage(JSON.stringify(wsMessage));
-        if (sent) {
-          // Add user message to chat immediately
-          addMessage({
-            role: 'user',
-            content: messageText,
-            timestamp: new Date().toISOString()
-          });
-          console.log('Message sent via WebSocket');
-          return;
-        } else {
-          console.warn('WebSocket send failed, falling back to HTTP...');
-        }
-      }
+      // FIXED: Always use HTTP REST API as primary method
+      // This ensures the backend's ChatService.processMessage is always called
+      console.log('Using HTTP REST API for message submission...');
       
-      // Method 2: Fallback to HTTP streaming
-      console.log('Using HTTP streaming fallback...');
+      // Add user message to chat immediately
+      addMessage({
+        role: 'user',
+        content: messageText,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Send via REST API
       const cleanup = await sendChatMessage(messageText);
       
       if (cleanup) {
@@ -210,6 +196,18 @@ const ChatPage = () => {
         window._currentChatCleanup = cleanup;
       }
       
+      // Only use WebSocket for notifications, not for primary message submission
+      if (wsConnected) {
+        // Send a notification via WebSocket that a message was submitted
+        const wsNotification = {
+          type: 'notification',
+          action: 'message_submitted',
+          sessionId: sessionId,
+          timestamp: new Date().toISOString()
+        };
+        
+        wsSendMessage(JSON.stringify(wsNotification));
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       setError(`Failed to send message: ${error.message}`);

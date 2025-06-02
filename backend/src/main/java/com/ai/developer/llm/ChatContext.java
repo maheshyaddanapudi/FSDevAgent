@@ -10,6 +10,7 @@ import java.util.List;
 public class ChatContext {
     private final List<Message> messages = new ArrayList<>();
     private String sessionId;
+    private String systemPrompt;
     
     public ChatContext() {
     }
@@ -18,12 +19,27 @@ public class ChatContext {
         return messages;
     }
     
+    public void setMessages(List<Message> messages) {
+        this.messages.clear();
+        if (messages != null) {
+            this.messages.addAll(messages);
+        }
+    }
+    
     public String getSessionId() {
         return sessionId;
     }
     
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
+    }
+    
+    public String getSystemPrompt() {
+        return systemPrompt;
+    }
+    
+    public void setSystemPrompt(String systemPrompt) {
+        this.systemPrompt = systemPrompt;
     }
     
     public static Builder builder() {
@@ -42,6 +58,11 @@ public class ChatContext {
         
         public Builder sessionId(String sessionId) {
             context.setSessionId(sessionId);
+            return this;
+        }
+        
+        public Builder systemPrompt(String systemPrompt) {
+            context.setSystemPrompt(systemPrompt);
             return this;
         }
         

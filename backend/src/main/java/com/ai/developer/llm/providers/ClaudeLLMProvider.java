@@ -14,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -55,8 +56,16 @@ public class ClaudeLLMProvider implements LLMProvider {
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
     private static final String CLAUDE_API_VERSION = "2023-06-01";
     
+    @Override
+    public String getProviderName() {
+        return "claude";
+    }
+    
     @PostConstruct
     public void init() {
+        // Register JavaTimeModule to handle Java 8 date/time types
+        this.objectMapper.registerModule(new JavaTimeModule());
+        
         this.webClient = WebClient.builder()
                 .baseUrl(CLAUDE_API_URL)
                 .defaultHeader("x-api-key", config.getApiKey())
@@ -356,13 +365,18 @@ public class ClaudeLLMProvider implements LLMProvider {
                                 contents.add(new ClaudeContent("text", message.getContent()));
                             }
                             
-                            // Add tool use content
+                            // Add tool use content - Updated to match Claude API schema
                             Map<String, Object> toolUse = new HashMap<>();
                             toolUse.put("id", message.getToolCall().getId());
                             toolUse.put("name", message.getToolCall().getName());
                             toolUse.put("input", message.getToolCall().getArguments());
                             
-                            contents.add(ClaudeContent.toolUse("tool_use", toolUse));
+                            // Create tool content with the required 'tool' field
+                            ClaudeContent toolContent = new ClaudeContent();
+                            toolContent.setType("tool_use");
+                            toolContent.setToolUse(toolUse);
+                            
+                            contents.add(toolContent);
                             assistantMessage.setContent(contents);
                         } else {
                             // Regular assistant message
@@ -376,12 +390,18 @@ public class ClaudeLLMProvider implements LLMProvider {
                         ClaudeMessage toolResultMessage = new ClaudeMessage();
                         toolResultMessage.setRole("user");
                         
+                        // Updated to match Claude API schema
                         Map<String, Object> toolResult = new HashMap<>();
                         toolResult.put("tool_use_id", message.getToolCallId());
                         toolResult.put("content", message.getContent());
                         
+                        // Create tool_result content with the required 'tool_result' field
+                        ClaudeContent toolResultContent = new ClaudeContent();
+                        toolResultContent.setType("tool_result");
+                        toolResultContent.setToolResult(toolResult);
+                        
                         List<ClaudeContent> contents = new ArrayList<>();
-                        contents.add(ClaudeContent.toolResult("tool_result", toolResult));
+                        contents.add(toolResultContent);
                         toolResultMessage.setContent(contents);
                         messages.add(toolResultMessage);
                         break;
@@ -598,30 +618,20 @@ public class ClaudeLLMProvider implements LLMProvider {
             
         } catch (Exception e) {
             log.error("Error processing completed tool use block: {}", e.getMessage(), e);
-            
-            // Reset state even on error
-            currentToolUseBlock.set(null);
-            toolInputJson.set(new StringBuilder());
-            
-            return Mono.just("Error processing tool use: " + e.getMessage());
+            return Mono.empty();
         }
     }
     
-    @Override
-    public String getProviderName() {
-        return "Claude (Anthropic API)";
-    }
-    
-    // Claude API request/response models
+    // Inner classes for Claude API request/response
     
     @Data
+    @Builder
     @NoArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @AllArgsConstructor
     public static class ClaudeRequest {
         private String model;
         private List<ClaudeMessage> messages;
         private String system;
-        @JsonProperty("max_tokens")
         private Integer maxTokens;
         private Double temperature;
         private Boolean stream;
@@ -630,6 +640,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
+    @AllArgsConstructor
     public static class ClaudeMessage {
         private String role;
         private List<ClaudeContent> content;
@@ -637,49 +648,35 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @AllArgsConstructor
     public static class ClaudeContent {
         private String type;
         private String text;
-        @JsonProperty("tool_use")
+        
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         private Map<String, Object> toolUse;
-        @JsonProperty("tool_result")
+        
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         private Map<String, Object> toolResult;
         
-        // Constructor for text content
         public ClaudeContent(String type, String text) {
             this.type = type;
             this.text = text;
-        }
-        
-        // Constructor for tool_use content
-        public static ClaudeContent toolUse(String type, Map<String, Object> toolUse) {
-            ClaudeContent content = new ClaudeContent();
-            content.type = type;
-            content.toolUse = toolUse;
-            return content;
-        }
-        
-        // Constructor for tool_result content  
-        public static ClaudeContent toolResult(String type, Map<String, Object> toolResult) {
-            ClaudeContent content = new ClaudeContent();
-            content.type = type;
-            content.toolResult = toolResult;
-            return content;
         }
     }
     
     @Data
     @NoArgsConstructor
+    @AllArgsConstructor
     public static class ClaudeTool {
         private String name;
         private String description;
-        @JsonProperty("input_schema")
         private ClaudeInputSchema inputSchema;
     }
     
     @Data
     @NoArgsConstructor
+    @AllArgsConstructor
     public static class ClaudeInputSchema {
         private String type;
         private Map<String, ClaudePropertySchema> properties;
@@ -688,6 +685,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
+    @AllArgsConstructor
     public static class ClaudePropertySchema {
         private String type;
         private String description;
@@ -695,20 +693,18 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
+    @AllArgsConstructor
     public static class ClaudeResponse {
         private String id;
         private String type;
-        private String model;
         private String role;
+        private String model;
         private List<ClaudeResponseContent> content;
-        @JsonProperty("stop_reason")
-        private String stopReason;
-        private Usage usage;
     }
     
     @Data
     @NoArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @AllArgsConstructor
     public static class ClaudeResponseContent {
         private String type;
         private String text;
@@ -719,78 +715,40 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @Data
     @NoArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @AllArgsConstructor
     public static class ClaudeStreamingResponse {
         private String type;
-        // Removed conflicting String message field
-        @JsonProperty("content_block")
-        private ContentBlock contentBlock;
-        private Delta delta;
-        private Integer index;
-        private Usage usage;
-        
-        // Add error field for error events
-        private Map<String, Object> error;
-        
-        // Single field for message data with proper annotation
-        @JsonProperty("message")
-        private MessageData messageData;
-        
-        // Generic field to catch any unmapped properties
-        @JsonProperty(value = "")
-        private Map<String, Object> additionalProperties = new HashMap<>();
+        private ClaudeMessageData messageData;
+        private ClaudeContentBlock contentBlock;
+        private ClaudeDelta delta;
+        private Map<String, Object> additionalProperties;
     }
     
     @Data
     @NoArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class MessageData {
+    @AllArgsConstructor
+    public static class ClaudeMessageData {
         private String id;
         private String model;
         private String role;
-        private List<ContentBlock> content;
-        @JsonProperty("stop_reason")
-        private String stopReason;
-        private Usage usage;
-        
-        // Generic field to catch any unmapped properties
-        @JsonProperty(value = "")
-        private Map<String, Object> additionalProperties = new HashMap<>();
     }
     
     @Data
     @NoArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class ContentBlock {
-        private String type;
-        private String text;
+    @AllArgsConstructor
+    public static class ClaudeContentBlock {
         private String id;
+        private String type;
         private String name;
-        private Map<String, Object> input;
     }
     
     @Data
     @NoArgsConstructor
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class Delta {
+    @AllArgsConstructor
+    public static class ClaudeDelta {
         private String type;
         private String text;
-        @JsonProperty("stop_reason")
-        private String stopReason;
-        @JsonProperty("partial_json")
         private String partialJson;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    public static class Usage {
-        @JsonProperty("input_tokens")
-        private Integer inputTokens;
-        @JsonProperty("output_tokens")
-        private Integer outputTokens;
-        @JsonProperty("cache_creation_input_tokens")
-        private Integer cacheCreationInputTokens;
-        @JsonProperty("cache_read_input_tokens")
-        private Integer cacheReadInputTokens;
+        private String stopReason;
     }
 }

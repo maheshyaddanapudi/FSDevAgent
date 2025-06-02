@@ -1,9 +1,5 @@
 package com.ai.developer.service;
 
-import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-
 import com.ai.developer.config.ToolOutputWebSocketHandler;
 import com.ai.developer.llm.ChatContext;
 import com.ai.developer.llm.LLMProvider;
@@ -16,87 +12,81 @@ import com.ai.developer.model.SessionResponse;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolOutput;
 import com.ai.developer.tools.ToolRegistry;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-@Slf4j
 @Service
+@Slf4j
 public class ChatService {
     
     private final LLMProvider llmProvider;
     private final ToolRegistry toolRegistry;
-    private final ToolOutputWebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper;
+    private final ToolOutputWebSocketHandler webSocketHandler;
     
-    // In-memory session storage
-    private final Map<String, ChatContext> sessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ChatContext> sessions = new ConcurrentHashMap<>();
     
-    // Pattern to match tool use blocks
+    // Pattern to match tool use blocks in LLM responses
     private static final Pattern TOOL_USE_PATTERN = Pattern.compile("<tool_use>(.*?)</tool_use>", Pattern.DOTALL);
     
-    @Autowired
-    public ChatService(
-            LLMProvider llmProvider,
-            ToolRegistry toolRegistry,
-            ToolOutputWebSocketHandler webSocketHandler,
-            ObjectMapper objectMapper) {
+    public ChatService(LLMProvider llmProvider, ToolRegistry toolRegistry, ObjectMapper objectMapper, ToolOutputWebSocketHandler webSocketHandler) {
         this.llmProvider = llmProvider;
         this.toolRegistry = toolRegistry;
-        this.webSocketHandler = webSocketHandler;
         this.objectMapper = objectMapper;
+        this.webSocketHandler = webSocketHandler;
         
         log.info("ChatService initialized with LLM provider: {}", llmProvider.getClass().getSimpleName());
-        log.info("Available tools: {}", toolRegistry.getAllTools().stream().map(Tool::getName).toList());
+        log.info("Available tools: {}", toolRegistry.getToolNames());
     }
     
     /**
-     * Create a new chat session
+     * Create a defensive copy of a chat context
+     */
+    private ChatContext createDefensiveCopy(ChatContext context) {
+        ChatContext copy = new ChatContext();
+        copy.setSystemPrompt(context.getSystemPrompt());
+        
+        List<Message> messagesCopy = new ArrayList<>();
+        for (Message message : context.getMessages()) {
+            messagesCopy.add(Message.builder()
+                    .role(message.getRole())
+                    .content(message.getContent())
+                    .toolCallId(message.getToolCallId())
+                    .toolCall(message.getToolCall())
+                    .timestamp(message.getTimestamp())
+                    .build());
+        }
+        
+        copy.setMessages(messagesCopy);
+        return copy;
+    }
+    
+    /**
+     * Create a new session
      */
     public Mono<SessionResponse> createSession() {
         String sessionId = UUID.randomUUID().toString();
+        log.info("Created new session: {}", sessionId);
+        
         ChatContext context = new ChatContext();
-        
-        // Add system message
-        StringBuilder systemPrompt = new StringBuilder();
-        systemPrompt.append("You are an AI Developer Agent, designed to help with coding, debugging, and development tasks.\n\n");
-        
-        // Add coding guidelines
-        systemPrompt.append("When writing code, follow these guidelines:\n");
-        systemPrompt.append("- **Be thorough**: Provide complete, working solutions\n");
-        systemPrompt.append("- **Add comments**: Include clear comments explaining complex logic\n");
-        systemPrompt.append("- **Follow best practices**: Use modern coding standards and patterns\n");
-        systemPrompt.append("- **Consider edge cases**: Handle errors and unexpected inputs\n");
-        systemPrompt.append("- **Test incrementally**: Use testing tools after each significant change\n");
-        
-        // Add specific tool usage instructions
-        systemPrompt.append("When you need to use a tool:\n");
-        systemPrompt.append("1. Clearly state which tool you're using and why\n");
-        systemPrompt.append("2. Format your tool use with <tool_use>{\"name\": \"tool_name\", \"input\": {\"param\": \"value\"}}</tool_use>\n");
-        systemPrompt.append("3. Wait for the tool execution results before proceeding\n");
-        systemPrompt.append("4. Interpret and explain the tool results to the user\n\n");
-        
-        systemPrompt.append("You should proactively suggest using tools when they would help solve the user's problem more effectively.");
-        
-        context.getMessages().add(Message.builder()
-                .role("system")
-                .content(systemPrompt.toString())
-                .timestamp(Instant.now())
-                .build());
+        context.setSystemPrompt("You are an AI Developer Agent, designed to help with coding, debugging, and using various development tools.");
+        context.setMessages(new ArrayList<>());
         
         sessions.put(sessionId, context);
-        log.info("Created new session: {}", sessionId);
         
         return Mono.just(SessionResponse.builder()
                 .sessionId(sessionId)
@@ -188,6 +178,9 @@ public class ChatService {
         // Log the current context
         log.debug("Current context for session {}: {} messages", sessionId, context.getMessages().size());
         
+        // ADDED DEBUG LOGGING: Log that we're about to call the LLM provider
+        log.info("Calling LLM provider for session {}", sessionId);
+        
         // Get streaming response from LLM using reactive API
         final StringBuilder responseBuilder = new StringBuilder();
         
@@ -195,15 +188,27 @@ public class ChatService {
         return llmProvider.streamResponse(message, context)
             .doOnNext(chunk -> {
                 responseBuilder.append(chunk);
-                log.debug("Received chunk: {}", chunk);
+                // ADDED DEBUG LOGGING: Log each chunk received from LLM
+                log.debug("Received chunk from LLM: {}", chunk);
                 
                 // Update the assistant's message in the context
                 updateAssistantMessage(context, chunk);
+            })
+            .doOnComplete(() -> {
+                // ADDED DEBUG LOGGING: Log completion of LLM response
+                log.info("LLM response completed for session {}", sessionId);
+            })
+            .doOnError(error -> {
+                // ADDED DEBUG LOGGING: Log any errors during LLM invocation
+                log.error("Error during LLM invocation for session {}: {}", sessionId, error.getMessage(), error);
             })
             .collectList()
             .flatMapMany(chunks -> {
                 // Combine all chunks into a single response
                 String llmResponse = responseBuilder.toString();
+                
+                // ADDED DEBUG LOGGING: Log the complete LLM response
+                log.info("Complete LLM response for session {}: {}", sessionId, llmResponse);
                 
                 // Process the response for tool use blocks
                 return processResponseForToolUse(sessionId, context, llmResponse);
@@ -214,6 +219,9 @@ public class ChatService {
      * Process a response for tool use blocks
      */
     private Flux<ChatResponse> processResponseForToolUse(String sessionId, ChatContext context, String response) {
+        // ADDED DEBUG LOGGING: Log that we're checking for tool use blocks
+        log.info("Checking for tool use blocks in response for session {}", sessionId);
+        
         // Check if the response contains tool use blocks
         Matcher matcher = TOOL_USE_PATTERN.matcher(response);
         if (matcher.find()) {
@@ -238,9 +246,15 @@ public class ChatService {
                         .timestamp(Instant.now())
                         .build();
                 
+                // ADDED DEBUG LOGGING: Log that we're handling the tool use
+                log.info("Handling tool use for tool {} in session {}", toolUseBlock.getName(), sessionId);
+                
                 // Handle the tool use in a non-blocking way and chain the result
                 return handleToolUse(sessionId, toolUseBlock)
                         .flatMapMany(toolResult -> {
+                            // ADDED DEBUG LOGGING: Log the tool result
+                            log.info("Tool {} execution completed for session {}: {}", toolUseBlock.getName(), sessionId, toolResult);
+                            
                             // Create the tool result response
                             ChatResponse toolResponse = ChatResponse.builder()
                                     .sessionId(sessionId)
@@ -272,6 +286,9 @@ public class ChatService {
                         .build());
             }
         } else {
+            // ADDED DEBUG LOGGING: Log that no tool use blocks were found
+            log.info("No tool use blocks found in response for session {}", sessionId);
+            
             // No tool use blocks, just return the response
             return Flux.just(ChatResponse.builder()
                     .sessionId(sessionId)
@@ -393,10 +410,16 @@ public class ChatService {
             context.getMessages().add(toolCallMessage);
             log.info("Added tool call message to context for tool: {}", toolUseBlock.getName());
             
+            // ADDED DEBUG LOGGING: Log that we're about to execute the tool
+            log.info("Executing tool {} for session {} with arguments: {}", toolUseBlock.getName(), sessionId, inputMap);
+            
             // Execute the tool and collect results in a non-blocking way
             return executeToolCall(sessionId, toolUseBlock.getName(), inputMap)
                     .collectList()
                     .flatMap(outputs -> {
+                        // ADDED DEBUG LOGGING: Log that tool execution is complete
+                        log.info("Tool {} execution completed for session {} with {} outputs", toolUseBlock.getName(), sessionId, outputs != null ? outputs.size() : 0);
+                        
                         // Combine all outputs into a single string
                         StringBuilder result = new StringBuilder();
                         if (outputs != null) {
@@ -452,9 +475,15 @@ public class ChatService {
         String toolCallId = UUID.randomUUID().toString();
         
         try {
+            // ADDED DEBUG LOGGING: Log that we're about to execute the tool
+            log.info("Executing tool {} with registry for session {}", toolName, sessionId);
+            
             // Execute the tool and collect results
             return toolRegistry.executeTool(toolName, arguments)
                     .doOnNext(output -> {
+                        // ADDED DEBUG LOGGING: Log each tool output
+                        log.debug("Tool {} output for session {}: {}", toolName, sessionId, output);
+                        
                         // Send tool output to WebSocket
                         try {
                             Map<String, Object> toolOutput = new HashMap<>();
@@ -471,27 +500,18 @@ public class ChatService {
                         } catch (Exception e) {
                             log.error("Error broadcasting tool output: {}", e.getMessage(), e);
                         }
+                    })
+                    .doOnComplete(() -> {
+                        // ADDED DEBUG LOGGING: Log completion of tool execution
+                        log.info("Tool {} execution completed for session {}", toolName, sessionId);
+                    })
+                    .doOnError(error -> {
+                        // ADDED DEBUG LOGGING: Log any errors during tool execution
+                        log.error("Error during tool {} execution for session {}: {}", toolName, sessionId, error.getMessage(), error);
                     });
         } catch (Exception e) {
             log.error("Error executing tool: {}", e.getMessage(), e);
             return Flux.error(e);
         }
-    }
-    
-    private ChatContext createDefensiveCopy(ChatContext original) {
-        ChatContext copy = new ChatContext();
-        
-        // Deep copy messages
-        for (Message message : original.getMessages()) {
-            copy.getMessages().add(Message.builder()
-                    .role(message.getRole())
-                    .content(message.getContent())
-                    .toolCallId(message.getToolCallId())
-                    .toolCall(message.getToolCall())
-                    .timestamp(message.getTimestamp())
-                    .build());
-        }
-        
-        return copy;
     }
 }
