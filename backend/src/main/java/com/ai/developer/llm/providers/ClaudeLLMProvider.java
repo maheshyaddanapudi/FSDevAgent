@@ -219,6 +219,8 @@ public class ClaudeLLMProvider implements LLMProvider {
             // Track the current tool use block being built
             AtomicReference<ToolUseBlock> currentToolUseBlock = new AtomicReference<>(null);
             AtomicReference<StringBuilder> toolInputJson = new AtomicReference<>(new StringBuilder());
+            // Track if we've detected a tool use in this response
+            AtomicReference<String> toolUseMarker = new AtomicReference<>(null);
             
             return webClient.post()
                     .body(BodyInserters.fromValue(requestJson))
@@ -285,15 +287,38 @@ public class ClaudeLLMProvider implements LLMProvider {
                                                 return handleContentBlockDelta(streamingResponse, currentToolUseBlock, toolInputJson);
                                                 
                                             case "content_block_stop":
-                                                return handleContentBlockStop(streamingResponse, currentToolUseBlock, toolInputJson);
+                                                Mono<String> result = handleContentBlockStop(streamingResponse, currentToolUseBlock, toolInputJson);
+                                                // Store the tool use marker if one is emitted
+                                                result.subscribe(marker -> {
+                                                    if (marker != null && marker.contains("<tool_use>")) {
+                                                        log.info("Storing tool use marker for final response: {}", marker);
+                                                        toolUseMarker.set(marker);
+                                                    }
+                                                });
+                                                return result;
                                                 
                                             case "message_delta":
                                                 log.debug("Message delta event: {}", streamingResponse.getDelta() != null ? 
                                                          streamingResponse.getDelta().getStopReason() : "no delta");
+                                                // Check if this is the final message delta with stop_reason=tool_use
+                                                if (streamingResponse.getDelta() != null && 
+                                                    "tool_use".equals(streamingResponse.getDelta().getStopReason()) &&
+                                                    toolUseMarker.get() != null) {
+                                                    // Return the stored tool use marker at the end of the message
+                                                    log.info("Returning stored tool use marker at message end: {}", toolUseMarker.get());
+                                                    return Mono.just(toolUseMarker.get());
+                                                }
                                                 return Mono.empty();
                                                 
                                             case "message_stop":
                                                 log.debug("Message stop event received");
+                                                // If we have a stored tool use marker and haven't emitted it yet, do so now
+                                                if (toolUseMarker.get() != null) {
+                                                    log.info("Returning stored tool use marker at message stop: {}", toolUseMarker.get());
+                                                    String marker = toolUseMarker.get();
+                                                    toolUseMarker.set(null); // Clear it to avoid duplicate emission
+                                                    return Mono.just(marker);
+                                                }
                                                 return Mono.empty();
                                                 
                                             case "ping":
@@ -313,6 +338,11 @@ public class ClaudeLLMProvider implements LLMProvider {
                                         log.error("Error processing streaming chunk: {} - Chunk: {}", e.getMessage(), rawChunk, e);
                                         return Mono.empty(); // Continue processing other chunks
                                     }
+                                })
+                                // Add a final step to ensure tool use marker is included
+                                .doOnComplete(() -> {
+                                    log.info("Streaming response complete, tool use marker state: {}", 
+                                             toolUseMarker.get() != null ? "present" : "not present");
                                 });
                         } else {
                             return response.bodyToMono(String.class)
@@ -512,10 +542,22 @@ public class ClaudeLLMProvider implements LLMProvider {
                     .input(new HashMap<String, Object>())
                     .build();
                 
-                // Store the current tool use block and reset JSON accumulator
+                // Store the tool use block in the atomic reference
                 currentToolUseBlock.set(toolUseBlock);
+                
+                // Reset the tool input JSON builder
                 toolInputJson.set(new StringBuilder());
-                break;
+                
+                log.debug("Tool use block initialized: {}", toolUseBlock);
+                
+                // Return a preliminary tool use marker to ensure it's captured in the response
+                try {
+                    String preliminaryToolUseJson = objectMapper.writeValueAsString(toolUseBlock);
+                    return Mono.just("<tool_use_start>" + preliminaryToolUseJson + "</tool_use_start>");
+                } catch (Exception e) {
+                    log.error("Error creating preliminary tool use marker: {}", e.getMessage());
+                    return Mono.empty();
+                }
                 
             case "text":
                 log.debug("Starting text block");
@@ -625,11 +667,14 @@ public class ClaudeLLMProvider implements LLMProvider {
                 
                 // Return a special marker with the tool use information
                 // The EVENT: prefix signals to the frontend this is a special event
-                return Mono.just("EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>");
+                // Make the tool use marker more explicit and ensure it's properly formatted for detection
+                String toolUseMarker = "EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>";
+                log.info("Emitting tool use marker with EVENT:toolCall prefix: {}", toolUseMarker);
+                return Mono.just(toolUseMarker);
             } catch (Exception e) {
                 log.error("Error creating tool call event: {}", e.getMessage());
-                // Fall back to just the tool use marker
-                return Mono.just("<tool_use>" + toolUseJson + "</tool_use>");
+                // Fallback to include both markers even in error case
+                return Mono.just("EVENT:toolCall:{\"id\":\"" + toolUseBlock.getId() + "\",\"name\":\"" + toolUseBlock.getName() + "\"}\n<tool_use>" + toolUseJson + "</tool_use>");
             }
             
         } catch (Exception e) {
