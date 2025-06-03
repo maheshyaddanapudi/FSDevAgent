@@ -14,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -63,8 +64,9 @@ public class ClaudeLLMProvider implements LLMProvider {
     
     @PostConstruct
     public void init() {
-        // Register JavaTimeModule to handle Java 8 date/time types
+        // Register JavaTimeModule and configure snake_case naming for proper Claude API compatibility
         this.objectMapper.registerModule(new JavaTimeModule());
+        this.objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
         
         this.webClient = WebClient.builder()
                 .baseUrl(CLAUDE_API_URL)
@@ -73,8 +75,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                 .defaultHeader("content-type", "application/json")
                 .filter(logRequest())
                 .filter(logResponse())
-                .build();
-                
+                .build();        
         // Fix for StringIndexOutOfBoundsException - safely handle null or empty API key
         String apiKeyDisplay = "not set";
         if (config.getApiKey() != null && !config.getApiKey().isEmpty()) {
@@ -513,6 +514,9 @@ public class ClaudeLLMProvider implements LLMProvider {
     private Mono<String> handleContentBlockStart(ClaudeStreamingResponse response, 
                                                AtomicReference<ToolUseBlock> currentToolUseBlock,
                                                AtomicReference<StringBuilder> toolInputJson) {
+        log.info("DIAGNOSTIC: handleContentBlockStart called, current tool use block state: {}", 
+                 currentToolUseBlock.get() != null ? "present" : "null");
+                 
         if (response.getContentBlock() == null) {
             log.warn("Content block start event missing content block data");
             return Mono.empty();
@@ -548,16 +552,10 @@ public class ClaudeLLMProvider implements LLMProvider {
                 // Reset the tool input JSON builder
                 toolInputJson.set(new StringBuilder());
                 
-                log.debug("Tool use block initialized: {}", toolUseBlock);
+                log.info("Tool use block initialized: {}", toolUseBlock);
                 
-                // Return a preliminary tool use marker to ensure it's captured in the response
-                try {
-                    String preliminaryToolUseJson = objectMapper.writeValueAsString(toolUseBlock);
-                    return Mono.just("<tool_use_start>" + preliminaryToolUseJson + "</tool_use_start>");
-                } catch (Exception e) {
-                    log.error("Error creating preliminary tool use marker: {}", e.getMessage());
-                    return Mono.empty();
-                }
+                // Don't return any preliminary marker - wait for content_block_stop
+                return Mono.empty();
                 
             case "text":
                 log.debug("Starting text block");
@@ -593,7 +591,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                 }
                 break;
                 
-            case "input_json_delta":
+            case "input_json_delta":  // Handle the correct delta type for tool input
                 // Handle tool input JSON accumulation
                 log.debug("Accumulating tool input JSON delta");
                 if (response.getDelta().getPartialJson() != null) {
@@ -667,10 +665,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                 
                 // Return a special marker with the tool use information
                 // The EVENT: prefix signals to the frontend this is a special event
-                // Make the tool use marker more explicit and ensure it's properly formatted for detection
-                String toolUseMarker = "EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>";
-                log.info("Emitting tool use marker with EVENT:toolCall prefix: {}", toolUseMarker);
-                return Mono.just(toolUseMarker);
+                return Mono.just("EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>");
             } catch (Exception e) {
                 log.error("Error creating tool call event: {}", e.getMessage());
                 // Fallback to include both markers even in error case
