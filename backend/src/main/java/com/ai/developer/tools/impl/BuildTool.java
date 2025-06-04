@@ -27,18 +27,21 @@ public class BuildTool implements Tool {
         Map<String, ParameterInfo> params = new HashMap<>();
         
         params.put("tool", ParameterInfo.builder()
+            .name("tool")
             .type("string")
             .description("Build tool: maven or gradle")
             .required(true)
             .build());
             
         params.put("projectPath", ParameterInfo.builder()
+            .name("projectPath")
             .type("string")
             .description("Path to project")
             .required(true)
             .build());
             
         params.put("goals", ParameterInfo.builder()
+            .name("goals")
             .type("array")
             .description("Build goals/tasks to execute")
             .required(true)

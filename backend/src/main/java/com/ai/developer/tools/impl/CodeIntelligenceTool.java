@@ -36,18 +36,21 @@ public class CodeIntelligenceTool implements Tool {
         Map<String, ParameterInfo> params = new HashMap<>();
         
         params.put("operation", ParameterInfo.builder()
+            .name("operation")
             .type("string")
             .description("Operation: analyze, find_methods, find_classes, extract_javadoc")
             .required(true)
             .build());
             
         params.put("path", ParameterInfo.builder()
+            .name("path")
             .type("string")
             .description("File or directory path")
             .required(true)
             .build());
             
         params.put("query", ParameterInfo.builder()
+            .name("query")
             .type("string")
             .description("Search query or pattern")
             .required(false)
