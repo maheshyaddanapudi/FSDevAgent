@@ -32,30 +32,35 @@ public class GitTool implements Tool {
         Map<String, ParameterInfo> params = new HashMap<>();
         
         params.put("operation", ParameterInfo.builder()
+            .name("operation")
             .type("string")
             .description("Operation: init, clone, add, commit, push, pull, status, log, branch")
             .required(true)
             .build());
             
         params.put("path", ParameterInfo.builder()
+            .name("path")
             .type("string")
             .description("Repository path")
             .required(true)
             .build());
             
         params.put("message", ParameterInfo.builder()
+            .name("message")
             .type("string")
             .description("Commit message")
             .required(false)
             .build());
             
         params.put("url", ParameterInfo.builder()
+            .name("url")
             .type("string")
             .description("Remote repository URL")
             .required(false)
             .build());
             
         params.put("branch", ParameterInfo.builder()
+            .name("branch")
             .type("string")
             .description("Branch name")
             .required(false)

@@ -28,18 +28,21 @@ public class FileSystemTool implements Tool {
         Map<String, ParameterInfo> params = new HashMap<>();
         
         params.put("operation", ParameterInfo.builder()
+            .name("operation")
             .type("string")
             .description("Operation: read, write, append, list, delete")
             .required(true)
             .build());
             
         params.put("path", ParameterInfo.builder()
+            .name("path")
             .type("string")
             .description("File or directory path")
             .required(true)
             .build());
             
         params.put("content", ParameterInfo.builder()
+            .name("content")
             .type("string")
             .description("Content to write (for write/append operations)")
             .required(false)
