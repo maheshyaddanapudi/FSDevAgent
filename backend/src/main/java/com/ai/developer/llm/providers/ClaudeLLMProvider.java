@@ -382,7 +382,20 @@ public class ClaudeLLMProvider implements LLMProvider {
                 cleanedMessages.add(simplifiedMsg);
                 
                 log.debug("Simplified assistant tool call message in history");
-            } else {
+            } 
+            // For tool messages (tool results), simplify them in history
+            else if ("tool".equals(msg.getRole())) {
+                // Replace with a simple user message containing the tool result
+                Message simplifiedMsg = Message.builder()
+                        .role("user")
+                        .content("Tool result: " + msg.getContent())
+                        .timestamp(msg.getTimestamp())
+                        .build();
+                cleanedMessages.add(simplifiedMsg);
+                
+                log.debug("Simplified tool result message in history");
+            } 
+            else {
                 cleanedMessages.add(msg);
             }
         }
