@@ -363,13 +363,42 @@ public class ClaudeLLMProvider implements LLMProvider {
         }
     }
     
+    // Add method to clean conversation history
+    private List<Message> cleanConversationHistory(List<Message> originalMessages) {
+        List<Message> cleanedMessages = new ArrayList<>();
+        
+        for (int i = 0; i < originalMessages.size(); i++) {
+            Message msg = originalMessages.get(i);
+            
+            // For assistant messages with tool calls, simplify them in history
+            if ("assistant".equals(msg.getRole()) && msg.getToolCall() != null) {
+                // Replace with a simple text message
+                Message simplifiedMsg = Message.builder()
+                        .role("assistant")
+                        .content(msg.getContent() != null ? msg.getContent() : 
+                                "I used the " + msg.getToolCall().getName() + " tool.")
+                        .timestamp(msg.getTimestamp())
+                        .build();
+                cleanedMessages.add(simplifiedMsg);
+                
+                log.debug("Simplified assistant tool call message in history");
+            } else {
+                cleanedMessages.add(msg);
+            }
+        }
+        
+        return cleanedMessages;
+    }
+    
     private ClaudeRequest buildClaudeRequest(String prompt, ChatContext context, boolean stream) {
         List<ClaudeMessage> messages = new ArrayList<>();
         String systemPrompt = "You are an AI Developer Agent, designed to help with coding, debugging, and development tasks. Use tools when appropriate to help solve problems.";
         
         // Convert the context messages to Claude format
         if (context != null && context.getMessages() != null) {
-            for (Message message : context.getMessages()) {
+            // Use the cleaned history instead of the original messages
+            List<Message> cleanedMessages = cleanConversationHistory(context.getMessages());
+            for (Message message : cleanedMessages) {
                 switch (message.getRole()) {
                     case "system":
                         // System messages go into the top-level system field, not in messages array
