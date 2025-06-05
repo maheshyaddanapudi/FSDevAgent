@@ -9,4 +9,5 @@ import java.time.Instant;
 public class SessionResponse {
     private String sessionId;
     private Instant createdAt;
+    private String workspace;
 }

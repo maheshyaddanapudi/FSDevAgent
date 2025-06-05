@@ -1,5 +1,8 @@
 package com.ai.developer.llm;
 
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -10,6 +13,7 @@ import java.util.Map;
  * Represents a chat context containing messages and other information.
  * This class is used to store the conversation history and context for LLM interactions.
  * Enhanced to support multi-turn conversations with better context management.
+ * Added flexible workspace directory support for session isolation with dynamic subdirectories.
  */
 public class ChatContext {
     private final List<Message> messages = new ArrayList<>();
@@ -18,8 +22,118 @@ public class ChatContext {
     private Map<String, Object> metadata = new HashMap<>();
     private int maxContextSize = 20; // Default max number of messages to keep
     private Instant lastUpdated = Instant.now();
+    private String workspaceDirectory;
+    private Map<String, String> taskDirectories = new HashMap<>();
     
     public ChatContext() {
+    }
+    
+    /**
+     * Constructor with sessionId
+     * @param sessionId Session ID to initialize with
+     */
+    public ChatContext(String sessionId) {
+        this.sessionId = sessionId;
+        this.workspaceDirectory = "/tmp/ai-developer-agent/" + sessionId + "/";
+        // Create workspace directory
+        createWorkspaceDirectory();
+    }
+    
+    /**
+     * Create the workspace directory if it doesn't exist
+     */
+    private void createWorkspaceDirectory() {
+        if (workspaceDirectory != null) {
+            File workspace = new File(workspaceDirectory);
+            if (!workspace.exists()) {
+                workspace.mkdirs();
+            }
+        }
+    }
+    
+    /**
+     * Create a task subdirectory within the workspace
+     * @param taskName Name of the task
+     * @return Path to the task directory
+     */
+    public String createTaskDirectory(String taskName) {
+        if (workspaceDirectory == null || taskName == null || taskName.isEmpty()) {
+            return null;
+        }
+        
+        // Sanitize task name for directory use
+        String sanitizedTaskName = taskName.replaceAll("[^a-zA-Z0-9-_]", "_");
+        
+        // Create task directory path
+        String taskDir = workspaceDirectory + sanitizedTaskName + "/";
+        File taskDirectory = new File(taskDir);
+        if (!taskDirectory.exists()) {
+            taskDirectory.mkdirs();
+        }
+        
+        // Store task directory mapping
+        taskDirectories.put(taskName, taskDir);
+        
+        return taskDir;
+    }
+    
+    /**
+     * Get a task directory path
+     * @param taskName Name of the task
+     * @return Path to the task directory or null if not found
+     */
+    public String getTaskDirectory(String taskName) {
+        return taskDirectories.get(taskName);
+    }
+    
+    /**
+     * Get all task directories
+     * @return Map of task names to directory paths
+     */
+    public Map<String, String> getTaskDirectories() {
+        return new HashMap<>(taskDirectories);
+    }
+    
+    /**
+     * Resolve a path relative to the workspace directory
+     * @param relativePath Path relative to workspace directory
+     * @return Absolute path
+     */
+    public String resolvePath(String relativePath) {
+        if (workspaceDirectory == null || relativePath == null) {
+            return relativePath;
+        }
+        
+        // If already absolute, return as is
+        if (new File(relativePath).isAbsolute()) {
+            return relativePath;
+        }
+        
+        // Remove leading slash if present
+        if (relativePath.startsWith("/")) {
+            relativePath = relativePath.substring(1);
+        }
+        
+        // Combine with workspace directory
+        Path resolvedPath = Paths.get(workspaceDirectory, relativePath);
+        return resolvedPath.toString();
+    }
+    
+    /**
+     * Get the workspace directory
+     * @return Workspace directory path
+     */
+    public String getWorkspaceDirectory() {
+        return workspaceDirectory;
+    }
+    
+    /**
+     * Set the workspace directory
+     * @param workspaceDirectory Workspace directory path to set
+     */
+    public void setWorkspaceDirectory(String workspaceDirectory) {
+        this.workspaceDirectory = workspaceDirectory;
+        createWorkspaceDirectory();
     }
     
     /**
@@ -106,6 +220,12 @@ public class ChatContext {
      */
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
+        
+        // Update workspace directory if session ID changes
+        if (this.workspaceDirectory == null || !this.workspaceDirectory.contains(sessionId)) {
+            this.workspaceDirectory = "/tmp/ai-developer-agent/" + sessionId + "/";
+            createWorkspaceDirectory();
+        }
     }
     
     /**
@@ -273,6 +393,11 @@ public class ChatContext {
         
         public Builder maxContextSize(int maxContextSize) {
             context.setMaxContextSize(maxContextSize);
+            return this;
+        }
+        
+        public Builder workspaceDirectory(String workspaceDirectory) {
+            context.setWorkspaceDirectory(workspaceDirectory);
             return this;
         }
         

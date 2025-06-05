@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.File;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
 /**
  * Service for handling chat interactions.
  * Enhanced to support multi-turn conversations and agentic framework.
+ * Updated to support workspace directory strategy for session isolation.
  */
 @Service
 @Slf4j
@@ -60,6 +62,9 @@ public class ChatService {
     // Default max context size
     private static final int DEFAULT_MAX_CONTEXT_SIZE = 20;
     
+    // Base workspace directory
+    private static final String BASE_WORKSPACE_DIR = "/tmp/ai-developer-agent/";
+    
     public ChatService(LLMProvider llmProvider, ToolRegistry toolRegistry, ObjectMapper objectMapper, ToolOutputWebSocketHandler webSocketHandler) {
         this.llmProvider = llmProvider;
         this.toolRegistry = toolRegistry;
@@ -69,8 +74,25 @@ public class ChatService {
         log.info("ChatService initialized with LLM provider: {}", llmProvider.getClass().getSimpleName());
         log.info("Available tools: {}", toolRegistry.getToolNames());
         
+        // Create base workspace directory if it doesn't exist
+        createBaseWorkspaceDirectory();
+        
         // Start session cleanup task
         startSessionCleanupTask();
+    }
+    
+    /**
+     * Create the base workspace directory if it doesn't exist
+     */
+    private void createBaseWorkspaceDirectory() {
+        File baseDir = new File(BASE_WORKSPACE_DIR);
+        if (!baseDir.exists()) {
+            if (baseDir.mkdirs()) {
+                log.info("Created base workspace directory: {}", BASE_WORKSPACE_DIR);
+            } else {
+                log.error("Failed to create base workspace directory: {}", BASE_WORKSPACE_DIR);
+            }
+        }
     }
     
     /**
@@ -126,6 +148,7 @@ public class ChatService {
         copy.setSystemPrompt(context.getSystemPrompt());
         copy.setSessionId(context.getSessionId());
         copy.setMaxContextSize(context.getMaxContextSize());
+        copy.setWorkspaceDirectory(context.getWorkspaceDirectory());
         
         // Copy messages
         List<Message> messagesCopy = new ArrayList<>();
@@ -163,9 +186,11 @@ public class ChatService {
         String sessionId = UUID.randomUUID().toString();
         log.info("Created new session: {}", sessionId);
         
-        ChatContext context = new ChatContext();
-        context.setSessionId(sessionId);
-        context.setSystemPrompt("You are an AI Developer Agent, designed to help with coding, debugging, and using various development tools.");
+        ChatContext context = new ChatContext(sessionId);
+        context.setSystemPrompt("You are an AI Developer Agent, designed to help with coding, debugging, and using various development tools. " +
+                "You have access to a workspace directory at " + context.getWorkspaceDirectory() + " where you can create and organize files. " +
+                "You can create task-specific subdirectories within this workspace for better organization. " +
+                "Use the workspace for all file operations and command executions to maintain session isolation.");
         context.setMessages(new ArrayList<>());
         context.setMaxContextSize(DEFAULT_MAX_CONTEXT_SIZE);
         
@@ -177,6 +202,7 @@ public class ChatService {
         metadata.put("preferredLanguages", List.of(
             "java", "javascript", "python", "typescript"
         ));
+        metadata.put("workspace", context.getWorkspaceDirectory());
         context.setMetadata(metadata);
         
         // Store the session
@@ -186,6 +212,7 @@ public class ChatService {
         return Mono.just(SessionResponse.builder()
                 .sessionId(sessionId)
                 .createdAt(Instant.now())
+                .workspace(context.getWorkspaceDirectory())
                 .build());
     }
     
@@ -374,6 +401,12 @@ public class ChatService {
         // Process references in the message
         String processedMessage = processReferences(message, context);
         
+        // Add workspace information to the message if not already present
+        if (!processedMessage.contains("workspace") && context.getWorkspaceDirectory() != null) {
+            processedMessage = processedMessage + "\n\nYou have access to a workspace directory at " + 
+                context.getWorkspaceDirectory() + " for file operations and command executions.";
+        }
+        
         // Add user message to context
         context.addMessage(Message.builder()
                 .role("user")
@@ -381,414 +414,268 @@ public class ChatService {
                 .timestamp(Instant.now())
                 .build());
         
-        // Log the current context
-        log.debug("Current context for session {}: {} messages", sessionId, context.getMessages().size());
-        
-        // ADDED DEBUG LOGGING: Log that we're about to call the LLM provider
-        log.info("Calling LLM provider for session {}", sessionId);
-        
-        // Get streaming response from LLM using reactive API
-        final StringBuilder responseBuilder = new StringBuilder();
-        
-        // Process the streaming response
+        // Get response from LLM provider
         return llmProvider.streamResponse(processedMessage, context)
-            .doOnNext(chunk -> {
-                responseBuilder.append(chunk);
-                // ADDED DEBUG LOGGING: Log each chunk received from LLM
-                log.debug("Received chunk from LLM: {}", chunk);
-                
-                // Update the assistant's message in the context
-                updateAssistantMessage(context, chunk);
-            })
-            .doOnComplete(() -> {
-                // ADDED DEBUG LOGGING: Log completion of LLM response
-                log.info("LLM response completed for session {}", sessionId);
-            })
-            .doOnError(error -> {
-                // ADDED DEBUG LOGGING: Log any errors during LLM invocation
-                log.error("Error during LLM invocation for session {}: {}", sessionId, error.getMessage(), error);
-            })
-            .collectList()
-            .flatMapMany(chunks -> {
-                // Combine all chunks into a single response
-                String llmResponse = responseBuilder.toString();
-                
-                // ADDED DEBUG LOGGING: Log the complete LLM response
-                log.info("Complete LLM response for session {}: {}", sessionId, llmResponse);
-                
-                // Process the response for tool use blocks
-                return processResponseForToolUse(sessionId, context, llmResponse);
-            });
-    }
-    
-    /**
-     * Process a response for tool use blocks
-     */
-    private Flux<ChatResponse> processResponseForToolUse(String sessionId, ChatContext context, String response) {
-        // ADDED DEBUG LOGGING: Log that we're checking for tool use blocks
-        log.info("Checking for tool use blocks in response for session {}", sessionId);
-        
-        // Check for special EVENT: prefixed messages
-        if (response.startsWith("EVENT:")) {
-            log.info("Found special event in response: {}", response.substring(0, Math.min(50, response.length())));
-            
-            // Extract event type and payload
-            String[] parts = response.split(":", 3);
-            if (parts.length >= 3) {
-                String eventType = parts[1];
-                String eventPayload = parts[2];
-                
-                // Handle different event types
-                if ("toolCall".equals(eventType)) {
-                    log.info("Processing toolCall event: {}", eventPayload);
-                    try {
-                        // Parse the tool call JSON
-                        ToolCall toolCall = objectMapper.readValue(eventPayload, ToolCall.class);
-                        
-                        // Create the initial response with the tool call
-                        ChatResponse initialResponse = ChatResponse.builder()
-                                .sessionId(sessionId)
-                                .role("assistant")
-                                .message("I'll use the " + toolCall.getName() + " tool to help with this.")
-                                .toolCall(ToolCallResponse.builder()
-                                        .name(toolCall.getName())
-                                        .arguments(objectMapper.convertValue(toolCall.getArguments(), Map.class))
-                                        .build())
-                                .timestamp(Instant.now())
-                                .build();
-                        
-                        // Extract the tool use block from the remaining response
-                        String remainingResponse = response.substring(response.indexOf("<tool_use>"));
-                        Matcher matcher = TOOL_USE_PATTERN.matcher(remainingResponse);
-                        if (matcher.find()) {
-                            // Extract the tool use JSON from the marker
-                            String toolUseJson = matcher.group(1);
-                            log.info("Extracted tool use JSON: {}", toolUseJson);
-                            
-                            // Parse the tool use block
-                            ToolUseBlock toolUseBlock = objectMapper.readValue(toolUseJson, ToolUseBlock.class);
-                            log.info("Parsed tool use block: {}", toolUseBlock);
-                            
-                            // Handle the tool use in a non-blocking way and chain the result
-                            return handleToolUse(sessionId, toolUseBlock)
-                                    .flatMapMany(toolResult -> {
-                                        // ADDED DEBUG LOGGING: Log the tool result
-                                        log.info("Tool {} execution completed for session {}: {}", toolUseBlock.getName(), sessionId, toolResult);
-                                        
-                                        // Send tool result to WebSocket for emulator visualization
-                                        try {
-                                            ToolOutput toolOutput = ToolOutput.builder()
-                                                .type("terminal")
-                                                .output(toolResult)
-                                                .mimeType("text/plain")
-                                                .build();
-                                            String toolOutputJson = objectMapper.writeValueAsString(toolOutput);
-                                            webSocketHandler.broadcastToolOutput(toolOutputJson);
-                                            log.info("Broadcasted tool output to WebSocket: {}", toolOutputJson);
-                                        } catch (Exception e) {
-                                            log.error("Error broadcasting tool output to WebSocket: {}", e.getMessage());
-                                        }
-                                        
-                                        // Create the tool result response
-                                        ChatResponse toolResponse = ChatResponse.builder()
-                                                .sessionId(sessionId)
-                                                .role("tool")
-                                                .message(toolResult)
-                                                .toolCallId(toolUseBlock.getId())
-                                                .timestamp(Instant.now())
-                                                .build();
-                                        
-                                        // Add tool response to context
-                                        context.addMessage(Message.builder()
-                                                .role("tool")
-                                                .content(toolResult)
-                                                .toolCallId(toolUseBlock.getId())
-                                                .timestamp(Instant.now())
-                                                .build());
-                                        
-                                        // Return both responses as a flux
-                                        return Flux.just(initialResponse, toolResponse);
-                                    })
-                                    .onErrorResume(e -> {
-                                        log.error("Error handling tool use: {}", e.getMessage());
-                                        return Flux.just(ChatResponse.builder()
-                                                .sessionId(sessionId)
-                                                .role("assistant")
-                                                .message("Error executing tool: " + e.getMessage())
-                                                .timestamp(Instant.now())
-                                                .build());
-                                    });
-                        } else {
-                            log.error("Found toolCall event but no tool_use block in response");
-                            return Flux.just(initialResponse);
+                .map(chunk -> {
+                    // Check for tool use blocks
+                    Matcher matcher = TOOL_USE_PATTERN.matcher(chunk);
+                    if (matcher.find()) {
+                        // Extract tool use block
+                        String toolUseBlock = matcher.group(1);
+                        if (toolUseBlock == null) {
+                            toolUseBlock = matcher.group(0);
                         }
-                    } catch (JsonProcessingException e) {
-                        log.error("Error parsing toolCall event: {}", e.getMessage());
-                        return Flux.just(ChatResponse.builder()
-                                .sessionId(sessionId)
-                                .role("assistant")
-                                .message(response.replaceAll("EVENT:.*?\\n", ""))
-                                .timestamp(Instant.now())
-                                .build());
-                    }
-                } else {
-                    log.warn("Unknown event type: {}", eventType);
-                }
-            }
-            
-            // Remove the EVENT: prefix and continue with normal processing
-            response = response.replaceAll("EVENT:.*?\\n", "");
-        }
-        
-        // Check if the response contains tool use blocks
-        Matcher matcher = TOOL_USE_PATTERN.matcher(response);
-        if (matcher.find()) {
-            try {
-                // Extract the tool use JSON from the marker
-                String toolUseJson = matcher.group(1);
-                log.info("Extracted tool use JSON: {}", toolUseJson);
-                
-                // Parse the tool use block
-                ToolUseBlock toolUseBlock = objectMapper.readValue(toolUseJson, ToolUseBlock.class);
-                log.info("Parsed tool use block: {}", toolUseBlock);
-                
-                // Clean the response by removing the tool use block
-                String cleanedResponse = response.replaceAll("<tool_use>.*?</tool_use>", "").trim();
-                
-                // Create the initial response with the tool call
-                ChatResponse initialResponse = ChatResponse.builder()
-                        .sessionId(sessionId)
-                        .role("assistant")
-                        .message(cleanedResponse)
-                        .toolCall(ToolCallResponse.builder()
-                                .name(toolUseBlock.getName())
-                                .arguments(objectMapper.convertValue(toolUseBlock.getInput(), Map.class))
-                                .build())
-                        .timestamp(Instant.now())
-                        .build();
-                
-                // Add assistant message to context
-                context.addMessage(Message.builder()
-                        .role("assistant")
-                        .content(cleanedResponse)
-                        .toolCall(ToolCall.builder()
-                                .name(toolUseBlock.getName())
-                                .arguments(objectMapper.writeValueAsString(convertInputToMap(toolUseBlock.getInput())))
-                                .build())
-                        .timestamp(Instant.now())
-                        .build());
-                
-                // Handle the tool use in a non-blocking way and chain the result
-                return handleToolUse(sessionId, toolUseBlock)
-                        .flatMapMany(toolResult -> {
-                            // ADDED DEBUG LOGGING: Log the tool result
-                            log.info("Tool {} execution completed for session {}: {}", toolUseBlock.getName(), sessionId, toolResult);
+                        
+                        try {
+                            // Parse tool use block
+                            ToolUseBlock toolUse = objectMapper.readValue(toolUseBlock, ToolUseBlock.class);
                             
-                            // Send tool result to WebSocket for emulator visualization
-                            try {
-                                ToolOutput toolOutput = ToolOutput.builder()
-                                    .type("terminal")
-                                    .output(toolResult)
-                                    .mimeType("text/plain")
-                                    .build();
-                                String toolOutputJson = objectMapper.writeValueAsString(toolOutput);
-                                webSocketHandler.broadcastToolOutput(toolOutputJson);
-                                log.info("Broadcasted tool output to WebSocket: {}", toolOutputJson);
-                            } catch (Exception e) {
-                                log.error("Error broadcasting tool output to WebSocket: {}", e.getMessage());
-                            }
+                            // Execute tool
+                            ChatResponse toolResponse = executeTool(toolUse.getName(), 
+                                                                  (Map<String, Object>)toolUse.getInput(), 
+                                                                  sessionId, context);
                             
-                            // Create the tool result response
-                            ChatResponse toolResponse = ChatResponse.builder()
-                                    .sessionId(sessionId)
-                                    .role("tool")
-                                    .message(toolResult)
-                                    .toolCallId(toolUseBlock.getId())
-                                    .timestamp(Instant.now())
-                                    .build();
-                            
-                            // Add tool response to context
-                            context.addMessage(Message.builder()
-                                    .role("tool")
-                                    .content(toolResult)
-                                    .toolCallId(toolUseBlock.getId())
-                                    .timestamp(Instant.now())
-                                    .build());
-                            
-                            // Return both responses as a flux
-                            return Flux.just(initialResponse, toolResponse);
-                        })
-                        .onErrorResume(e -> {
-                            log.error("Error handling tool use: {}", e.getMessage());
-                            return Flux.just(ChatResponse.builder()
+                            // Return tool response
+                            return toolResponse;
+                        } catch (Exception e) {
+                            log.error("Error parsing tool use block: {}", e.getMessage());
+                            return ChatResponse.builder()
                                     .sessionId(sessionId)
                                     .role("assistant")
-                                    .message(cleanedResponse + "\n\nError executing tool: " + e.getMessage())
+                                    .message("Error parsing tool use block: " + e.getMessage())
                                     .timestamp(Instant.now())
-                                    .build());
-                        });
-            } catch (JsonProcessingException e) {
-                log.error("Error parsing tool use block: {}", e.getMessage());
-                return Flux.just(ChatResponse.builder()
-                        .sessionId(sessionId)
-                        .role("assistant")
-                        .message(response)
-                        .timestamp(Instant.now())
-                        .build());
-            }
-        } else {
-            // No tool use blocks found, return the response as is
-            return Flux.just(ChatResponse.builder()
+                                    .build();
+                        }
+                    } else {
+                        // Update assistant message in context
+                        updateAssistantMessage(context, chunk);
+                        
+                        // Return response
+                        return ChatResponse.builder()
+                                .sessionId(sessionId)
+                                .role("assistant")
+                                .message(chunk)
+                                .timestamp(Instant.now())
+                                .build();
+                    }
+                });
+    }
+    
+    /**
+     * Execute a tool
+     */
+    public ChatResponse executeTool(String toolName, Map<String, Object> arguments, String sessionId, ChatContext context) {
+        log.info("Executing tool: {} with arguments: {}", toolName, arguments);
+        
+        // Get the tool
+        Tool tool = toolRegistry.getTool(toolName);
+        if (tool == null) {
+            log.error("Tool not found: {}", toolName);
+            return ChatResponse.builder()
                     .sessionId(sessionId)
                     .role("assistant")
-                    .message(response)
+                    .message("Error: Tool not found: " + toolName)
                     .timestamp(Instant.now())
-                    .build());
-        }
-    }
-    
-    /**
-     * Handle a tool use block
-     */
-    private Mono<String> handleToolUse(String sessionId, ToolUseBlock toolUseBlock) {
-        log.info("Handling tool use for session {}: {}", sessionId, toolUseBlock.getName());
-        
-        // Get the tool from the registry
-        Tool tool = toolRegistry.getTool(toolUseBlock.getName());
-        if (tool == null) {
-            log.error("Tool not found: {}", toolUseBlock.getName());
-            return Mono.just("Error: Tool not found: " + toolUseBlock.getName());
+                    .build();
         }
         
-        // Execute the tool
         try {
-            // Convert input to arguments map - FIX: Use objectMapper to convert Object to Map
-            Map<String, Object> arguments;
-            Object input = toolUseBlock.getInput();
-            
-            if (input instanceof Map) {
-                // If input is already a Map, use it directly
-                @SuppressWarnings("unchecked")
-                Map<String, Object> inputMap = (Map<String, Object>) input;
-                arguments = inputMap;
-            } else if (input instanceof String) {
-                // If input is a String, try to parse it as JSON
-                String inputStr = (String) input;
-                try {
-                    arguments = objectMapper.readValue(inputStr, Map.class);
-                } catch (Exception e) {
-                    // If parsing fails, create a simple map with the string as content
-                    arguments = new HashMap<>();
-                    arguments.put("content", inputStr);
-                }
-            } else {
-                // For any other type, convert using objectMapper
-                arguments = objectMapper.convertValue(input, Map.class);
+            // Add workspace directory to arguments if not present
+            if (arguments != null && !arguments.containsKey("workspace") && context.getWorkspaceDirectory() != null) {
+                arguments.put("workspace", context.getWorkspaceDirectory());
             }
             
-            // Execute the tool and collect the results
-            return tool.execute(arguments)
-                    .collectList()
-                    .map(outputs -> {
-                        // Combine all outputs into a single string
-                        StringBuilder result = new StringBuilder();
-                        for (com.ai.developer.tools.ToolOutput output : outputs) {
-                            if (output.getContent() != null) {
-                                result.append(output.getContent()).append("\n");
-                            }
-                        }
-                        return result.toString().trim();
-                    })
-                    .onErrorResume(e -> {
-                        log.error("Error executing tool {}: {}", toolUseBlock.getName(), e.getMessage());
-                        return Mono.just("Error executing tool: " + e.getMessage());
-                    });
+            // Add sessionId to arguments if not present
+            if (arguments != null && !arguments.containsKey("sessionId") && sessionId != null) {
+                arguments.put("sessionId", sessionId);
+            }
+            
+            // Process arguments to resolve paths relative to workspace
+            processToolArguments(arguments, context);
+            
+            // Execute the tool
+            ToolCall toolCall = ToolCall.builder()
+                    .name(toolName)
+                    .arguments(arguments)
+                    .build();
+            
+            // Add tool call to context
+            String toolCallId = UUID.randomUUID().toString();
+            
+            // Add message with tool call but WITHOUT content
+            context.addMessage(Message.builder()
+                    .role("assistant")
+                    .toolCall(toolCall)
+                    .toolCallId(toolCallId)
+                    .timestamp(Instant.now())
+                    .build());
+            
+            // Execute tool and collect results
+            Flux<com.ai.developer.tools.ToolOutput> resultFlux = tool.execute(arguments);
+            
+            // Convert to a list for easier handling
+            List<com.ai.developer.tools.ToolOutput> results = resultFlux.collectList().block();
+            
+            // Convert result to string for storage in context
+            String resultStr;
+            try {
+                resultStr = objectMapper.writeValueAsString(results);
+                
+                // Add tool result to context
+                context.addMessage(Message.builder()
+                        .role("tool")
+                        .content(resultStr)  // Using serialized string for content
+                        .toolCallId(toolCallId)
+                        .timestamp(Instant.now())
+                        .build());
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing results: {}", e.getMessage());
+            }
+            
+            // Send tool output to WebSocket
+            if (results != null && !results.isEmpty()) {
+                for (com.ai.developer.tools.ToolOutput result : results) {
+                    webSocketHandler.sendToolOutput(sessionId, result);
+                }
+            }
+            
+            // Return tool call response
+            return ChatResponse.builder()
+                    .sessionId(sessionId)
+                    .role("assistant")
+                    .toolCall(ToolCallResponse.builder()
+                            .name(toolName)
+                            .arguments(arguments)
+                            .result(results)
+                            .build())
+                    .timestamp(Instant.now())
+                    .build();
         } catch (Exception e) {
-            log.error("Error executing tool {}: {}", toolUseBlock.getName(), e.getMessage());
-            return Mono.just("Error executing tool: " + e.getMessage());
+            log.error("Error executing tool: {}", e.getMessage());
+            return ChatResponse.builder()
+                    .sessionId(sessionId)
+                    .role("assistant")
+                    .message("Error executing tool: " + e.getMessage())
+                    .timestamp(Instant.now())
+                    .build();
         }
     }
     
     /**
-     * Execute a tool call directly
-     * This method is used by the controller to execute a tool directly
+     * Execute a tool call directly (for API endpoints)
      */
     public Flux<com.ai.developer.tools.ToolOutput> executeToolCall(String sessionId, String toolName, Map<String, Object> arguments) {
-        log.info("Executing tool call for session {}: {} with arguments: {}", sessionId, toolName, arguments);
+        log.info("Executing tool call: {} for session {} with arguments: {}", toolName, sessionId, arguments);
         
-        // Get the tool from the registry
+        ChatContext context = sessions.get(sessionId);
+        if (context == null) {
+            log.warn("Session not found: {}", sessionId);
+            return Flux.error(new IllegalArgumentException("Session not found: " + sessionId));
+        }
+        
+        // Update last accessed time
+        updateSessionLastAccessed(sessionId);
+        
+        // Get the tool
         Tool tool = toolRegistry.getTool(toolName);
         if (tool == null) {
             log.error("Tool not found: {}", toolName);
             return Flux.error(new IllegalArgumentException("Tool not found: " + toolName));
         }
         
-        // Update last accessed time for the session
-        updateSessionLastAccessed(sessionId);
-        
-        // Execute the tool
-        return tool.execute(arguments)
-                .doOnNext(output -> {
-                    // Send tool output to WebSocket for emulator visualization
-                    try {
-                        String toolOutputJson = objectMapper.writeValueAsString(output);
-                        webSocketHandler.broadcastToolOutput(toolOutputJson);
-                    } catch (Exception e) {
-                        log.error("Error broadcasting tool output to WebSocket: {}", e.getMessage());
-                    }
-                })
-                .doOnComplete(() -> log.info("Tool execution completed for session {}: {}", sessionId, toolName))
-                .doOnError(error -> log.error("Error executing tool {} for session {}: {}", toolName, sessionId, error.getMessage()));
-    }
-    
-    /**
-     * Find references in conversation history
-     */
-    public Mono<List<Message>> findReferences(String sessionId, String query) {
-        log.info("Finding references for session {} with query: {}", sessionId, query);
-        
-        ChatContext context = sessions.get(sessionId);
-        if (context == null) {
-            log.warn("Session not found: {}", sessionId);
-            return Mono.error(new IllegalArgumentException("Session not found: " + sessionId));
-        }
-        
-        // Update last accessed time
-        updateSessionLastAccessed(sessionId);
-        
-        // Find references
-        List<Message> references = context.findReferences(query);
-        
-        return Mono.just(references);
-    }
-    
-    /**
-     * Helper method to convert input object to Map<String, Object>
-     * Handles different input types safely
-     */
-    private Map<String, Object> convertInputToMap(Object input) {
-        if (input == null) {
-            return new HashMap<>();
-        }
-        
-        if (input instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> inputMap = (Map<String, Object>) input;
-            return inputMap;
-        } else if (input instanceof String) {
-            // If input is a String, try to parse it as JSON
-            String inputStr = (String) input;
-            try {
-                return objectMapper.readValue(inputStr, Map.class);
-            } catch (Exception e) {
-                // If parsing fails, create a simple map with the string as content
-                Map<String, Object> result = new HashMap<>();
-                result.put("content", inputStr);
-                return result;
+        try {
+            // Add workspace directory to arguments if not present
+            if (arguments != null && !arguments.containsKey("workspace") && context.getWorkspaceDirectory() != null) {
+                arguments.put("workspace", context.getWorkspaceDirectory());
             }
-        } else {
-            // For any other type, convert using objectMapper
-            return objectMapper.convertValue(input, Map.class);
+            
+            // Add sessionId to arguments if not present
+            if (arguments != null && !arguments.containsKey("sessionId") && sessionId != null) {
+                arguments.put("sessionId", sessionId);
+            }
+            
+            // Process arguments to resolve paths relative to workspace
+            processToolArguments(arguments, context);
+            
+            // Execute the tool
+            ToolCall toolCall = ToolCall.builder()
+                    .name(toolName)
+                    .arguments(arguments)
+                    .build();
+            
+            // Add tool call to context
+            String toolCallId = UUID.randomUUID().toString();
+            
+            // Add message with tool call but WITHOUT content
+            context.addMessage(Message.builder()
+                    .role("assistant")
+                    .toolCall(toolCall)
+                    .toolCallId(toolCallId)
+                    .timestamp(Instant.now())
+                    .build());
+            
+            // Execute tool and return results
+            return tool.execute(arguments)
+                    .doOnNext(result -> {
+                        try {
+                            // Send tool output to WebSocket
+                            webSocketHandler.sendToolOutput(sessionId, result);
+                            
+                            // Add tool result to context - serialize to String
+                            String resultStr = objectMapper.writeValueAsString(result);
+                            context.addMessage(Message.builder()
+                                    .role("tool")
+                                    .content(resultStr)  // Using serialized string for content
+                                    .toolCallId(toolCallId)
+                                    .timestamp(Instant.now())
+                                    .build());
+                        } catch (JsonProcessingException e) {
+                            log.error("Error serializing tool result: {}", e.getMessage());
+                        }
+                    });
+        } catch (Exception e) {
+            log.error("Error executing tool call: {}", e.getMessage());
+            return Flux.error(e);
+        }
+    }
+    
+    /**
+     * Process tool arguments to resolve paths relative to workspace
+     */
+    private void processToolArguments(Map<String, Object> arguments, ChatContext context) {
+        if (arguments == null || context == null || context.getWorkspaceDirectory() == null) {
+            return;
+        }
+        
+        // Look for path-like arguments and resolve them relative to workspace
+        for (Map.Entry<String, Object> entry : arguments.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            
+            // Process string values that might be paths
+            if (value instanceof String && (key.contains("path") || key.contains("dir") || key.contains("file"))) {
+                String pathStr = (String) value;
+                // Resolve path relative to workspace if it's not absolute
+                if (!new File(pathStr).isAbsolute()) {
+                    String resolvedPath = context.resolvePath(pathStr);
+                    arguments.put(key, resolvedPath);
+                }
+            }
+            
+            // Handle task-specific directories if taskName is provided
+            if (key.equals("taskName") && value instanceof String && !((String) value).isEmpty()) {
+                String taskName = (String) value;
+                String taskDir = context.getTaskDirectory(taskName);
+                
+                // Create task directory if it doesn't exist
+                if (taskDir == null) {
+                    taskDir = context.createTaskDirectory(taskName);
+                    log.debug("Created task directory: {} for task: {}", taskDir, taskName);
+                }
+                
+                // Add task directory to arguments
+                arguments.put("taskDirectory", taskDir);
+            }
         }
     }
 }
