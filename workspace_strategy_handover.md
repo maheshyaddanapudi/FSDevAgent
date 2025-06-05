@@ -99,6 +99,19 @@ Common issues and solutions:
 1. **Claude API 400 Error**: If you see "Unexpected role 'tool'" error, check for any code paths that might be sending 'tool' role to the API
 2. **Missing Workspace Directory**: Ensure the base workspace directory exists and has proper permissions
 3. **UI Display Issues**: Check browser console for any JavaScript errors related to tool call rendering
+4. **Port Conflicts**: Use `lsof -i :PORT` to identify processes using specific ports (e.g., `lsof -i :8080` for backend, `lsof -i :3001` for frontend) before stopping or restarting services
+
+## Operational Notes
+
+### Managing Services
+
+- **Never kill processes running on ports 3001 (frontend) and 8080 (backend)** unless explicitly instructed
+- To identify processes using specific ports:
+  ```bash
+  lsof -i :8080  # For backend
+  lsof -i :3001  # For frontend
+  ```
+- To safely restart services, first identify the process ID using `lsof`, then use `kill` with the specific PID
 
 ## Files Modified
 
