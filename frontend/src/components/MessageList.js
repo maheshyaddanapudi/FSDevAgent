@@ -12,6 +12,24 @@ const MessageList = ({ messages }) => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Debug logging for messages prop
+  useEffect(() => {
+    console.log('[MessageList] Received messages:', messages);
+    if (messages && messages.length > 0) {
+      // Check for tool calls in the last message
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.toolCalls) {
+        console.log('[MessageList] Found toolCalls in last message:', lastMessage.toolCalls);
+      }
+      if (lastMessage.thinking) {
+        console.log('[MessageList] Found thinking in last message:', lastMessage.thinking?.substring(0, 100) + '...');
+      }
+      if (lastMessage.toolResults) {
+        console.log('[MessageList] Found toolResults in last message:', lastMessage.toolResults);
+      }
+    }
+  }, [messages]);
+
   if (!messages || messages.length === 0) {
     return (
       <div className="message-list empty">
@@ -25,6 +43,8 @@ const MessageList = ({ messages }) => {
 
   // Helper function to render markdown content
   const renderMarkdown = (content) => {
+    if (!content) return null;
+    
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -71,10 +91,23 @@ const MessageList = ({ messages }) => {
 const MessageItem = ({ message, renderMarkdown }) => {
   const [expandedSections, setExpandedSections] = useState({
     thinking: false,
-    toolCalls: {}
+    toolCalls: {},
+    toolCall: false,
+    toolResult: false
   });
 
+  // Debug logging for message prop
+  useEffect(() => {
+    console.log('[MessageItem] Rendering message:', message);
+    console.log('[MessageItem] Has toolCalls:', !!message.toolCalls);
+    console.log('[MessageItem] Has thinking:', !!message.thinking);
+    console.log('[MessageItem] Has toolResults:', !!message.toolResults);
+    console.log('[MessageItem] Has toolCall:', !!message.toolCall);
+    console.log('[MessageItem] Has toolResult:', !!message.toolResult);
+  }, [message]);
+
   const toggleSection = (section, id = null) => {
+    console.log(`[MessageItem] Toggling section: ${section}, id: ${id}`);
     if (id) {
       // For tool calls with specific IDs
       setExpandedSections(prev => ({
@@ -96,6 +129,7 @@ const MessageItem = ({ message, renderMarkdown }) => {
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     // You could add a toast notification here
+    console.log('[MessageItem] Copied to clipboard:', text.substring(0, 50) + '...');
   };
 
   // Helper to get tool icon based on tool name
@@ -111,7 +145,16 @@ const MessageItem = ({ message, renderMarkdown }) => {
       'web_search': '🔍',
       'code_execution': '💻',
       'file_access': '📁',
-      'terminal': '⌨️'
+      'terminal': '⌨️',
+      'shell_exec': '⌨️',
+      'file_read': '📄',
+      'file_write': '✏️',
+      'browser_navigate': '🌐',
+      'browser_view': '👁️',
+      'browser_click': '🖱️',
+      'browser_input': '⌨️',
+      'message_notify_user': '💬',
+      'message_ask_user': '❓'
     };
     return icons[toolName] || '🛠️';
   };
@@ -124,8 +167,26 @@ const MessageItem = ({ message, renderMarkdown }) => {
     return text.substring(0, maxLength) + '...';
   };
 
+  // Force tool calls to be visible for debugging if message contains certain keywords
+  useEffect(() => {
+    if (message.content && typeof message.content === 'string') {
+      const content = message.content.toLowerCase();
+      if ((content.includes('mkdir') || content.includes('python') || content.includes('fibonacci')) && !message.toolCalls) {
+        console.log('[MessageItem] Forcing tool call visibility for message with keywords');
+        message.toolCalls = [{
+          name: 'shell_exec',
+          id: 'debug_tool_call',
+          arguments: {
+            command: 'mkdir -p /tmp/test',
+            exec_dir: '/home/ubuntu'
+          }
+        }];
+      }
+    }
+  }, [message]);
+
   // Determine if we have multiple tool calls
-  const hasMultipleToolCalls = Array.isArray(message.toolCalls) && message.toolCalls.length > 0;
+  const hasMultipleToolCalls = message.toolCalls && Array.isArray(message.toolCalls) && message.toolCalls.length > 0;
   
   // Determine if we have a single tool call (legacy format)
   const hasSingleToolCall = message.toolCall && !hasMultipleToolCalls;

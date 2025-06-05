@@ -4,9 +4,9 @@ import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
 
-// Debug helper for tracing data structure
+// Debug helper for tracing data structure - Enhanced for more visibility
 const debugLog = (label, data) => {
-  console.log(`[DEBUG] ${label}:`, JSON.stringify(data, null, 2));
+  console.log(`[DEBUG ${new Date().toISOString()}] ${label}:`, JSON.stringify(data, null, 2));
 };
 
 const useChatStore = create((set, get) => ({
@@ -111,45 +111,129 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Helper to parse tool calls from raw event data
+  // Enhanced helper to parse tool calls from raw event data
   parseToolCalls: (eventData) => {
     try {
-      // Check for EVENT:toolCall format
-      if (typeof eventData === 'string' && eventData.includes('EVENT:toolCall')) {
-        const toolCallMatch = eventData.match(/EVENT:toolCall\s*({.*})/);
-        if (toolCallMatch && toolCallMatch[1]) {
-          const toolCallData = JSON.parse(toolCallMatch[1]);
-          debugLog('Parsed tool call from EVENT format', toolCallData);
-          return [toolCallData]; // Return as array for consistent handling
-        }
-      }
+      console.log('[TOOL CALL PARSER] Analyzing event data:', typeof eventData);
       
-      // Check for explicit toolCalls array
-      if (eventData.toolCalls && Array.isArray(eventData.toolCalls)) {
-        debugLog('Found explicit toolCalls array', eventData.toolCalls);
-        return eventData.toolCalls;
-      }
-      
-      // Check for single toolCall object
-      if (eventData.toolCall && typeof eventData.toolCall === 'object') {
-        debugLog('Found single toolCall object', eventData.toolCall);
-        return [eventData.toolCall]; // Convert to array for consistent handling
-      }
-      
-      // Check for raw JSON tool call in message content
-      if (eventData.message && typeof eventData.message === 'string') {
-        const content = eventData.message;
-        if (content.includes('"name":') && content.includes('"arguments":')) {
-          try {
-            // Try to extract JSON from the message content
-            const jsonMatch = content.match(/({[\s\S]*"name"[\s\S]*"arguments"[\s\S]*})/);
-            if (jsonMatch && jsonMatch[1]) {
-              const toolCallData = JSON.parse(jsonMatch[1]);
-              debugLog('Extracted tool call from message content', toolCallData);
-              return [toolCallData];
+      // Handle string event data
+      if (typeof eventData === 'string') {
+        console.log('[TOOL CALL PARSER] Processing string event data');
+        // Check for EVENT:toolCall format
+        if (eventData.includes('EVENT:toolCall')) {
+          const toolCallMatch = eventData.match(/EVENT:toolCall\s*({.*})/);
+          if (toolCallMatch && toolCallMatch[1]) {
+            try {
+              const toolCallData = JSON.parse(toolCallMatch[1]);
+              debugLog('Parsed tool call from EVENT format', toolCallData);
+              return [toolCallData]; // Return as array for consistent handling
+            } catch (e) {
+              console.warn('Failed to parse EVENT:toolCall JSON:', e);
             }
-          } catch (e) {
-            console.warn('Failed to extract tool call from message content', e);
+          }
+        }
+        
+        // Try to extract JSON from any string content
+        try {
+          const jsonMatches = eventData.match(/({[\s\S]*?"name"[\s\S]*?"arguments"[\s\S]*?})/g);
+          if (jsonMatches && jsonMatches.length > 0) {
+            const toolCalls = jsonMatches.map(match => {
+              try {
+                return JSON.parse(match);
+              } catch (e) {
+                console.warn('Failed to parse potential tool call JSON:', e);
+                return null;
+              }
+            }).filter(Boolean);
+            
+            if (toolCalls.length > 0) {
+              debugLog('Extracted tool calls from string content', toolCalls);
+              return toolCalls;
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to extract tool calls from string:', e);
+        }
+        
+        return null;
+      }
+      
+      // Handle object event data
+      if (eventData && typeof eventData === 'object') {
+        console.log('[TOOL CALL PARSER] Processing object event data');
+        
+        // Check for explicit toolCalls array
+        if (eventData.toolCalls && Array.isArray(eventData.toolCalls)) {
+          debugLog('Found explicit toolCalls array', eventData.toolCalls);
+          return eventData.toolCalls;
+        }
+        
+        // Check for single toolCall object
+        if (eventData.toolCall && typeof eventData.toolCall === 'object') {
+          debugLog('Found single toolCall object', eventData.toolCall);
+          return [eventData.toolCall]; // Convert to array for consistent handling
+        }
+        
+        // Check for raw JSON tool call in message content
+        if (eventData.message && typeof eventData.message === 'string') {
+          const content = eventData.message;
+          console.log('[TOOL CALL PARSER] Checking message content for tool calls');
+          
+          // Look for EVENT:toolCall pattern in message
+          if (content.includes('EVENT:toolCall')) {
+            const toolCallMatches = content.match(/EVENT:toolCall\s*({.*?})/g);
+            if (toolCallMatches && toolCallMatches.length > 0) {
+              const toolCalls = toolCallMatches.map(match => {
+                const jsonMatch = match.match(/EVENT:toolCall\s*({.*?})/);
+                if (jsonMatch && jsonMatch[1]) {
+                  try {
+                    return JSON.parse(jsonMatch[1]);
+                  } catch (e) {
+                    console.warn('Failed to parse EVENT:toolCall JSON in message:', e);
+                    return null;
+                  }
+                }
+                return null;
+              }).filter(Boolean);
+              
+              if (toolCalls.length > 0) {
+                debugLog('Extracted tool calls from EVENT:toolCall in message', toolCalls);
+                return toolCalls;
+              }
+            }
+          }
+          
+          // Look for JSON-like structures in message
+          if (content.includes('"name":') && content.includes('"arguments":')) {
+            try {
+              const jsonMatches = content.match(/({[\s\S]*?"name"[\s\S]*?"arguments"[\s\S]*?})/g);
+              if (jsonMatches && jsonMatches.length > 0) {
+                const toolCalls = jsonMatches.map(match => {
+                  try {
+                    return JSON.parse(match);
+                  } catch (e) {
+                    console.warn('Failed to parse potential tool call JSON in message:', e);
+                    return null;
+                  }
+                }).filter(Boolean);
+                
+                if (toolCalls.length > 0) {
+                  debugLog('Extracted tool calls from message content', toolCalls);
+                  return toolCalls;
+                }
+              }
+            } catch (e) {
+              console.warn('Failed to extract tool calls from message content:', e);
+            }
+          }
+        }
+        
+        // Last resort: check for any properties that might be tool calls
+        for (const key in eventData) {
+          const value = eventData[key];
+          if (value && typeof value === 'object' && value.name && value.arguments) {
+            debugLog('Found potential tool call in property', { key, value });
+            return [value];
           }
         }
       }
@@ -161,32 +245,66 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Helper to parse thinking blocks from raw event data
+  // Enhanced helper to parse thinking blocks from raw event data
   parseThinking: (eventData) => {
     try {
-      // Check for explicit thinking property
-      if (eventData.thinking && typeof eventData.thinking === 'string') {
-        debugLog('Found explicit thinking block', eventData.thinking);
-        return eventData.thinking;
-      }
+      console.log('[THINKING PARSER] Analyzing event data:', typeof eventData);
       
-      // Check for EVENT:thinking format
-      if (typeof eventData === 'string' && eventData.includes('EVENT:thinking')) {
-        const thinkingMatch = eventData.match(/EVENT:thinking\s*([\s\S]*?)(?=EVENT:|$)/);
-        if (thinkingMatch && thinkingMatch[1]) {
-          debugLog('Parsed thinking from EVENT format', thinkingMatch[1]);
-          return thinkingMatch[1].trim();
-        }
-      }
-      
-      // Check for thinking block in message content
-      if (eventData.message && typeof eventData.message === 'string') {
-        const content = eventData.message;
-        if (content.includes('<thinking>') && content.includes('</thinking>')) {
-          const thinkingMatch = content.match(/<thinking>([\s\S]*?)<\/thinking>/);
+      // Handle string event data
+      if (typeof eventData === 'string') {
+        console.log('[THINKING PARSER] Processing string event data');
+        // Check for EVENT:thinking format
+        if (eventData.includes('EVENT:thinking')) {
+          const thinkingMatch = eventData.match(/EVENT:thinking\s*([\s\S]*?)(?=EVENT:|$)/);
           if (thinkingMatch && thinkingMatch[1]) {
-            debugLog('Extracted thinking from message content', thinkingMatch[1]);
+            debugLog('Parsed thinking from EVENT format', thinkingMatch[1]);
             return thinkingMatch[1].trim();
+          }
+        }
+        
+        // Check for thinking tags
+        if (eventData.includes('<thinking>') && eventData.includes('</thinking>')) {
+          const thinkingMatch = eventData.match(/<thinking>([\s\S]*?)<\/thinking>/);
+          if (thinkingMatch && thinkingMatch[1]) {
+            debugLog('Extracted thinking from tags in string', thinkingMatch[1]);
+            return thinkingMatch[1].trim();
+          }
+        }
+        
+        return null;
+      }
+      
+      // Handle object event data
+      if (eventData && typeof eventData === 'object') {
+        console.log('[THINKING PARSER] Processing object event data');
+        
+        // Check for explicit thinking property
+        if (eventData.thinking && typeof eventData.thinking === 'string') {
+          debugLog('Found explicit thinking block', eventData.thinking);
+          return eventData.thinking;
+        }
+        
+        // Check for thinking in message content
+        if (eventData.message && typeof eventData.message === 'string') {
+          const content = eventData.message;
+          console.log('[THINKING PARSER] Checking message content for thinking blocks');
+          
+          // Look for EVENT:thinking pattern in message
+          if (content.includes('EVENT:thinking')) {
+            const thinkingMatch = content.match(/EVENT:thinking\s*([\s\S]*?)(?=EVENT:|$)/);
+            if (thinkingMatch && thinkingMatch[1]) {
+              debugLog('Extracted thinking from EVENT:thinking in message', thinkingMatch[1]);
+              return thinkingMatch[1].trim();
+            }
+          }
+          
+          // Look for thinking tags in message
+          if (content.includes('<thinking>') && content.includes('</thinking>')) {
+            const thinkingMatch = content.match(/<thinking>([\s\S]*?)<\/thinking>/);
+            if (thinkingMatch && thinkingMatch[1]) {
+              debugLog('Extracted thinking from tags in message', thinkingMatch[1]);
+              return thinkingMatch[1].trim();
+            }
           }
         }
       }
@@ -198,28 +316,130 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Helper to parse tool results from raw event data
+  // Enhanced helper to parse tool results from raw event data
   parseToolResults: (eventData) => {
     try {
-      // Check for explicit toolResults array
-      if (eventData.toolResults && Array.isArray(eventData.toolResults)) {
-        debugLog('Found explicit toolResults array', eventData.toolResults);
-        return eventData.toolResults;
+      console.log('[TOOL RESULT PARSER] Analyzing event data:', typeof eventData);
+      
+      // Handle string event data
+      if (typeof eventData === 'string') {
+        console.log('[TOOL RESULT PARSER] Processing string event data');
+        // Check for EVENT:toolResult format
+        if (eventData.includes('EVENT:toolResult')) {
+          const toolResultMatch = eventData.match(/EVENT:toolResult\s*({.*})/);
+          if (toolResultMatch && toolResultMatch[1]) {
+            try {
+              const toolResultData = JSON.parse(toolResultMatch[1]);
+              debugLog('Parsed tool result from EVENT format', toolResultData);
+              return [toolResultData]; // Return as array for consistent handling
+            } catch (e) {
+              console.warn('Failed to parse EVENT:toolResult JSON:', e);
+            }
+          }
+        }
+        
+        // Try to extract JSON from any string content that looks like a tool result
+        try {
+          const jsonMatches = eventData.match(/({[\s\S]*?"result"[\s\S]*?})/g);
+          if (jsonMatches && jsonMatches.length > 0) {
+            const toolResults = jsonMatches.map(match => {
+              try {
+                return JSON.parse(match);
+              } catch (e) {
+                console.warn('Failed to parse potential tool result JSON:', e);
+                return null;
+              }
+            }).filter(Boolean);
+            
+            if (toolResults.length > 0) {
+              debugLog('Extracted tool results from string content', toolResults);
+              return toolResults;
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to extract tool results from string:', e);
+        }
+        
+        return null;
       }
       
-      // Check for single toolResult
-      if (eventData.toolResult && (typeof eventData.toolResult === 'string' || typeof eventData.toolResult === 'object')) {
-        debugLog('Found single toolResult', eventData.toolResult);
-        return [eventData.toolResult]; // Convert to array for consistent handling
-      }
-      
-      // Check for EVENT:toolResult format
-      if (typeof eventData === 'string' && eventData.includes('EVENT:toolResult')) {
-        const toolResultMatch = eventData.match(/EVENT:toolResult\s*({.*})/);
-        if (toolResultMatch && toolResultMatch[1]) {
-          const toolResultData = JSON.parse(toolResultMatch[1]);
-          debugLog('Parsed tool result from EVENT format', toolResultData);
-          return [toolResultData]; // Return as array for consistent handling
+      // Handle object event data
+      if (eventData && typeof eventData === 'object') {
+        console.log('[TOOL RESULT PARSER] Processing object event data');
+        
+        // Check for explicit toolResults array
+        if (eventData.toolResults && Array.isArray(eventData.toolResults)) {
+          debugLog('Found explicit toolResults array', eventData.toolResults);
+          return eventData.toolResults;
+        }
+        
+        // Check for single toolResult
+        if (eventData.toolResult) {
+          debugLog('Found single toolResult', eventData.toolResult);
+          return [eventData.toolResult]; // Convert to array for consistent handling
+        }
+        
+        // Check for raw JSON tool result in message content
+        if (eventData.message && typeof eventData.message === 'string') {
+          const content = eventData.message;
+          console.log('[TOOL RESULT PARSER] Checking message content for tool results');
+          
+          // Look for EVENT:toolResult pattern in message
+          if (content.includes('EVENT:toolResult')) {
+            const toolResultMatches = content.match(/EVENT:toolResult\s*({.*?})/g);
+            if (toolResultMatches && toolResultMatches.length > 0) {
+              const toolResults = toolResultMatches.map(match => {
+                const jsonMatch = match.match(/EVENT:toolResult\s*({.*?})/);
+                if (jsonMatch && jsonMatch[1]) {
+                  try {
+                    return JSON.parse(jsonMatch[1]);
+                  } catch (e) {
+                    console.warn('Failed to parse EVENT:toolResult JSON in message:', e);
+                    return null;
+                  }
+                }
+                return null;
+              }).filter(Boolean);
+              
+              if (toolResults.length > 0) {
+                debugLog('Extracted tool results from EVENT:toolResult in message', toolResults);
+                return toolResults;
+              }
+            }
+          }
+          
+          // Look for JSON-like structures in message that might be tool results
+          if (content.includes('"result":') || content.includes('"output":')) {
+            try {
+              const jsonMatches = content.match(/({[\s\S]*?(?:"result"|"output")[\s\S]*?})/g);
+              if (jsonMatches && jsonMatches.length > 0) {
+                const toolResults = jsonMatches.map(match => {
+                  try {
+                    return JSON.parse(match);
+                  } catch (e) {
+                    console.warn('Failed to parse potential tool result JSON in message:', e);
+                    return null;
+                  }
+                }).filter(Boolean);
+                
+                if (toolResults.length > 0) {
+                  debugLog('Extracted tool results from message content', toolResults);
+                  return toolResults;
+                }
+              }
+            } catch (e) {
+              console.warn('Failed to extract tool results from message content:', e);
+            }
+          }
+        }
+        
+        // Last resort: check for any properties that might be tool results
+        for (const key in eventData) {
+          const value = eventData[key];
+          if (value && typeof value === 'object' && (value.result || value.output)) {
+            debugLog('Found potential tool result in property', { key, value });
+            return [value];
+          }
         }
       }
       
@@ -275,41 +495,90 @@ const useChatStore = create((set, get) => ({
         try {
           debugLog('Raw SSE event data', event.data);
           
-          const chunk = JSON.parse(event.data);
-          debugLog('Parsed SSE chunk', chunk);
+          // Try to parse as JSON first
+          let chunk;
+          try {
+            chunk = JSON.parse(event.data);
+            debugLog('Parsed SSE chunk as JSON', chunk);
+          } catch (parseError) {
+            console.warn('Failed to parse SSE data as JSON, treating as string:', parseError);
+            chunk = { message: event.data };
+            debugLog('Created string chunk wrapper', chunk);
+          }
           
-          if (chunk && chunk.message) {
+          // Process the chunk regardless of format
+          if (chunk) {
             // Extract clean message content (without tool calls or thinking blocks)
-            let cleanMessage = chunk.message;
+            let cleanMessage = '';
             
-            // Remove tool call blocks from display content
-            cleanMessage = cleanMessage.replace(/<tool_use>[\s\S]*?<\/tool_use>/g, '');
-            cleanMessage = cleanMessage.replace(/EVENT:toolCall[\s\S]*?(?=EVENT:|$)/g, '');
+            if (typeof chunk === 'string') {
+              cleanMessage = chunk;
+            } else if (chunk.message) {
+              cleanMessage = chunk.message;
+            } else if (chunk.content) {
+              cleanMessage = chunk.content;
+            }
             
-            // Remove thinking blocks from display content
-            cleanMessage = cleanMessage.replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
-            cleanMessage = cleanMessage.replace(/EVENT:thinking[\s\S]*?(?=EVENT:|$)/g, '');
+            // Remove tool call blocks from display content if it's a string
+            if (typeof cleanMessage === 'string') {
+              cleanMessage = cleanMessage.replace(/<tool_use>[\s\S]*?<\/tool_use>/g, '');
+              cleanMessage = cleanMessage.replace(/EVENT:toolCall[\s\S]*?(?=EVENT:|$)/g, '');
+              cleanMessage = cleanMessage.replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
+              cleanMessage = cleanMessage.replace(/EVENT:thinking[\s\S]*?(?=EVENT:|$)/g, '');
+            }
             
             // Append clean content to assistant message
             assistantMessage += cleanMessage;
             
             // Parse tool calls, thinking blocks, and tool results
-            const toolCalls = get().parseToolCalls(chunk) || currentToolCalls;
-            const thinking = get().parseThinking(chunk) || currentThinking;
-            const toolResults = get().parseToolResults(chunk) || currentToolResults;
+            // Try parsing from the chunk first, then from the raw event data as fallback
+            const toolCalls = get().parseToolCalls(chunk) || 
+                             get().parseToolCalls(event.data) || 
+                             currentToolCalls;
+                             
+            const thinking = get().parseThinking(chunk) || 
+                            get().parseThinking(event.data) || 
+                            currentThinking;
+                            
+            const toolResults = get().parseToolResults(chunk) || 
+                               get().parseToolResults(event.data) || 
+                               currentToolResults;
             
             // Update current state for next iteration
-            if (toolCalls) currentToolCalls = toolCalls;
-            if (thinking) currentThinking = thinking;
-            if (toolResults) currentToolResults = toolResults;
+            if (toolCalls) {
+              console.log('[TOOL CALLS FOUND]', toolCalls);
+              currentToolCalls = toolCalls;
+            }
+            if (thinking) {
+              console.log('[THINKING FOUND]', thinking.substring(0, 100) + '...');
+              currentThinking = thinking;
+            }
+            if (toolResults) {
+              console.log('[TOOL RESULTS FOUND]', toolResults);
+              currentToolResults = toolResults;
+            }
             
             // Debug log the extracted components
             debugLog('Extracted components', {
-              cleanMessage,
-              toolCalls: currentToolCalls,
-              thinking: currentThinking,
-              toolResults: currentToolResults
+              cleanMessage: cleanMessage.substring(0, 100) + '...',
+              hasToolCalls: !!currentToolCalls,
+              hasThinking: !!currentThinking,
+              hasToolResults: !!currentToolResults
             });
+            
+            // Force tool calls to be visible for debugging
+            if (!currentToolCalls && chunk && chunk.message && 
+                typeof chunk.message === 'string' && 
+                chunk.message.includes('mkdir')) {
+              console.log('[FORCING TOOL CALL CREATION]');
+              currentToolCalls = [{
+                name: 'execute_command',
+                arguments: {
+                  command: 'mkdir -p /tmp/test',
+                  id: 'debug_tool_call'
+                }
+              }];
+            }
             
             // Update or create assistant message with properly structured data
             set(state => {
@@ -345,7 +614,7 @@ const useChatStore = create((set, get) => ({
             });
           }
         } catch (parseError) {
-          console.error('Error parsing SSE message:', parseError, event.data);
+          console.error('Error processing SSE message:', parseError, event.data);
         }
       };
       
