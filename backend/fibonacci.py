@@ -1,74 +1,33 @@
-def fibonacci_recursive(n):
+def fibonacci(n):
     """
-    Calculate the nth Fibonacci number using recursion.
-    Warning: This is inefficient for large n due to repeated calculations.
+    Calculate the Fibonacci sequence up to the nth term.
     
     Args:
-        n (int): The position in the Fibonacci sequence (0-indexed)
+        n: The number of terms to calculate
         
     Returns:
-        int: The nth Fibonacci number
+        A list containing the Fibonacci sequence up to n terms
     """
-    if n <= 0:
-        return 0
-    elif n == 1:
-        return 1
-    else:
-        return fibonacci_recursive(n-1) + fibonacci_recursive(n-2)
+    # Initialize the sequence with the first two Fibonacci numbers
+    fib_sequence = [0, 1]
+    
+    # Generate the sequence up to n terms
+    for i in range(2, n):
+        # Next number is the sum of the previous two
+        next_number = fib_sequence[i-1] + fib_sequence[i-2]
+        fib_sequence.append(next_number)
+    
+    return fib_sequence
 
-def fibonacci_iterative(n):
-    """
-    Calculate the nth Fibonacci number using iteration.
-    This is more efficient than the recursive approach.
-    
-    Args:
-        n (int): The position in the Fibonacci sequence (0-indexed)
-        
-    Returns:
-        int: The nth Fibonacci number
-    """
-    if n <= 0:
-        return 0
-    elif n == 1:
-        return 1
-    
-    a, b = 0, 1
-    for _ in range(2, n+1):
-        a, b = b, a + b
-    return b
+# Calculate Fibonacci sequence up to n=10
+n = 10
+result = fibonacci(n)
 
-def fibonacci_dynamic(n):
-    """
-    Calculate the nth Fibonacci number using dynamic programming.
-    This approach stores previously calculated values.
-    
-    Args:
-        n (int): The position in the Fibonacci sequence (0-indexed)
-        
-    Returns:
-        int: The nth Fibonacci number
-    """
-    if n <= 0:
-        return 0
-    
-    # Initialize array to store Fibonacci numbers
-    fib = [0] * (n + 1)
-    fib[1] = 1
-    
-    # Fill the array
-    for i in range(2, n + 1):
-        fib[i] = fib[i-1] + fib[i-2]
-    
-    return fib[n]
+# Print the sequence
+print(f"Fibonacci sequence up to {n} terms:")
+print(result)
 
-# Example usage
-if __name__ == "__main__":
-    n = 10
-    print(f"Calculating the {n}th Fibonacci number using different methods:")
-    print(f"Recursive method: {fibonacci_recursive(n)}")
-    print(f"Iterative method: {fibonacci_iterative(n)}")
-    print(f"Dynamic programming method: {fibonacci_dynamic(n)}")
-    
-    print("\nFirst 15 Fibonacci numbers:")
-    for i in range(15):
-        print(f"F({i}) = {fibonacci_iterative(i)}")
+# Print each number in the sequence
+print("\nEach number in the sequence:")
+for i, num in enumerate(result):
+    print(f"F({i}) = {num}")
