@@ -130,8 +130,8 @@ const ChatPage = () => {
               // Store the tool result
               lastAssistantMessage.toolResults[lastAssistantMessage.toolCalls.length - 1] = outputContent;
               
-              // Update the message in state
-              set({ messages: updatedMessages });
+              // Update the message in state - using addMessage instead of direct set
+              addMessage(lastAssistantMessage);
               console.log('Updated message with real-time tool output:', toolCall.name);
             } else {
               // If no assistant message found, create a new one with this tool output
@@ -185,7 +185,7 @@ const ChatPage = () => {
       console.error('Error parsing WebSocket message:', parseError);
       console.error('Raw message:', wsLastMessage.data);
     }
-  }, [wsLastMessage, addMessage, addToolOutput, setIsProcessing, messages, set]);
+  }, [wsLastMessage, addMessage, addToolOutput, setIsProcessing, messages]);
   
   // Issue #5 Fix: Auto-scroll to bottom when messages change
   useEffect(() => {
