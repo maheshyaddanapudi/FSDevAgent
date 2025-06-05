@@ -63,6 +63,68 @@ public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
         }
     }
     
+    // Enhanced method to broadcast tool usage events specifically
+    public void broadcastToolUsage(String sessionId, String toolName, Object arguments, String toolCallId) {
+        try {
+            // Create a specialized tool usage event
+            ToolUsageEvent event = new ToolUsageEvent();
+            event.setType("tool_usage");
+            event.setSessionId(sessionId);
+            event.setToolName(toolName);
+            event.setArguments(arguments);
+            event.setToolCallId(toolCallId);
+            event.setTimestamp(System.currentTimeMillis());
+            
+            String jsonOutput = objectMapper.writeValueAsString(event);
+            TextMessage message = new TextMessage(jsonOutput);
+            log.info("Broadcasting tool usage event for tool {}: {}", toolName, jsonOutput);
+            
+            sessions.forEach((id, session) -> {
+                try {
+                    if (session.isOpen()) {
+                        session.sendMessage(message);
+                        log.debug("Tool usage event sent to session: {}", id);
+                    }
+                } catch (IOException e) {
+                    log.error("Error sending tool usage event to session {}: {}", id, e.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            log.error("Error serializing tool usage event to JSON: {}", e.getMessage());
+        }
+    }
+    
+    // Enhanced method to broadcast tool results specifically
+    public void broadcastToolResult(String sessionId, String toolName, String result, String toolCallId) {
+        try {
+            // Create a specialized tool result event
+            ToolResultEvent event = new ToolResultEvent();
+            event.setType("tool_result");
+            event.setSessionId(sessionId);
+            event.setToolName(toolName);
+            event.setResult(result);
+            event.setToolCallId(toolCallId);
+            event.setTimestamp(System.currentTimeMillis());
+            
+            String jsonOutput = objectMapper.writeValueAsString(event);
+            TextMessage message = new TextMessage(jsonOutput);
+            log.info("Broadcasting tool result event for tool {}: {}", toolName, jsonOutput);
+            
+            sessions.forEach((id, session) -> {
+                try {
+                    if (session.isOpen()) {
+                        session.sendMessage(message);
+                        log.debug("Tool result event sent to session: {}", id);
+                    }
+                } catch (IOException e) {
+                    log.error("Error sending tool result event to session {}: {}", id, e.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            log.error("Error serializing tool result event to JSON: {}", e.getMessage());
+        }
+    }
+    
     public void sendToolOutput(String sessionId, Object output) {
         WebSocketSession session = sessions.get(sessionId);
         if (session != null && session.isOpen()) {
@@ -76,5 +138,61 @@ public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
         } else {
             log.warn("Cannot send tool output - session {} not found or closed", sessionId);
         }
+    }
+    
+    // Inner class for tool usage events
+    private static class ToolUsageEvent {
+        private String type;
+        private String sessionId;
+        private String toolName;
+        private Object arguments;
+        private String toolCallId;
+        private long timestamp;
+        
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+        
+        public String getToolName() { return toolName; }
+        public void setToolName(String toolName) { this.toolName = toolName; }
+        
+        public Object getArguments() { return arguments; }
+        public void setArguments(Object arguments) { this.arguments = arguments; }
+        
+        public String getToolCallId() { return toolCallId; }
+        public void setToolCallId(String toolCallId) { this.toolCallId = toolCallId; }
+        
+        public long getTimestamp() { return timestamp; }
+        public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
+    }
+    
+    // Inner class for tool result events
+    private static class ToolResultEvent {
+        private String type;
+        private String sessionId;
+        private String toolName;
+        private String result;
+        private String toolCallId;
+        private long timestamp;
+        
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+        
+        public String getToolName() { return toolName; }
+        public void setToolName(String toolName) { this.toolName = toolName; }
+        
+        public String getResult() { return result; }
+        public void setResult(String result) { this.result = result; }
+        
+        public String getToolCallId() { return toolCallId; }
+        public void setToolCallId(String toolCallId) { this.toolCallId = toolCallId; }
+        
+        public long getTimestamp() { return timestamp; }
+        public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
     }
 }

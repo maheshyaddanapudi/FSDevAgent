@@ -62,14 +62,14 @@ public class ChatController {
     }
     
     @PostMapping(value = "/tools/{toolName}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<com.ai.developer.tools.ToolOutput> executeTool(
+    public Mono<ToolCallResponse> executeTool(
             @PathVariable String toolName,
             @RequestParam String sessionId,
             @RequestBody Map<String, Object> arguments) {
         log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
-        return chatService.executeToolCall(sessionId, toolName, arguments)
+        return chatService.executeTool(sessionId, toolName, arguments)
             .doOnNext(output -> log.info("Tool {} execution output for session {}: {}", toolName, sessionId, output))
-            .doOnComplete(() -> log.info("Completed tool {} execution for session {}", toolName, sessionId))
+            .doOnSuccess(output -> log.info("Completed tool {} execution for session {}", toolName, sessionId))
             .doOnError(error -> log.error("Error executing tool {} for session {}", toolName, sessionId, error));
     }
 }
