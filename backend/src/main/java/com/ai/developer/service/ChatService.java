@@ -264,9 +264,19 @@ public class ChatService {
             
             // Add tool call information if available
             if (message.getToolCall() != null) {
+                // Deserialize arguments from JSON string back to Map for response
+                Map<String, Object> argumentsMap = new HashMap<>();
+                if (message.getToolCall().getArguments() != null) {
+                    try {
+                        argumentsMap = objectMapper.readValue(message.getToolCall().getArguments(), Map.class);
+                    } catch (JsonProcessingException e) {
+                        log.error("Error deserializing tool call arguments: {}", e.getMessage());
+                    }
+                }
+                
                 builder.toolCall(ToolCallResponse.builder()
                         .name(message.getToolCall().getName())
-                        .arguments(objectMapper.convertValue(message.getToolCall().getArguments(), Map.class))
+                        .arguments(argumentsMap)
                         .build());
             }
             
@@ -493,10 +503,18 @@ public class ChatService {
             // Process arguments to resolve paths relative to workspace
             processToolArguments(arguments, context);
             
-            // Execute the tool
+            // Execute the tool - serialize arguments to JSON string
+            String argumentsJson;
+            try {
+                argumentsJson = objectMapper.writeValueAsString(arguments);
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing tool arguments: {}", e.getMessage());
+                argumentsJson = "{}"; // fallback to empty JSON
+            }
+            
             ToolCall toolCall = ToolCall.builder()
                     .name(toolName)
-                    .arguments(arguments)
+                    .arguments(argumentsJson)
                     .build();
             
             // Add tool call to context
@@ -539,6 +557,15 @@ public class ChatService {
                 }
             }
             
+            // Serialize results to JSON string for ToolCallResponse
+            String resultJson;
+            try {
+                resultJson = objectMapper.writeValueAsString(results);
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing tool results: {}", e.getMessage());
+                resultJson = "[]"; // fallback to empty array
+            }
+            
             // Return tool call response
             return ChatResponse.builder()
                     .sessionId(sessionId)
@@ -546,7 +573,7 @@ public class ChatService {
                     .toolCall(ToolCallResponse.builder()
                             .name(toolName)
                             .arguments(arguments)
-                            .result(results)
+                            .result(resultJson)
                             .build())
                     .timestamp(Instant.now())
                     .build();
@@ -597,10 +624,18 @@ public class ChatService {
             // Process arguments to resolve paths relative to workspace
             processToolArguments(arguments, context);
             
-            // Execute the tool
+            // Execute the tool - serialize arguments to JSON string
+            String argumentsJson;
+            try {
+                argumentsJson = objectMapper.writeValueAsString(arguments);
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing tool arguments: {}", e.getMessage());
+                argumentsJson = "{}"; // fallback to empty JSON
+            }
+            
             ToolCall toolCall = ToolCall.builder()
                     .name(toolName)
-                    .arguments(arguments)
+                    .arguments(argumentsJson)
                     .build();
             
             // Add tool call to context
