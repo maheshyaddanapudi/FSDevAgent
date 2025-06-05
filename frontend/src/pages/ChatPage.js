@@ -64,6 +64,7 @@ const ChatPage = () => {
   }, [sessionInitialized, sessionId, isLoading, initializeSession]);
 
   // Issue #5 Fix: Enhanced WebSocket message handling with proper error handling
+  // and real-time tool output streaming to chat window
   useEffect(() => {
     if (!wsLastMessage) return;
 
@@ -86,10 +87,71 @@ const ChatPage = () => {
           
         case 'tool_output':
           if (data.toolName || data.output) {
+            // Add to tool outputs for terminal display
             addToolOutput({
               ...data,
               timestamp: data.timestamp || new Date().toISOString()
             });
+            
+            // ENHANCEMENT: Also add to message list for real-time streaming in chat window
+            // Find the last assistant message to attach this tool output to
+            const lastAssistantMessageIndex = [...messages].reverse().findIndex(m => m.role === 'assistant');
+            
+            if (lastAssistantMessageIndex !== -1) {
+              const actualIndex = messages.length - 1 - lastAssistantMessageIndex;
+              const updatedMessages = [...messages];
+              const lastAssistantMessage = updatedMessages[actualIndex];
+              
+              // If message already has toolCalls array, add to it, otherwise create it
+              if (!lastAssistantMessage.toolCalls) {
+                lastAssistantMessage.toolCalls = [];
+              }
+              
+              // Create a tool call object from the tool output
+              const toolCall = {
+                name: data.toolName || data.type || 'unknown_tool',
+                id: data.id || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                arguments: data.args || {},
+              };
+              
+              // Add tool call to the message
+              lastAssistantMessage.toolCalls.push(toolCall);
+              
+              // Add tool result if available
+              if (!lastAssistantMessage.toolResults) {
+                lastAssistantMessage.toolResults = {};
+              }
+              
+              // Format the output content
+              const outputContent = typeof data.output === 'string' 
+                ? data.output 
+                : JSON.stringify(data.output || {});
+              
+              // Store the tool result
+              lastAssistantMessage.toolResults[lastAssistantMessage.toolCalls.length - 1] = outputContent;
+              
+              // Update the message in state
+              set({ messages: updatedMessages });
+              console.log('Updated message with real-time tool output:', toolCall.name);
+            } else {
+              // If no assistant message found, create a new one with this tool output
+              addMessage({
+                role: 'assistant',
+                content: 'Using tools to complete your request...',
+                toolCalls: [{
+                  name: data.toolName || data.type || 'unknown_tool',
+                  id: data.id || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  arguments: data.args || {},
+                }],
+                toolResults: {
+                  0: typeof data.output === 'string' 
+                    ? data.output 
+                    : JSON.stringify(data.output || {})
+                },
+                timestamp: new Date().toISOString()
+              });
+              console.log('Created new message with tool output:', data.toolName || data.type);
+            }
           }
           break;
           
@@ -123,7 +185,7 @@ const ChatPage = () => {
       console.error('Error parsing WebSocket message:', parseError);
       console.error('Raw message:', wsLastMessage.data);
     }
-  }, [wsLastMessage, addMessage, addToolOutput, setIsProcessing]);
+  }, [wsLastMessage, addMessage, addToolOutput, setIsProcessing, messages, set]);
   
   // Issue #5 Fix: Auto-scroll to bottom when messages change
   useEffect(() => {
