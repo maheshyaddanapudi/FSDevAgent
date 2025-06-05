@@ -539,9 +539,9 @@ public class ChatService {
             try {
                 resultStr = objectMapper.writeValueAsString(results);
                 
-                // Add tool result to context
+                // Add tool result to context - use 'user' role instead of 'tool' for Claude API compatibility
                 context.addMessage(Message.builder()
-                        .role("tool")
+                        .role("user")
                         .content(resultStr)  // Using serialized string for content
                         .toolCallId(toolCallId)
                         .timestamp(Instant.now())
