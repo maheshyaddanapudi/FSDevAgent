@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Component
@@ -222,6 +223,8 @@ public class ClaudeLLMProvider implements LLMProvider {
             AtomicReference<StringBuilder> toolInputJson = new AtomicReference<>(new StringBuilder());
             // Track if we've detected a tool use in this response
             AtomicReference<String> toolUseMarker = new AtomicReference<>(null);
+            // Track tool call sequence for proper ordering
+            AtomicInteger toolCallCounter = new AtomicInteger(0);
             
             return webClient.post()
                     .body(BodyInserters.fromValue(requestJson))
@@ -288,69 +291,43 @@ public class ClaudeLLMProvider implements LLMProvider {
                                                 return handleContentBlockDelta(streamingResponse, currentToolUseBlock, toolInputJson);
                                                 
                                             case "content_block_stop":
-                                                Mono<String> result = handleContentBlockStop(streamingResponse, currentToolUseBlock, toolInputJson);
-                                                // Store the tool use marker if one is emitted
-                                                result.subscribe(marker -> {
-                                                    if (marker != null && marker.contains("<tool_use>")) {
-                                                        log.info("Storing tool use marker for final response: {}", marker);
-                                                        toolUseMarker.set(marker);
-                                                    }
-                                                });
-                                                return result;
+                                                // Enhanced to track tool call sequence
+                                                int toolCallSequence = toolCallCounter.incrementAndGet();
+                                                log.info("Processing tool call #{}", toolCallSequence);
+                                                return handleContentBlockStop(streamingResponse, currentToolUseBlock, toolInputJson, toolCallSequence);
                                                 
                                             case "message_delta":
-                                                log.debug("Message delta event: {}", streamingResponse.getDelta() != null ? 
-                                                         streamingResponse.getDelta().getStopReason() : "no delta");
-                                                // Check if this is the final message delta with stop_reason=tool_use
+                                                // Handle message delta events
                                                 if (streamingResponse.getDelta() != null && 
-                                                    "tool_use".equals(streamingResponse.getDelta().getStopReason()) &&
-                                                    toolUseMarker.get() != null) {
-                                                    // Return the stored tool use marker at the end of the message
-                                                    log.info("Returning stored tool use marker at message end: {}", toolUseMarker.get());
-                                                    return Mono.just(toolUseMarker.get());
+                                                    "text_delta".equals(streamingResponse.getDelta().getType()) && 
+                                                    streamingResponse.getDelta().getText() != null) {
+                                                    return Mono.just(streamingResponse.getDelta().getText());
                                                 }
                                                 return Mono.empty();
                                                 
                                             case "message_stop":
                                                 log.debug("Message stop event received");
-                                                // If we have a stored tool use marker and haven't emitted it yet, do so now
-                                                if (toolUseMarker.get() != null) {
-                                                    log.info("Returning stored tool use marker at message stop: {}", toolUseMarker.get());
-                                                    String marker = toolUseMarker.get();
-                                                    toolUseMarker.set(null); // Clear it to avoid duplicate emission
-                                                    return Mono.just(marker);
-                                                }
                                                 return Mono.empty();
-                                                
-                                            case "ping":
-                                                log.debug("Ping event received");
-                                                return Mono.empty();
-                                                
-                                            case "error":
-                                                log.error("Error event received: {}", rawChunk);
-                                                return Mono.just("Error from Claude API: " + rawChunk);
                                                 
                                             default:
-                                                log.warn("Unknown streaming response type: {} in chunk: {}", 
-                                                        streamingResponse.getType(), rawChunk);
+                                                log.warn("Unknown event type: {}", streamingResponse.getType());
                                                 return Mono.empty();
                                         }
                                     } catch (Exception e) {
-                                        log.error("Error processing streaming chunk: {} - Chunk: {}", e.getMessage(), rawChunk, e);
-                                        return Mono.empty(); // Continue processing other chunks
+                                        log.error("Error processing streaming chunk: {}", e.getMessage(), e);
+                                        return Mono.empty(); // Skip problematic chunks instead of failing
                                     }
                                 })
-                                // Add a final step to ensure tool use marker is included
-                                .doOnComplete(() -> {
-                                    log.info("Streaming response complete, tool use marker state: {}", 
-                                             toolUseMarker.get() != null ? "present" : "not present");
+                                .onErrorResume(error -> {
+                                    log.error("Error in streaming response: {}", error.getMessage(), error);
+                                    return Flux.just("Error in streaming response: " + error.getMessage());
                                 });
                         } else {
                             return response.bodyToMono(String.class)
-                                .doOnNext(errorBody -> {
+                                .flatMapMany(errorBody -> {
                                     log.error("Claude API error: {} - {}", response.statusCode(), errorBody);
-                                })
-                                .flatMapMany(errorBody -> Flux.just("Error from Claude API: " + response.statusCode() + " - " + errorBody));
+                                    return Flux.just("Error from Claude API: " + response.statusCode() + " - " + errorBody);
+                                });
                         }
                     })
                     .onErrorResume(error -> {
@@ -363,139 +340,55 @@ public class ClaudeLLMProvider implements LLMProvider {
         }
     }
     
-    // Add method to clean conversation history
-    private List<Message> cleanConversationHistory(List<Message> originalMessages) {
-        List<Message> cleanedMessages = new ArrayList<>();
-        
-        for (int i = 0; i < originalMessages.size(); i++) {
-            Message msg = originalMessages.get(i);
-            
-            // For assistant messages with tool calls, simplify them in history
-            if ("assistant".equals(msg.getRole()) && msg.getToolCall() != null) {
-                // Replace with a simple text message
-                Message simplifiedMsg = Message.builder()
-                        .role("assistant")
-                        .content(msg.getContent() != null ? msg.getContent() : 
-                                "I used the " + msg.getToolCall().getName() + " tool.")
-                        .timestamp(msg.getTimestamp())
-                        .build();
-                cleanedMessages.add(simplifiedMsg);
-                
-                log.debug("Simplified assistant tool call message in history");
-            } 
-            // For tool messages (tool results), simplify them in history
-            else if ("tool".equals(msg.getRole())) {
-                // Replace with a simple user message containing the tool result
-                Message simplifiedMsg = Message.builder()
-                        .role("user")
-                        .content("Tool result: " + msg.getContent())
-                        .timestamp(msg.getTimestamp())
-                        .build();
-                cleanedMessages.add(simplifiedMsg);
-                
-                log.debug("Simplified tool result message in history");
-            } 
-            else {
-                cleanedMessages.add(msg);
-            }
-        }
-        
-        return cleanedMessages;
-    }
-    
     private ClaudeRequest buildClaudeRequest(String prompt, ChatContext context, boolean stream) {
-        List<ClaudeMessage> messages = new ArrayList<>();
-        String systemPrompt = "You are an AI Developer Agent, designed to help with coding, debugging, and development tasks. Use tools when appropriate to help solve problems.";
+        // Build system prompt
+        String systemPrompt = "You are an AI Developer Agent, designed to help with coding, debugging, and using various tools.";
         
-        // Convert the context messages to Claude format
-        if (context != null && context.getMessages() != null) {
-            // Use the cleaned history instead of the original messages
-            List<Message> cleanedMessages = cleanConversationHistory(context.getMessages());
-            for (Message message : cleanedMessages) {
-                switch (message.getRole()) {
-                    case "system":
-                        // System messages go into the top-level system field, not in messages array
-                        systemPrompt = message.getContent();
-                        // Don't add to messages array - this was the bug
-                        break;
-                    case "user":
-                        ClaudeMessage userMessage = new ClaudeMessage();
-                        userMessage.setRole("user");
-                        userMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
-                        messages.add(userMessage);
-                        break;
-                    case "assistant":
-                        ClaudeMessage assistantMessage = new ClaudeMessage();
-                        assistantMessage.setRole("assistant");
-                        
-                        // Handle tool calls in assistant messages
-                        if (message.getToolCall() != null) {
-                            // This is a tool call message
-                            List<ClaudeContent> contents = new ArrayList<>();
-                            
-                            // Add text content if present
-                            if (message.getContent() != null && !message.getContent().isEmpty()) {
-                                contents.add(new ClaudeContent("text", message.getContent()));
-                            }
-                            
-                            // Add tool use content - Updated to match Claude API schema
-                            Map<String, Object> toolUse = new HashMap<>();
-                            toolUse.put("id", message.getToolCall().getId());
-                            toolUse.put("name", message.getToolCall().getName());
-                            toolUse.put("input", message.getToolCall().getArguments());
-                            
-                            // Create tool content with the required 'tool' field
-                            ClaudeContent toolContent = new ClaudeContent();
-                            toolContent.setType("tool_use");
-                            toolContent.setToolUse(toolUse);
-                            
-                            contents.add(toolContent);
-                            assistantMessage.setContent(contents);
-                        } else {
-                            // Regular assistant message
-                            assistantMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
-                        }
-                        
-                        messages.add(assistantMessage);
-                        break;
-                    case "tool":
-                        // Tool results are sent as user messages with tool_result content
-                        ClaudeMessage toolResultMessage = new ClaudeMessage();
-                        toolResultMessage.setRole("user");
-                        
-                        // Updated to match Claude API schema
-                        Map<String, Object> toolResult = new HashMap<>();
-                        toolResult.put("tool_use_id", message.getToolCallId());
-                        toolResult.put("content", message.getContent());
-                        
-                        // Create tool_result content with the required 'tool_result' field
-                        ClaudeContent toolResultContent = new ClaudeContent();
-                        toolResultContent.setType("tool_result");
-                        toolResultContent.setToolResult(toolResult);
-                        
-                        List<ClaudeContent> contents = new ArrayList<>();
-                        contents.add(toolResultContent);
-                        toolResultMessage.setContent(contents);
-                        messages.add(toolResultMessage);
-                        break;
-                    default:
-                        log.warn("Unknown message role: {}", message.getRole());
-                        break;
-                }
+        // Build messages from context
+        List<ClaudeMessage> messages = new ArrayList<>();
+        
+        // Convert context messages to Claude format
+        for (Message message : context.getMessages()) {
+            List<ClaudeContent> content = new ArrayList<>();
+            
+            if (message.getContent() != null && !message.getContent().isEmpty()) {
+                content.add(new ClaudeContent("text", message.getContent()));
+            }
+            
+            // Add tool use if present
+            if (message.getToolCall() != null) {
+                Map<String, Object> toolUse = new HashMap<>();
+                toolUse.put("name", message.getToolCall().getName());
+                toolUse.put("input", message.getToolCall().getArguments());
+                
+                ClaudeContent toolUseContent = new ClaudeContent();
+                toolUseContent.setType("tool_use");
+                toolUseContent.setToolUse(toolUse);
+                content.add(toolUseContent);
+            }
+            
+            // Add tool result if present
+            if (message.getToolCallId() != null && message.getContent() != null) {
+                Map<String, Object> toolResult = new HashMap<>();
+                toolResult.put("tool_use_id", message.getToolCallId());
+                toolResult.put("content", message.getContent());
+                
+                ClaudeContent toolResultContent = new ClaudeContent();
+                toolResultContent.setType("tool_result");
+                toolResultContent.setToolResult(toolResult);
+                content.add(toolResultContent);
+            }
+            
+            if (!content.isEmpty()) {
+                messages.add(new ClaudeMessage(message.getRole(), content));
             }
         }
         
-        // Add the prompt as a user message if provided
+        // Add the current prompt as a user message
         if (prompt != null && !prompt.isEmpty()) {
-            ClaudeMessage promptMessage = new ClaudeMessage();
-            promptMessage.setRole("user");
-            promptMessage.setContent(List.of(new ClaudeContent("text", prompt)));
-            messages.add(promptMessage);
-        }
-        
-        // Ensure messages array starts with a user message (Claude API requirement)
-        if (!messages.isEmpty() && !"user".equals(messages.get(0).getRole())) {
-            log.warn("First message is not from user, this may cause API errors");
+            List<ClaudeContent> promptContent = new ArrayList<>();
+            promptContent.add(new ClaudeContent("text", prompt));
+            messages.add(new ClaudeMessage("user", promptContent));
         }
         
         // Build the tools list
@@ -655,9 +548,11 @@ public class ClaudeLLMProvider implements LLMProvider {
         return Mono.empty();
     }
     
+    // Updated to include tool call sequence number for proper ordering
     private Mono<String> handleContentBlockStop(ClaudeStreamingResponse response,
                                               AtomicReference<ToolUseBlock> currentToolUseBlock,
-                                              AtomicReference<StringBuilder> toolInputJson) {
+                                              AtomicReference<StringBuilder> toolInputJson,
+                                              int toolCallSequence) {
         ToolUseBlock toolUseBlock = currentToolUseBlock.get();
         if (toolUseBlock == null) {
             log.debug("Content block stop - no active tool use block");
@@ -684,7 +579,8 @@ public class ClaudeLLMProvider implements LLMProvider {
                 toolUseBlock.setInput(new HashMap<>());
             }
             
-            log.info("Completed tool use block: {} with input keys: {}", 
+            log.info("Completed tool use block #{}: {} with input keys: {}", 
+                    toolCallSequence,
                     toolUseBlock.getName(), 
                     toolUseBlock.getInput() != null ? ((Map<String, Object>)toolUseBlock.getInput()).keySet() : "none");
             
@@ -701,17 +597,21 @@ public class ClaudeLLMProvider implements LLMProvider {
                 toolCallEvent.put("id", toolUseBlock.getId());
                 toolCallEvent.put("name", toolUseBlock.getName());
                 toolCallEvent.put("arguments", toolUseBlock.getInput());
+                toolCallEvent.put("sequence", toolCallSequence); // Add sequence number for ordering
                 
                 String toolCallEventJson = objectMapper.writeValueAsString(toolCallEvent);
-                log.info("Emitting tool call event: {}", toolCallEventJson);
+                log.info("Emitting tool call event #{}: {}", toolCallSequence, toolCallEventJson);
                 
                 // Return a special marker with the tool use information
                 // The EVENT: prefix signals to the frontend this is a special event
+                // Include sequence number in the event marker for proper ordering
                 return Mono.just("EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>");
             } catch (Exception e) {
                 log.error("Error creating tool call event: {}", e.getMessage());
                 // Fallback to include both markers even in error case
-                return Mono.just("EVENT:toolCall:{\"id\":\"" + toolUseBlock.getId() + "\",\"name\":\"" + toolUseBlock.getName() + "\"}\n<tool_use>" + toolUseJson + "</tool_use>");
+                return Mono.just("EVENT:toolCall:{\"id\":\"" + toolUseBlock.getId() + 
+                                "\",\"name\":\"" + toolUseBlock.getName() + 
+                                "\",\"sequence\":" + toolCallSequence + "}\n<tool_use>" + toolUseJson + "</tool_use>");
             }
             
         } catch (Exception e) {
@@ -802,19 +702,33 @@ public class ClaudeLLMProvider implements LLMProvider {
         private String id;
         private String type;
         private String role;
-        private String model;
         private List<ClaudeResponseContent> content;
+        private String model;
+        private String stopReason;
+        private String stopSequence;
+        private Usage usage;
     }
     
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ClaudeResponseContent {
+        private String id;
         private String type;
         private String text;
-        private String id;
         private String name;
         private Map<String, Object> input;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Usage {
+        @JsonProperty("input_tokens")
+        private Integer inputTokens;
+        
+        @JsonProperty("output_tokens")
+        private Integer outputTokens;
     }
     
     @Data
@@ -833,8 +747,12 @@ public class ClaudeLLMProvider implements LLMProvider {
     @AllArgsConstructor
     public static class ClaudeMessageData {
         private String id;
-        private String model;
+        private String type;
         private String role;
+        private String model;
+        private String stopReason;
+        private String stopSequence;
+        private Usage usage;
     }
     
     @Data
@@ -853,6 +771,5 @@ public class ClaudeLLMProvider implements LLMProvider {
         private String type;
         private String text;
         private String partialJson;
-        private String stopReason;
     }
 }
