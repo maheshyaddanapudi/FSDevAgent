@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -6,6 +6,12 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import '../styles/MessageList.css';
 
 const MessageList = ({ messages }) => {
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
   if (!messages || messages.length === 0) {
     return (
       <div className="message-list empty">
@@ -56,6 +62,7 @@ const MessageList = ({ messages }) => {
           renderMarkdown={renderMarkdown}
         />
       ))}
+      <div ref={scrollRef} />
     </div>
   );
 };
@@ -64,16 +71,26 @@ const MessageList = ({ messages }) => {
 const MessageItem = ({ message, renderMarkdown }) => {
   const [expandedSections, setExpandedSections] = useState({
     thinking: false,
-    toolCall: false,
-    toolExecution: false,
-    toolResult: message.toolResult?.includes('error') || message.toolResult?.includes('Error') || false
+    toolCalls: {}
   });
 
-  const toggleSection = (section) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section]
-    }));
+  const toggleSection = (section, id = null) => {
+    if (id) {
+      // For tool calls with specific IDs
+      setExpandedSections(prev => ({
+        ...prev,
+        toolCalls: {
+          ...prev.toolCalls,
+          [id]: !prev.toolCalls[id]
+        }
+      }));
+    } else {
+      // For other sections like thinking
+      setExpandedSections(prev => ({
+        ...prev,
+        [section]: !prev[section]
+      }));
+    }
   };
 
   const copyToClipboard = (text) => {
@@ -90,7 +107,11 @@ const MessageItem = ({ message, renderMarkdown }) => {
       'git_operations': '🔧',
       'build_tool': '🏗️',
       'code_intelligence': '🧠',
-      'data_visualization': '📊'
+      'data_visualization': '📊',
+      'web_search': '🔍',
+      'code_execution': '💻',
+      'file_access': '📁',
+      'terminal': '⌨️'
     };
     return icons[toolName] || '🛠️';
   };
@@ -102,6 +123,12 @@ const MessageItem = ({ message, renderMarkdown }) => {
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
   };
+
+  // Determine if we have multiple tool calls
+  const hasMultipleToolCalls = Array.isArray(message.toolCalls) && message.toolCalls.length > 0;
+  
+  // Determine if we have a single tool call (legacy format)
+  const hasSingleToolCall = message.toolCall && !hasMultipleToolCalls;
 
   return (
     <div 
@@ -130,7 +157,7 @@ const MessageItem = ({ message, renderMarkdown }) => {
               onClick={() => toggleSection('thinking')}
               aria-expanded={expandedSections.thinking}
             >
-              <span className="claude-section-icon">💭</span>
+              <span className="claude-section-icon">🤔</span>
               <span className="claude-section-title">Thinking</span>
               <span className="claude-section-preview">
                 {!expandedSections.thinking && getPreviewText(message.thinking)}
@@ -141,14 +168,102 @@ const MessageItem = ({ message, renderMarkdown }) => {
             </button>
             {expandedSections.thinking && (
               <div className="claude-section-content">
-                {renderMarkdown(message.thinking)}
+                <pre className="thinking-content">{message.thinking}</pre>
               </div>
             )}
           </div>
         )}
         
-        {/* Tool Call section - Collapsible */}
-        {message.toolCall && (
+        {/* Multiple Tool Calls - New Format */}
+        {hasMultipleToolCalls && message.toolCalls.map((toolCall, index) => {
+          const toolCallId = toolCall.id || `tool-call-${index}`;
+          const isExpanded = expandedSections.toolCalls[toolCallId] || false;
+          const toolResult = message.toolResults && message.toolResults[index];
+          const hasError = toolResult && (
+            typeof toolResult === 'string' && 
+            (toolResult.includes('error') || toolResult.includes('Error'))
+          );
+          
+          return (
+            <div 
+              key={toolCallId} 
+              className={`claude-section tool-call-section ${hasError ? 'error' : ''}`}
+            >
+              <button 
+                className="claude-section-header"
+                onClick={() => toggleSection('toolCalls', toolCallId)}
+                aria-expanded={isExpanded}
+              >
+                <span className="claude-section-icon">{getToolIcon(toolCall.name)}</span>
+                <span className="claude-section-title">Using {toolCall.name}</span>
+                <span className="claude-section-preview">
+                  {!isExpanded && getPreviewText(
+                    toolCall.parameters || toolCall.arguments || {}
+                  )}
+                </span>
+                <span className="claude-section-chevron">
+                  {isExpanded ? '▼' : '▶'}
+                </span>
+              </button>
+              {isExpanded && (
+                <div className="claude-section-content">
+                  <div className="tool-details">
+                    <div className="tool-input">
+                      <div className="code-block-header">
+                        <span>Input:</span>
+                        <button 
+                          className="copy-button"
+                          onClick={() => copyToClipboard(
+                            JSON.stringify(toolCall.parameters || toolCall.arguments || {}, null, 2)
+                          )}
+                          title="Copy to clipboard"
+                        >
+                          📋 Copy
+                        </button>
+                      </div>
+                      <pre className="code-block">
+                        {JSON.stringify(toolCall.parameters || toolCall.arguments || {}, null, 2)}
+                      </pre>
+                    </div>
+                    
+                    {toolResult && (
+                      <div className="tool-output">
+                        <div className="code-block-header">
+                          <span>Result:</span>
+                          <button 
+                            className="copy-button"
+                            onClick={() => copyToClipboard(
+                              typeof toolResult === 'string' 
+                                ? toolResult 
+                                : JSON.stringify(toolResult, null, 2)
+                            )}
+                            title="Copy to clipboard"
+                          >
+                            📋 Copy
+                          </button>
+                        </div>
+                        {typeof toolResult === 'string' ? (
+                          toolResult.startsWith('```') ? (
+                            renderMarkdown(toolResult)
+                          ) : (
+                            <pre className="execution-log">{toolResult}</pre>
+                          )
+                        ) : (
+                          <pre className="code-block">
+                            {JSON.stringify(toolResult, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        
+        {/* Single Tool Call - Legacy Format */}
+        {hasSingleToolCall && (
           <div className="claude-section tool-call-section">
             <button 
               className="claude-section-header"
@@ -186,40 +301,8 @@ const MessageItem = ({ message, renderMarkdown }) => {
           </div>
         )}
         
-        {/* Tool Execution section - Shows progress/status */}
-        {message.toolExecution && (
-          <div className="claude-section tool-execution-section">
-            <button 
-              className="claude-section-header"
-              onClick={() => toggleSection('toolExecution')}
-              aria-expanded={expandedSections.toolExecution}
-            >
-              <span className="claude-section-icon">⚙️</span>
-              <span className="claude-section-title">Executing Tool</span>
-              <span className="claude-section-status executing">
-                <span className="status-dot"></span>
-                Running
-              </span>
-              <span className="claude-section-chevron">
-                {expandedSections.toolExecution ? '▼' : '▶'}
-              </span>
-            </button>
-            {expandedSections.toolExecution && (
-              <div className="claude-section-content">
-                <div className="execution-output">
-                  {typeof message.toolExecution === 'string' ? (
-                    <pre className="execution-log">{message.toolExecution}</pre>
-                  ) : (
-                    <pre className="execution-log">{JSON.stringify(message.toolExecution, null, 2)}</pre>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        
-        {/* Tool Result section - Auto-expanded for errors */}
-        {message.toolResult && (
+        {/* Tool Result section - For legacy format */}
+        {message.toolResult && !hasMultipleToolCalls && (
           <div className={`claude-section tool-result-section ${
             message.toolResult.includes('error') || message.toolResult.includes('Error') ? 'error' : 'success'
           }`}>

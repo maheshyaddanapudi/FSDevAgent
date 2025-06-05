@@ -1,105 +1,90 @@
-# FSDevAgent Planning Tool Implementation - Summary Report
+# FSDevAgent UI Enhancement Implementation Summary
 
-## Project Overview
-This report summarizes the implementation of the Planning Tool for the FSDevAgent project, which was part of Phase 1 completion requirements. The implementation includes backend integration, frontend visualization, and end-to-end testing of the planning tool functionality.
+## Overview
+
+This document summarizes the implementation of UI enhancements for the FSDevAgent project, focusing on collapsible thinking blocks and tool usage displays as specified in Phase 2 requirements.
+
+## Key Components Modified
+
+### Frontend Components
+
+1. **MessageList.js**
+   - Enhanced to support collapsible thinking blocks
+   - Added support for multiple tool calls in a single message
+   - Implemented expandable/collapsible sections for tool calls and thinking blocks
+   - Added visual indicators for tool types and execution status
+
+2. **useChatStore.js**
+   - Enhanced data parsing to extract tool calls, thinking blocks, and tool results
+   - Added robust debug logging for tracing data flow
+   - Implemented explicit data mapping between backend responses and frontend UI components
+   - Added support for both legacy and new multi-tool call formats
+
+3. **MessageList.css**
+   - Added styling for collapsible sections
+   - Implemented visual differentiation for thinking blocks and tool usage sections
+   - Added animations for expanding/collapsing sections
+   - Enhanced code block and tool result styling
+
+### Backend Components
+
+1. **ChatController.java**
+   - Reverted to original method signatures to maintain API compatibility
+   - Ensured proper SSE event streaming format
 
 ## Implementation Details
 
-### 1. Initial Analysis
-- Analyzed the existing codebase structure to identify integration points
-- Found that the PlanningTool.java was already implemented in the backend
-- Verified it was properly registered in the ToolRegistry
+### Collapsible UI Components
 
-### 2. Frontend Enhancement
-- Created a specialized `PlanningToolOutput.js` component for visualizing planning tool results
-- Updated `ToolOutput.js` to route planning tool outputs to the new component
-- Implemented visualization for different planning tool operations (create_plan, decompose_task, etc.)
+The implementation includes:
+- Toggle buttons for expanding/collapsing thinking and tool sections
+- Preview text for collapsed sections
+- Visual indicators for tool types (using icons)
+- Status indicators for tool execution (success/error)
+- Copy buttons for code blocks and tool outputs
 
-### 3. WebSocket Connectivity Fix
-- Identified and resolved a WebSocket connectivity issue between frontend and backend
-- Updated the WebSocket URL construction logic to properly handle proxied domains
-- Modified the `getWebSocketUrl()` function in `useWebSocket.js` to detect when using a proxied domain
+### Data Flow Enhancements
 
-### 4. Environment Setup and Configuration
-- Installed required dependencies (Java 17, Maven)
-- Built the backend successfully
-- Started both backend and frontend services
-- Exposed ports for public access during testing
+The data flow was enhanced to:
+- Parse various formats of tool calls from backend responses
+- Extract thinking blocks from message content
+- Map backend data structures to frontend UI components
+- Support both single tool call (legacy) and multiple tool calls formats
 
-### 5. Full-Stack Testing
-- Successfully tested the planning tool through the frontend chat interface
-- Verified that the backend processed the planning tool commands correctly
-- Confirmed that the results were properly displayed in the UI
-- Captured screenshots for documentation
+### SSE Streaming Fixes
 
-## Technical Details
+The SSE streaming was fixed by:
+- Ensuring proper content-type headers
+- Maintaining backward compatibility with existing API contracts
+- Implementing proper error handling for SSE connections
 
-### Backend Integration
-The planning tool was already implemented in the backend as `PlanningTool.java` and registered in the `ToolRegistry`. The implementation supports various operations:
-- create_plan
-- decompose_task
-- analyze_dependencies
-- calculate_critical_path
-- plan_sprint
-- track_technical_debt
-- create_architecture_decision
-- get_plan
-- update_task
-- generate_report
+## Current Status
 
-### Frontend Visualization
-A new component `PlanningToolOutput.js` was created to visualize planning tool outputs with specialized rendering for each operation type:
-- Plan creation results
-- Task decomposition results
-- Dependencies analysis
-- Critical path calculation
-- Sprint planning
-- Technical debt tracking
-- Architecture decisions
-- Plan retrieval
-- Task updates
-- Report generation
+1. **Working Features**:
+   - SSE streaming between backend and frontend
+   - Real-time agent responses in the UI
+   - Backend properly emits events and frontend receives them
 
-### WebSocket Connectivity Fix
-The WebSocket URL construction was updated to handle proxied domains:
-```javascript
-// Updated WebSocket URL construction to work with proxied domains
-const getWebSocketUrl = useCallback(() => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname;
-  
-  // Check if we're using the proxied domain
-  if (host.includes('manusvm.computer')) {
-    // For proxied domains, use the 8080 subdomain for backend
-    const baseHost = host.split('-').slice(1).join('-'); // Remove port prefix
-    return `${protocol}//8080-${baseHost}/ws/tools`;
-  } else {
-    // Default behavior for local development
-    const port = process.env.REACT_APP_WS_PORT || '8080';
-    return `${protocol}//${host}:${port}/ws/tools`;
-  }
-}, []);
-```
-
-## Testing Results
-The planning tool was successfully tested with the following scenario:
-1. User prompt: "Please create a plan for implementing a new feature that allows users to upload and process CSV files"
-2. The LLM recognized the planning intent and invoked the planning_tool
-3. The backend processed the command and returned a plan creation result
-4. The frontend displayed the result with proper formatting
-
-## Code Changes
-The following files were modified or created:
-1. `frontend/src/components/ToolOutput.js` - Updated to route planning tool outputs
-2. `frontend/src/hooks/useWebSocket.js` - Fixed WebSocket URL construction
-3. `frontend/src/components/PlanningToolOutput.js` - New component for planning tool visualization
-
-## Conclusion
-The Planning Tool implementation for FSDevAgent is now complete and fully functional. The tool can be invoked through the frontend chat interface, processed by the backend, and the results are properly displayed in the UI. All changes have been committed and pushed to the test branch, completing Phase 1 of the project.
+2. **Remaining Issues**:
+   - The collapsible UI components are implemented but not consistently rendering
+   - There appears to be a disconnect between the data mapping and UI rendering
+   - Further debugging is needed to ensure proper visualization of collapsible blocks
 
 ## Next Steps
-Potential future enhancements could include:
-1. Adding more specialized visualizations for complex planning outputs
-2. Implementing interactive plan editing through the UI
-3. Adding plan export functionality to various formats
-4. Integrating with other tools like Git for task tracking
+
+1. Additional debugging of the data flow between backend and frontend
+2. Further refinement of the data parsing and mapping logic
+3. Verification of CSS and event handlers for collapsible sections
+4. Complete documentation of the implementation
+5. Final testing and code commit
+
+## Files Modified
+
+1. `/home/ubuntu/FSDevAgent/frontend/src/components/MessageList.js`
+2. `/home/ubuntu/FSDevAgent/frontend/src/hooks/useChatStore.js`
+3. `/home/ubuntu/FSDevAgent/frontend/src/styles/MessageList.css`
+4. `/home/ubuntu/FSDevAgent/backend/src/main/java/com/ai/developer/controller/ChatController.java`
+
+## Screenshots
+
+Screenshots of the current UI implementation are available in the `/home/ubuntu/screenshots/` directory, showing the progress of the UI enhancements.

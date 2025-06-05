@@ -1,8 +1,13 @@
-// Fixed useChatStore.js - Issue #2: Runtime Errors Fix
+// Enhanced useChatStore.js - Fixed data mapping for collapsible UI
 import { create } from 'zustand';
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
+
+// Debug helper for tracing data structure
+const debugLog = (label, data) => {
+  console.log(`[DEBUG] ${label}:`, JSON.stringify(data, null, 2));
+};
 
 const useChatStore = create((set, get) => ({
   sessionId: null,
@@ -12,13 +17,15 @@ const useChatStore = create((set, get) => ({
   error: null,
   toolOutputs: [],
   
-  // Issue #2 Fix: Add missing addMessage function with proper error handling
   addMessage: (message) => {
     try {
       if (!message || typeof message !== 'object') {
         console.error('Invalid message object provided to addMessage');
         return;
       }
+      
+      // Debug log for message structure
+      debugLog('Adding message', message);
       
       set(state => ({
         messages: [...state.messages, {
@@ -35,13 +42,15 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Add missing addToolOutput function with proper error handling
   addToolOutput: (toolOutput) => {
     try {
       if (!toolOutput) {
         console.error('No tool output provided to addToolOutput');
         return;
       }
+      
+      // Debug log for tool output structure
+      debugLog('Adding tool output', toolOutput);
       
       set(state => ({
         toolOutputs: [...state.toolOutputs, {
@@ -58,7 +67,6 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Add setter for isProcessing state with validation
   setIsProcessing: (isProcessing) => {
     if (typeof isProcessing === 'boolean') {
       set({ isProcessing });
@@ -67,12 +75,10 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Add clearError function
   clearError: () => {
     set({ error: null });
   },
   
-  // Issue #2 Fix: Improved session initialization with better error handling
   initializeSession: async () => {
     set({ isLoading: true, error: null });
     try {
@@ -105,7 +111,126 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Improved sendMessage with better error handling and validation
+  // Helper to parse tool calls from raw event data
+  parseToolCalls: (eventData) => {
+    try {
+      // Check for EVENT:toolCall format
+      if (typeof eventData === 'string' && eventData.includes('EVENT:toolCall')) {
+        const toolCallMatch = eventData.match(/EVENT:toolCall\s*({.*})/);
+        if (toolCallMatch && toolCallMatch[1]) {
+          const toolCallData = JSON.parse(toolCallMatch[1]);
+          debugLog('Parsed tool call from EVENT format', toolCallData);
+          return [toolCallData]; // Return as array for consistent handling
+        }
+      }
+      
+      // Check for explicit toolCalls array
+      if (eventData.toolCalls && Array.isArray(eventData.toolCalls)) {
+        debugLog('Found explicit toolCalls array', eventData.toolCalls);
+        return eventData.toolCalls;
+      }
+      
+      // Check for single toolCall object
+      if (eventData.toolCall && typeof eventData.toolCall === 'object') {
+        debugLog('Found single toolCall object', eventData.toolCall);
+        return [eventData.toolCall]; // Convert to array for consistent handling
+      }
+      
+      // Check for raw JSON tool call in message content
+      if (eventData.message && typeof eventData.message === 'string') {
+        const content = eventData.message;
+        if (content.includes('"name":') && content.includes('"arguments":')) {
+          try {
+            // Try to extract JSON from the message content
+            const jsonMatch = content.match(/({[\s\S]*"name"[\s\S]*"arguments"[\s\S]*})/);
+            if (jsonMatch && jsonMatch[1]) {
+              const toolCallData = JSON.parse(jsonMatch[1]);
+              debugLog('Extracted tool call from message content', toolCallData);
+              return [toolCallData];
+            }
+          } catch (e) {
+            console.warn('Failed to extract tool call from message content', e);
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error parsing tool calls:', error);
+      return null;
+    }
+  },
+  
+  // Helper to parse thinking blocks from raw event data
+  parseThinking: (eventData) => {
+    try {
+      // Check for explicit thinking property
+      if (eventData.thinking && typeof eventData.thinking === 'string') {
+        debugLog('Found explicit thinking block', eventData.thinking);
+        return eventData.thinking;
+      }
+      
+      // Check for EVENT:thinking format
+      if (typeof eventData === 'string' && eventData.includes('EVENT:thinking')) {
+        const thinkingMatch = eventData.match(/EVENT:thinking\s*([\s\S]*?)(?=EVENT:|$)/);
+        if (thinkingMatch && thinkingMatch[1]) {
+          debugLog('Parsed thinking from EVENT format', thinkingMatch[1]);
+          return thinkingMatch[1].trim();
+        }
+      }
+      
+      // Check for thinking block in message content
+      if (eventData.message && typeof eventData.message === 'string') {
+        const content = eventData.message;
+        if (content.includes('<thinking>') && content.includes('</thinking>')) {
+          const thinkingMatch = content.match(/<thinking>([\s\S]*?)<\/thinking>/);
+          if (thinkingMatch && thinkingMatch[1]) {
+            debugLog('Extracted thinking from message content', thinkingMatch[1]);
+            return thinkingMatch[1].trim();
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error parsing thinking block:', error);
+      return null;
+    }
+  },
+  
+  // Helper to parse tool results from raw event data
+  parseToolResults: (eventData) => {
+    try {
+      // Check for explicit toolResults array
+      if (eventData.toolResults && Array.isArray(eventData.toolResults)) {
+        debugLog('Found explicit toolResults array', eventData.toolResults);
+        return eventData.toolResults;
+      }
+      
+      // Check for single toolResult
+      if (eventData.toolResult && (typeof eventData.toolResult === 'string' || typeof eventData.toolResult === 'object')) {
+        debugLog('Found single toolResult', eventData.toolResult);
+        return [eventData.toolResult]; // Convert to array for consistent handling
+      }
+      
+      // Check for EVENT:toolResult format
+      if (typeof eventData === 'string' && eventData.includes('EVENT:toolResult')) {
+        const toolResultMatch = eventData.match(/EVENT:toolResult\s*({.*})/);
+        if (toolResultMatch && toolResultMatch[1]) {
+          const toolResultData = JSON.parse(toolResultMatch[1]);
+          debugLog('Parsed tool result from EVENT format', toolResultData);
+          return [toolResultData]; // Return as array for consistent handling
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error parsing tool results:', error);
+      return null;
+    }
+  },
+  
+  // Enhanced message sending with improved data structure parsing
   sendMessage: async (message) => {
     const { sessionId } = get();
     
@@ -135,6 +260,9 @@ const useChatStore = create((set, get) => ({
       
       let assistantMessage = '';
       let messageComplete = false;
+      let currentToolCalls = null;
+      let currentThinking = null;
+      let currentToolResults = null;
       
       const cleanup = () => {
         if (eventSource.readyState !== EventSource.CLOSED) {
@@ -145,45 +273,71 @@ const useChatStore = create((set, get) => ({
       
       eventSource.onmessage = (event) => {
         try {
+          debugLog('Raw SSE event data', event.data);
+          
           const chunk = JSON.parse(event.data);
+          debugLog('Parsed SSE chunk', chunk);
+          
           if (chunk && chunk.message) {
-            assistantMessage += chunk.message;
+            // Extract clean message content (without tool calls or thinking blocks)
+            let cleanMessage = chunk.message;
             
-            // Update or create assistant message
+            // Remove tool call blocks from display content
+            cleanMessage = cleanMessage.replace(/<tool_use>[\s\S]*?<\/tool_use>/g, '');
+            cleanMessage = cleanMessage.replace(/EVENT:toolCall[\s\S]*?(?=EVENT:|$)/g, '');
+            
+            // Remove thinking blocks from display content
+            cleanMessage = cleanMessage.replace(/<thinking>[\s\S]*?<\/thinking>/g, '');
+            cleanMessage = cleanMessage.replace(/EVENT:thinking[\s\S]*?(?=EVENT:|$)/g, '');
+            
+            // Append clean content to assistant message
+            assistantMessage += cleanMessage;
+            
+            // Parse tool calls, thinking blocks, and tool results
+            const toolCalls = get().parseToolCalls(chunk) || currentToolCalls;
+            const thinking = get().parseThinking(chunk) || currentThinking;
+            const toolResults = get().parseToolResults(chunk) || currentToolResults;
+            
+            // Update current state for next iteration
+            if (toolCalls) currentToolCalls = toolCalls;
+            if (thinking) currentThinking = thinking;
+            if (toolResults) currentToolResults = toolResults;
+            
+            // Debug log the extracted components
+            debugLog('Extracted components', {
+              cleanMessage,
+              toolCalls: currentToolCalls,
+              thinking: currentThinking,
+              toolResults: currentToolResults
+            });
+            
+            // Update or create assistant message with properly structured data
             set(state => {
               const messages = [...state.messages];
               const lastMessage = messages[messages.length - 1];
-              
-              // Check if the message contains tool-related content
-              const hasToolCall = chunk.toolCall || false;
-              const hasThinking = chunk.thinking || false;
-              const hasToolExecution = chunk.toolExecution || false;
-              const hasToolResult = chunk.toolResult || false;
               
               if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
                 // Update existing assistant message
                 messages[messages.length - 1] = {
                   ...lastMessage,
-                  content: assistantMessage,
+                  content: assistantMessage.trim(),
                   isComplete: false,
-                  // Add tool-related properties if present in the chunk
-                  ...(hasToolCall && { toolCall: chunk.toolCall }),
-                  ...(hasThinking && { thinking: chunk.thinking }),
-                  ...(hasToolExecution && { toolExecution: chunk.toolExecution }),
-                  ...(hasToolResult && { toolResult: chunk.toolResult })
+                  // Add properly structured tool-related properties
+                  ...(currentToolCalls && { toolCalls: currentToolCalls }),
+                  ...(currentThinking && { thinking: currentThinking }),
+                  ...(currentToolResults && { toolResults: currentToolResults })
                 };
               } else {
                 // Add new assistant message
                 messages.push({
                   role: 'assistant',
-                  content: assistantMessage,
+                  content: assistantMessage.trim(),
                   isComplete: false,
                   timestamp: new Date().toISOString(),
-                  // Add tool-related properties if present in the chunk
-                  ...(hasToolCall && { toolCall: chunk.toolCall }),
-                  ...(hasThinking && { thinking: chunk.thinking }),
-                  ...(hasToolExecution && { toolExecution: chunk.toolExecution }),
-                  ...(hasToolResult && { toolResult: chunk.toolResult })
+                  // Add properly structured tool-related properties
+                  ...(currentToolCalls && { toolCalls: currentToolCalls }),
+                  ...(currentThinking && { thinking: currentThinking }),
+                  ...(currentToolResults && { toolResults: currentToolResults })
                 });
               }
               
@@ -233,7 +387,6 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Improved tool execution with better error handling
   executeTool: async (toolName, args) => {
     const { sessionId } = get();
     
@@ -282,7 +435,6 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Improved session history with better error handling
   getSessionHistory: async () => {
     const { sessionId } = get();
     
@@ -302,14 +454,24 @@ const useChatStore = create((set, get) => ({
         throw new Error('Invalid response format from server');
       }
       
-      const messages = response.data.map((msg, index) => ({
-        id: msg.id || `history_${index}`,
-        role: msg.role || 'unknown',
-        content: msg.message || msg.content || '',
-        toolCall: msg.toolCall || null,
-        isComplete: true,
-        timestamp: msg.timestamp || new Date().toISOString()
-      }));
+      const messages = response.data.map((msg, index) => {
+        // Parse tool calls and thinking blocks from message content
+        const toolCalls = get().parseToolCalls(msg);
+        const thinking = get().parseThinking(msg);
+        const toolResults = get().parseToolResults(msg);
+        
+        return {
+          id: msg.id || `history_${index}`,
+          role: msg.role || 'unknown',
+          content: msg.message || msg.content || '',
+          // Add properly structured tool-related properties
+          ...(toolCalls && { toolCalls }),
+          ...(thinking && { thinking }),
+          ...(toolResults && { toolResults }),
+          isComplete: true,
+          timestamp: msg.timestamp || new Date().toISOString()
+        };
+      });
       
       set({ 
         messages,
@@ -326,7 +488,6 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Enhanced clearMessages with validation
   clearMessages: () => {
     try {
       set({ messages: [], error: null });
@@ -336,7 +497,6 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Add clearToolOutputs function
   clearToolOutputs: () => {
     try {
       set({ toolOutputs: [], error: null });
@@ -346,7 +506,6 @@ const useChatStore = create((set, get) => ({
     }
   },
   
-  // Issue #2 Fix: Add resetSession function
   resetSession: () => {
     try {
       set({
