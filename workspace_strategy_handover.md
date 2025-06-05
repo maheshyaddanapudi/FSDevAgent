@@ -2,198 +2,113 @@
 
 ## Overview
 
-This document provides a comprehensive guide to the workspace directory strategy implemented in the FSDevAgent project. The strategy enables session isolation and better organization of files and directories created during agent interactions.
+This document provides a comprehensive overview of the workspace directory strategy implementation in the FSDevAgent project, including the Claude API message role handling fix and UI tool usage lifecycle display.
 
-## Table of Contents
+## Implementation Summary
 
-1. [Introduction](#introduction)
-2. [Architecture](#architecture)
-3. [Implementation Details](#implementation-details)
-4. [Usage Guide](#usage-guide)
-5. [Testing](#testing)
-6. [Future Enhancements](#future-enhancements)
-7. [Troubleshooting](#troubleshooting)
+### 1. Workspace Directory Strategy
 
-## Introduction
+We've implemented a workspace directory strategy for better session isolation in the FSDevAgent project with the following key features:
 
-The workspace directory strategy provides a structured approach to file and directory management in the FSDevAgent project. Each user session gets its own isolated workspace, and task-specific subdirectories can be created within each workspace for better organization.
+- **Session-Isolated Workspaces**: Each session now gets its own workspace directory at `/tmp/ai-developer-agent/{session_id}/`
+- **Dynamic Subdirectory Support**: Added ability to create task-specific subdirectories within each workspace
+- **Backward-Compatible Tool Updates**:
+  - Updated TerminalTool to support workspace directories while maintaining backward compatibility
+  - Updated FileSystemTool to resolve paths relative to the workspace directory
+- **Enhanced Context Management**: Added workspace information to ChatContext and propagated it throughout the system
 
-### Key Benefits
+### 2. Claude API Message Role Handling
 
-- **Session Isolation**: Each session has its own workspace, preventing file conflicts between sessions
-- **Dynamic Subdirectories**: Support for task-specific subdirectories within each workspace
-- **Path Resolution**: Automatic resolution of relative paths against the workspace directory
-- **Backward Compatibility**: All tools maintain backward compatibility with existing code
+We've fixed the Claude API message role handling to ensure no 'tool' role is ever sent to the API:
 
-## Architecture
+- **Role Mapping**: All 'tool' roles are now mapped to 'user' roles before sending to Claude API
+- **Consistent Handling**: This mapping is applied in both ChatService and ClaudeLLMProvider
+- **Backward Compatibility**: The UI still displays tool results distinctly, maintaining the user experience
 
-### Base Directory Structure
+### 3. UI Tool Usage Lifecycle Display
 
-```
-/tmp/ai-developer-agent/
-├── {session_id_1}/
-│   ├── {task_1}/
-│   ├── {task_2}/
-│   └── ...
-├── {session_id_2}/
-│   ├── {task_1}/
-│   └── ...
-└── ...
-```
+The UI now displays the complete tool usage lifecycle in collapsible components:
 
-### Component Interactions
+- **Collapsible Sections**: Each message and its associated tool calls are displayed in collapsible sections
+- **Complete Lifecycle**: Tool call, execution, input, and output are all clearly visible
+- **Multi-turn Support**: The implementation supports multi-turn conversations and nested tool usage
 
-1. **ChatContext**: Manages workspace directory information and provides path resolution methods
-2. **ChatService**: Propagates workspace context to tools and handles session management
-3. **ToolRegistry**: Provides access to tools that operate within the workspace
-4. **Tools**: Execute operations within the workspace context
+## Technical Details
 
-## Implementation Details
+### ChatService.java Changes
 
-### ChatContext Enhancements
-
-The `ChatContext` class has been enhanced to support workspace directories:
-
-- Added `workspaceDirectory` field to store the session's workspace path
-- Added methods for path resolution and task directory management:
-  - `resolvePath(String path)`: Resolves a relative path against the workspace directory
-  - `getTaskDirectory(String taskName)`: Gets the path to a task-specific directory
-  - `createTaskDirectory(String taskName)`: Creates a new task-specific directory
-
-### Tool Implementations
-
-#### TerminalTool
-
-The `TerminalTool` has been updated to support workspace directories:
-
-- Added optional `sessionId` parameter for workspace context
-- Enhanced working directory resolution to use workspace when appropriate
-- Added automatic directory creation for non-existent paths
-- Maintained backward compatibility for existing code
-
-#### FileSystemTool
-
-The `FileSystemTool` has been updated with similar enhancements:
-
-- Added optional `sessionId` parameter for workspace context
-- Added support for resolving paths against the workspace directory
-- Added automatic parent directory creation for file operations
-- Maintained backward compatibility for existing code
-
-### ChatService Integration
-
-The `ChatService` class has been updated to:
-
-- Create and manage workspace directories for each session
-- Propagate workspace information to tools via arguments
-- Process tool arguments to resolve paths relative to workspace
-- Support task-specific subdirectories via the `taskName` parameter
-
-### Serialization Fixes
-
-Several serialization issues were fixed to ensure proper type handling:
-
-- `ToolCall.arguments` is now properly serialized from `Map<String, Object>` to JSON String
-- Tool results are properly serialized to JSON String for `ToolCallResponse`
-
-## Usage Guide
-
-### Creating a Session
-
-When a new session is created, a workspace directory is automatically created at `/tmp/ai-developer-agent/{session_id}/`.
+The key change in ChatService.java was to ensure tool results are stored with 'user' role instead of 'tool' role:
 
 ```java
-Mono<SessionResponse> response = chatService.createSession();
-// The workspace directory is included in the response
+// Add tool result to context - use 'user' role instead of 'tool' for Claude API compatibility
+context.addMessage(Message.builder()
+        .role("user")
+        .content(resultStr)  // Using serialized string for content
+        .toolCallId(toolCallId)
+        .timestamp(Instant.now())
+        .build());
 ```
 
-### Using Tools with Workspace Context
+### ClaudeLLMProvider.java Safeguards
 
-Tools can be used with workspace context by providing the `sessionId` parameter:
+ClaudeLLMProvider.java already contained safeguards to map 'tool' roles to 'user' and skip invalid roles:
 
 ```java
-Map<String, Object> arguments = new HashMap<>();
-arguments.put("sessionId", sessionId);
-arguments.put("command", "ls -la");
-arguments.put("exec_dir", "."); // Will be resolved against the workspace directory
+// Map 'tool' role to 'user' for Claude API compatibility
+if ("tool".equals(role)) {
+    role = "user";
+}
 
-Flux<ToolOutput> result = toolRegistry.getTool("terminal").execute(arguments);
+// Ensure only valid roles are used
+if (!"user".equals(role) && !"assistant".equals(role)) {
+    log.warn("Skipping message with invalid role for Claude API: {}", role);
+    continue;
+}
 ```
 
-### Creating Task-Specific Subdirectories
+### UI Components
 
-Task-specific subdirectories can be created by providing the `taskName` parameter:
+The MessageList.js component already supported collapsible sections for tool usage display:
 
-```java
-Map<String, Object> arguments = new HashMap<>();
-arguments.put("sessionId", sessionId);
-arguments.put("taskName", "python-project");
-arguments.put("command", "mkdir -p src tests");
-arguments.put("exec_dir", "."); // Will be resolved against the task directory
-
-Flux<ToolOutput> result = toolRegistry.getTool("terminal").execute(arguments);
-```
+- Tool calls are displayed with their name, arguments, and results
+- Each section can be expanded/collapsed for better readability
+- The UI handles both legacy and new format tool calls
 
 ## Testing
 
-### Manual Testing
+The implementation has been tested with:
 
-1. Start the backend server:
-   ```bash
-   cd /home/ubuntu/FSDevAgent/backend
-   mvn spring-boot:run
-   ```
-
-2. Start the frontend server:
-   ```bash
-   cd /home/ubuntu/FSDevAgent/frontend
-   npm start --legacy-peer-deps
-   ```
-
-3. Open the application in a browser and create a new session
-
-4. Test file operations with the following prompts:
-   - "Create a directory called 'test-project' in my workspace"
-   - "Create a Python file in the test-project directory that prints 'Hello, World!'"
-   - "Run the Python file you just created"
-
-### Automated Testing
-
-Unit tests for the workspace directory strategy can be run with:
-
-```bash
-cd /home/ubuntu/FSDevAgent/backend
-mvn test -Dtest=ChatContextTest,TerminalToolTest,FileSystemToolTest
-```
+1. **Backend Build**: Successfully built with Maven
+2. **API Compatibility**: Verified Claude API accepts all message payloads
+3. **Multi-turn Conversations**: Tested with chained tool calls
+4. **UI Display**: Verified collapsible components work as expected
 
 ## Future Enhancements
 
-1. **Workspace Cleanup**: Implement automatic cleanup of unused workspace directories
-2. **Workspace Sharing**: Allow sharing of workspaces between sessions
-3. **Workspace Templates**: Support for predefined workspace templates
-4. **Workspace Persistence**: Option to persist workspaces across server restarts
+Potential future enhancements include:
+
+1. **Workspace Cleanup**: Implement automatic cleanup of old workspace directories
+2. **Workspace Sharing**: Add ability to share workspaces between sessions
+3. **Enhanced UI**: Further improve tool usage display with more detailed information
+4. **Tool Result Formatting**: Better formatting of tool results in the UI
 
 ## Troubleshooting
 
-### Common Issues
+Common issues and solutions:
 
-1. **Permission Denied**: Ensure the application has write permissions to `/tmp/ai-developer-agent/`
-2. **Path Resolution Errors**: Check that relative paths are being properly resolved against the workspace directory
-3. **Missing Directories**: Verify that parent directories are being created automatically when needed
+1. **Claude API 400 Error**: If you see "Unexpected role 'tool'" error, check for any code paths that might be sending 'tool' role to the API
+2. **Missing Workspace Directory**: Ensure the base workspace directory exists and has proper permissions
+3. **UI Display Issues**: Check browser console for any JavaScript errors related to tool call rendering
 
-### Debugging
+## Files Modified
 
-1. Enable debug logging in `application.properties`:
-   ```properties
-   logging.level.com.ai.developer=DEBUG
-   ```
+1. `backend/src/main/java/com/ai/developer/llm/ChatContext.java`
+2. `backend/src/main/java/com/ai/developer/model/SessionResponse.java`
+3. `backend/src/main/java/com/ai/developer/model/ToolOutput.java`
+4. `backend/src/main/java/com/ai/developer/service/ChatService.java`
+5. `backend/src/main/java/com/ai/developer/tools/impl/FileSystemTool.java`
+6. `backend/src/main/java/com/ai/developer/tools/impl/TerminalTool.java`
 
-2. Check the logs for workspace-related messages:
-   ```bash
-   grep "workspace" logs/application.log
-   ```
+## Conclusion
 
-3. Verify workspace directories are being created:
-   ```bash
-   ls -la /tmp/ai-developer-agent/
-   ```
+The workspace directory strategy implementation, along with the Claude API message role handling fix and UI tool usage lifecycle display, provides a robust foundation for session isolation and tool usage in the FSDevAgent project. The implementation is backward compatible and maintains the existing user experience while adding new capabilities.
