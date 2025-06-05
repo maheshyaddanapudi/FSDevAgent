@@ -15,16 +15,21 @@ export const useWebSocket = () => {
   // Get emulator store functions with error handling
   const { setWebSocket, processWebSocketMessage } = useEmulatorStore();
 
-  // Issue #3 Fix: Proper WebSocket URL construction without double prefix
+  // Updated WebSocket URL construction to work with proxied domains
   const getWebSocketUrl = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
-    const port = process.env.REACT_APP_WS_PORT || '8080';
     
-    // Fix: Use correct WebSocket URL format without double prefix
-    const wsUrl = `${protocol}//${host}:${port}/ws/tools`;
-    console.log('WebSocket URL:', wsUrl);
-    return wsUrl;
+    // Check if we're using the proxied domain
+    if (host.includes('manusvm.computer')) {
+      // For proxied domains, use the 8080 subdomain for backend
+      const baseHost = host.split('-').slice(1).join('-'); // Remove port prefix
+      return `${protocol}//8080-${baseHost}/ws/tools`;
+    } else {
+      // Default behavior for local development
+      const port = process.env.REACT_APP_WS_PORT || '8080';
+      return `${protocol}//${host}:${port}/ws/tools`;
+    }
   }, []);
 
   // Initialize WebSocket connection with improved error handling
@@ -45,7 +50,7 @@ export const useWebSocket = () => {
     }
 
     try {
-      // Issue #3 Fix: Use the corrected URL without double prefix
+      // Use the updated URL construction method
       const wsUrl = getWebSocketUrl();
       console.log('Connecting to WebSocket:', wsUrl);
       

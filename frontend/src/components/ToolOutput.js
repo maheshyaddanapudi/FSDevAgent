@@ -2,6 +2,7 @@ import React from 'react';
 import { XTerm } from 'xterm-for-react';
 import { FitAddon } from 'xterm-addon-fit';
 import '../styles/ToolOutput.css';
+import PlanningToolOutput from './PlanningToolOutput';
 
 const ToolOutput = ({ output }) => {
   const renderOutput = () => {
@@ -22,9 +23,10 @@ const ToolOutput = ({ output }) => {
         return <CodeOutput output={output} />;
       case 'data_visualization':
         return <DataVisualizationOutput output={output} />;
+      case 'planning_tool':
+        return <PlanningToolOutput output={output} />;
       default:
         return <GenericOutput output={output} />;
-    }
   };
   
   return (
