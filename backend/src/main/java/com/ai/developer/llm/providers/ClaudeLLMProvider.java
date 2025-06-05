@@ -1,765 +1,374 @@
 package com.ai.developer.llm.providers;
 
-import com.ai.developer.config.LLMConfig;
 import com.ai.developer.llm.ChatContext;
 import com.ai.developer.llm.LLMProvider;
 import com.ai.developer.llm.Message;
 import com.ai.developer.llm.ToolCall;
 import com.ai.developer.llm.ToolUseBlock;
-import com.ai.developer.tools.ParameterInfo;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolRegistry;
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Primary;
-import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.BodyInserters;
-import org.springframework.web.reactive.function.client.ClientResponse;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import jakarta.annotation.PostConstruct;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-@Slf4j
 @Component
-@Primary
-@RequiredArgsConstructor
-@ConditionalOnProperty(name = "llm.type", havingValue = "claude")
+@Slf4j
 public class ClaudeLLMProvider implements LLMProvider {
     
-    private final LLMConfig config;
+    private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
-    private WebClient webClient;
     
-    private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
-    private static final String CLAUDE_API_VERSION = "2023-06-01";
+    @Value("${llm.api.key}")
+    private String apiKey;
+    
+    @Value("${llm.api.model:claude-3-opus-20240229}")
+    private String model;
+    
+    @Value("${llm.api.max-tokens:4000}")
+    private Integer maxTokens;
+    
+    @Value("${llm.api.temperature:0.7}")
+    private Double temperature;
+    
+    // Map to track active tool use blocks by session
+    private final ConcurrentHashMap<String, ToolUseBlock> activeToolUseBlocks = new ConcurrentHashMap<>();
+    
+    // Pattern to match tool use blocks in LLM responses
+    private static final Pattern TOOL_USE_PATTERN = Pattern.compile("<tool_use>(.*?)</tool_use>", Pattern.DOTALL);
+    
+    public ClaudeLLMProvider(WebClient.Builder webClientBuilder, ObjectMapper objectMapper, ToolRegistry toolRegistry) {
+        this.webClient = webClientBuilder
+                .baseUrl("https://api.anthropic.com/v1")
+                .defaultHeader("x-api-key", "dummy") // Will be overridden in actual requests
+                .defaultHeader("anthropic-version", "2023-06-01")
+                .build();
+        this.objectMapper = objectMapper;
+        this.toolRegistry = toolRegistry;
+        
+        log.info("Initialized Claude LLM provider with model: {}", model);
+    }
     
     @Override
     public String getProviderName() {
-        return "claude";
-    }
-    
-    @PostConstruct
-    public void init() {
-        // Register JavaTimeModule and configure snake_case naming for proper Claude API compatibility
-        this.objectMapper.registerModule(new JavaTimeModule());
-        this.objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        
-        this.webClient = WebClient.builder()
-                .baseUrl(CLAUDE_API_URL)
-                .defaultHeader("x-api-key", config.getApiKey())
-                .defaultHeader("anthropic-version", CLAUDE_API_VERSION)
-                .defaultHeader("content-type", "application/json")
-                .filter(logRequest())
-                .filter(logResponse())
-                .build();        
-        // Fix for StringIndexOutOfBoundsException - safely handle null or empty API key
-        String apiKeyDisplay = "not set";
-        if (config.getApiKey() != null && !config.getApiKey().isEmpty()) {
-            apiKeyDisplay = config.getApiKey().substring(0, Math.min(4, config.getApiKey().length())) + "...";
-        }
-        
-        log.info("Claude LLM Provider initialized with model: {}, API key: {}", 
-                config.getModel() != null ? config.getModel() : "not set", 
-                apiKeyDisplay);
-    }
-    
-    // Add request logging filter
-    private ExchangeFilterFunction logRequest() {
-        return ExchangeFilterFunction.ofRequestProcessor(clientRequest -> {
-            log.info("Request: {} {}", clientRequest.method(), clientRequest.url());
-            clientRequest.headers().forEach((name, values) -> 
-                values.forEach(value -> log.info("{}={}", name, value)));
-            return Mono.just(clientRequest);
-        });
-    }
-    
-    // Add enhanced response logging filter with detailed error diagnostics
-    private ExchangeFilterFunction logResponse() {
-        return ExchangeFilterFunction.ofResponseProcessor(clientResponse -> {
-            log.info("Response status: {}", clientResponse.statusCode());
-            clientResponse.headers().asHttpHeaders().forEach((name, values) -> 
-                values.forEach(value -> log.info("{}={}", name, value)));
-            
-            if (clientResponse.statusCode().isError()) {
-                return clientResponse.bodyToMono(String.class)
-                    .flatMap(body -> {
-                        log.error("Claude API error response: Status={}, Body={}", 
-                                clientResponse.statusCode(), body);
-                        
-                        // Try to parse error details for better diagnostics
-                        try {
-                            Map<String, Object> errorMap = objectMapper.readValue(body, Map.class);
-                            if (errorMap.containsKey("error")) {
-                                Map<String, Object> error = (Map<String, Object>) errorMap.get("error");
-                                log.error("Claude API error details: type={}, message={}", 
-                                        error.get("type"), error.get("message"));
-                            }
-                        } catch (Exception e) {
-                            log.warn("Could not parse error details: {}", e.getMessage());
-                        }
-                        
-                        return Mono.just(ClientResponse.create(clientResponse.statusCode())
-                            .headers(headers -> headers.addAll(clientResponse.headers().asHttpHeaders()))
-                            .body(body)
-                            .build());
-                    });
-            }
-            return Mono.just(clientResponse);
-        });
+        return "Claude";
     }
     
     @Override
     public Mono<String> generateResponse(String prompt, ChatContext context) {
-        ClaudeRequest request = buildClaudeRequest(prompt, context, false);
-        
-        log.info("Sending non-streaming request to Claude API with {} messages", request.getMessages().size());
-        
-        try {
-            String requestJson = objectMapper.writeValueAsString(request);
-            log.info("Request payload: {}", requestJson);
-            
-            // Use direct HTTP client approach for more control
-            return webClient.post()
-                    .body(BodyInserters.fromValue(requestJson))
-                    .exchangeToMono(response -> {
-                        if (response.statusCode().is2xxSuccessful()) {
-                            return response.bodyToMono(String.class)
-                                .doOnNext(rawResponse -> {
-                                    log.info("Raw response from Claude API: {}", rawResponse);
-                                })
-                                .map(rawResponse -> {
-                                    try {
-                                        ClaudeResponse claudeResponse = objectMapper.readValue(rawResponse, ClaudeResponse.class);
-                                        if (claudeResponse.getContent() != null && !claudeResponse.getContent().isEmpty()) {
-                                            StringBuilder responseBuilder = new StringBuilder();
-                                            
-                                            for (ClaudeResponseContent content : claudeResponse.getContent()) {
-                                                if ("text".equals(content.getType()) && content.getText() != null) {
-                                                    responseBuilder.append(content.getText());
-                                                } else if ("tool_use".equals(content.getType())) {
-                                                    // Handle tool use in non-streaming response
-                                                    try {
-                                                        ToolUseBlock toolUseBlock = ToolUseBlock.builder()
-                                                            .id(content.getId())
-                                                            .name(content.getName())
-                                                            .input(content.getInput() != null ? content.getInput() : new HashMap<>())
-                                                            .build();
-                                                        
-                                                        String toolUseJson = objectMapper.writeValueAsString(toolUseBlock);
-                                                        responseBuilder.append("<tool_use>").append(toolUseJson).append("</tool_use>");
-                                                    } catch (Exception e) {
-                                                        log.error("Error processing tool use in response: {}", e.getMessage());
-                                                        responseBuilder.append("Error processing tool use: ").append(e.getMessage());
-                                                    }
-                                                }
-                                            }
-                                            
-                                            return responseBuilder.toString();
-                                        } else {
-                                            log.error("Empty content in Claude response");
-                                            return "Error: Empty content in Claude response";
-                                        }
-                                    } catch (JsonProcessingException e) {
-                                        log.error("Error parsing Claude response: {}", e.getMessage());
-                                        return "Error parsing Claude response: " + e.getMessage();
-                                    }
-                                });
-                        } else {
-                            return response.bodyToMono(String.class)
-                                .doOnNext(errorBody -> {
-                                    log.error("Claude API error: {} - {}", response.statusCode(), errorBody);
-                                })
-                                .map(errorBody -> "Error from Claude API: " + response.statusCode() + " - " + errorBody);
-                        }
-                    })
-                    .onErrorResume(error -> {
-                        log.error("Error calling Claude API: {}", error.getMessage(), error);
-                        return Mono.just("Error calling Claude API: " + error.getMessage());
-                    });
-        } catch (JsonProcessingException e) {
-            log.error("Error serializing request: {}", e.getMessage());
-            return Mono.just("Error serializing request: " + e.getMessage());
-        }
+        // For non-streaming responses, we'll just collect the streaming response
+        return streamResponse(prompt, context)
+                .collectList()
+                .map(chunks -> String.join("", chunks));
     }
     
     @Override
-    public Flux<String> streamResponse(String prompt, ChatContext context) {
-        ClaudeRequest request = buildClaudeRequest(prompt, context, true);
+    public Flux<String> streamResponse(String message, ChatContext context) {
+        log.info("Streaming response for message: {}", message);
         
-        log.info("Sending streaming request to Claude API with {} messages", request.getMessages().size());
+        // Convert our messages to Claude format
+        List<ClaudeMessage> claudeMessages = convertToClaude(context.getMessages());
         
-        // Log the messages being sent for debugging
-        try {
-            String requestJson = objectMapper.writeValueAsString(request);
-            log.info("Request payload: {}", requestJson);
-            
-            // Track the current tool use block being built
-            AtomicReference<ToolUseBlock> currentToolUseBlock = new AtomicReference<>(null);
-            AtomicReference<StringBuilder> toolInputJson = new AtomicReference<>(new StringBuilder());
-            // Track if we've detected a tool use in this response
-            AtomicReference<String> toolUseMarker = new AtomicReference<>(null);
-            
-            return webClient.post()
-                    .body(BodyInserters.fromValue(requestJson))
-                    .accept(MediaType.TEXT_EVENT_STREAM)
-                    .exchangeToFlux(response -> {
-                        if (response.statusCode().is2xxSuccessful()) {
-                            return response.bodyToFlux(String.class)
-                                .doOnNext(rawChunk -> {
-                                    log.debug("Raw streaming chunk: {}", rawChunk);
-                                })
-                                .flatMap(rawChunk -> {
-                                    try {
-                                        // Clean up the chunk data
-                                        if (rawChunk.startsWith("data: ")) {
-                                            rawChunk = rawChunk.substring(6);
-                                        }
-                                        
-                                        // Skip empty lines and done markers
-                                        if (rawChunk.trim().isEmpty() || rawChunk.equals("[DONE]")) {
-                                            return Mono.empty();
-                                        }
-                                        
-                                        // Parse the streaming response with error handling
-                                        ClaudeStreamingResponse streamingResponse;
-                                        try {
-                                            streamingResponse = objectMapper.readValue(rawChunk, ClaudeStreamingResponse.class);
-                                        } catch (JsonProcessingException e) {
-                                            log.error("Failed to parse streaming response: {}, Raw chunk: {}", e.getMessage(), rawChunk);
-                                            return Mono.empty(); // Skip malformed chunks instead of failing
-                                        }
-                                        
-                                        // Validate response has required type field
-                                        if (streamingResponse.getType() == null) {
-                                            log.warn("Streaming response missing type field: {}", rawChunk);
-                                            return Mono.empty();
-                                        }
-                                        
-                                        // Handle different event types with proper null checking
-                                        switch (streamingResponse.getType()) {
-                                            case "message_start":
-                                                log.debug("Message start event received: {}", streamingResponse.getMessageData());
-                                                // Handle message start event properly instead of ignoring it
-                                                try {
-                                                    // Log detailed message data for debugging
-                                                    if (streamingResponse.getMessageData() != null) {
-                                                        log.debug("Message ID: {}, Model: {}, Role: {}", 
-                                                            streamingResponse.getMessageData().getId(),
-                                                            streamingResponse.getMessageData().getModel(),
-                                                            streamingResponse.getMessageData().getRole());
-                                                    } else if (streamingResponse.getAdditionalProperties() != null && 
-                                                               !streamingResponse.getAdditionalProperties().isEmpty()) {
-                                                        log.debug("Message start with additional properties: {}", 
-                                                            streamingResponse.getAdditionalProperties());
-                                                    }
-                                                } catch (Exception e) {
-                                                    log.warn("Error processing message_start event: {}", e.getMessage());
-                                                }
-                                                return Mono.empty();
-                                                
-                                            case "content_block_start":
-                                                return handleContentBlockStart(streamingResponse, currentToolUseBlock, toolInputJson);
-                                                
-                                            case "content_block_delta":
-                                                return handleContentBlockDelta(streamingResponse, currentToolUseBlock, toolInputJson);
-                                                
-                                            case "content_block_stop":
-                                                Mono<String> result = handleContentBlockStop(streamingResponse, currentToolUseBlock, toolInputJson);
-                                                // Store the tool use marker if one is emitted
-                                                result.subscribe(marker -> {
-                                                    if (marker != null && marker.contains("<tool_use>")) {
-                                                        log.info("Storing tool use marker for final response: {}", marker);
-                                                        toolUseMarker.set(marker);
-                                                    }
-                                                });
-                                                return result;
-                                                
-                                            case "message_delta":
-                                                log.debug("Message delta event: {}", streamingResponse.getDelta() != null ? 
-                                                         streamingResponse.getDelta().getStopReason() : "no delta");
-                                                // Check if this is the final message delta with stop_reason=tool_use
-                                                if (streamingResponse.getDelta() != null && 
-                                                    "tool_use".equals(streamingResponse.getDelta().getStopReason()) &&
-                                                    toolUseMarker.get() != null) {
-                                                    // Return the stored tool use marker at the end of the message
-                                                    log.info("Returning stored tool use marker at message end: {}", toolUseMarker.get());
-                                                    return Mono.just(toolUseMarker.get());
-                                                }
-                                                return Mono.empty();
-                                                
-                                            case "message_stop":
-                                                log.debug("Message stop event received");
-                                                // If we have a stored tool use marker and haven't emitted it yet, do so now
-                                                if (toolUseMarker.get() != null) {
-                                                    log.info("Returning stored tool use marker at message stop: {}", toolUseMarker.get());
-                                                    String marker = toolUseMarker.get();
-                                                    toolUseMarker.set(null); // Clear it to avoid duplicate emission
-                                                    return Mono.just(marker);
-                                                }
-                                                return Mono.empty();
-                                                
-                                            case "ping":
-                                                log.debug("Ping event received");
-                                                return Mono.empty();
-                                                
-                                            case "error":
-                                                log.error("Error event received: {}", rawChunk);
-                                                return Mono.just("Error from Claude API: " + rawChunk);
-                                                
-                                            default:
-                                                log.warn("Unknown streaming response type: {} in chunk: {}", 
-                                                        streamingResponse.getType(), rawChunk);
-                                                return Mono.empty();
-                                        }
-                                    } catch (Exception e) {
-                                        log.error("Error processing streaming chunk: {} - Chunk: {}", e.getMessage(), rawChunk, e);
-                                        return Mono.empty(); // Continue processing other chunks
-                                    }
-                                })
-                                // Add a final step to ensure tool use marker is included
-                                .doOnComplete(() -> {
-                                    log.info("Streaming response complete, tool use marker state: {}", 
-                                             toolUseMarker.get() != null ? "present" : "not present");
-                                });
-                        } else {
-                            return response.bodyToMono(String.class)
-                                .doOnNext(errorBody -> {
-                                    log.error("Claude API error: {} - {}", response.statusCode(), errorBody);
-                                })
-                                .flatMapMany(errorBody -> Flux.just("Error from Claude API: " + response.statusCode() + " - " + errorBody));
-                        }
-                    })
-                    .onErrorResume(error -> {
-                        log.error("Error calling Claude API: {}", error.getMessage(), error);
-                        return Flux.just("Error calling Claude API: " + error.getMessage());
-                    });
-        } catch (JsonProcessingException e) {
-            log.error("Error serializing request: {}", e.getMessage());
-            return Flux.just("Error serializing request: " + e.getMessage());
-        }
-    }
-    
-    // Add method to clean conversation history
-    private List<Message> cleanConversationHistory(List<Message> originalMessages) {
-        List<Message> cleanedMessages = new ArrayList<>();
+        // Add the new user message
+        ClaudeMessage userMessage = new ClaudeMessage();
+        userMessage.setRole("user");
+        List<ClaudeContent> userContent = new ArrayList<>();
+        userContent.add(new ClaudeContent("text", message));
+        userMessage.setContent(userContent);
+        claudeMessages.add(userMessage);
         
-        for (int i = 0; i < originalMessages.size(); i++) {
-            Message msg = originalMessages.get(i);
-            
-            // For assistant messages with tool calls, simplify them in history
-            if ("assistant".equals(msg.getRole()) && msg.getToolCall() != null) {
-                // Replace with a simple text message
-                Message simplifiedMsg = Message.builder()
-                        .role("assistant")
-                        .content(msg.getContent() != null ? msg.getContent() : 
-                                "I used the " + msg.getToolCall().getName() + " tool.")
-                        .timestamp(msg.getTimestamp())
-                        .build();
-                cleanedMessages.add(simplifiedMsg);
-                
-                log.debug("Simplified assistant tool call message in history");
-            } 
-            // For tool messages (tool results), simplify them in history
-            else if ("tool".equals(msg.getRole())) {
-                // Replace with a simple user message containing the tool result
-                Message simplifiedMsg = Message.builder()
-                        .role("user")
-                        .content("Tool result: " + msg.getContent())
-                        .timestamp(msg.getTimestamp())
-                        .build();
-                cleanedMessages.add(simplifiedMsg);
-                
-                log.debug("Simplified tool result message in history");
-            } 
-            else {
-                cleanedMessages.add(msg);
-            }
-        }
+        // Create the request
+        ClaudeRequest request = new ClaudeRequest();
+        request.setModel(model);
+        request.setMessages(claudeMessages);
+        request.setSystem(context.getSystemPrompt());
+        request.setMaxTokens(maxTokens);
+        request.setTemperature(temperature);
+        request.setStream(true);
         
-        return cleanedMessages;
-    }
-    
-    private ClaudeRequest buildClaudeRequest(String prompt, ChatContext context, boolean stream) {
-        List<ClaudeMessage> messages = new ArrayList<>();
-        String systemPrompt = "You are an AI Developer Agent, designed to help with coding, debugging, and development tasks. Use tools when appropriate to help solve problems.";
-        
-        // Convert the context messages to Claude format
-        if (context != null && context.getMessages() != null) {
-            // Use the cleaned history instead of the original messages
-            List<Message> cleanedMessages = cleanConversationHistory(context.getMessages());
-            for (Message message : cleanedMessages) {
-                switch (message.getRole()) {
-                    case "system":
-                        // System messages go into the top-level system field, not in messages array
-                        systemPrompt = message.getContent();
-                        // Don't add to messages array - this was the bug
-                        break;
-                    case "user":
-                        ClaudeMessage userMessage = new ClaudeMessage();
-                        userMessage.setRole("user");
-                        userMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
-                        messages.add(userMessage);
-                        break;
-                    case "assistant":
-                        ClaudeMessage assistantMessage = new ClaudeMessage();
-                        assistantMessage.setRole("assistant");
-                        
-                        // Handle tool calls in assistant messages
-                        if (message.getToolCall() != null) {
-                            // This is a tool call message
-                            List<ClaudeContent> contents = new ArrayList<>();
-                            
-                            // Add text content if present
-                            if (message.getContent() != null && !message.getContent().isEmpty()) {
-                                contents.add(new ClaudeContent("text", message.getContent()));
-                            }
-                            
-                            // Add tool use content - Updated to match Claude API schema
-                            Map<String, Object> toolUse = new HashMap<>();
-                            toolUse.put("id", message.getToolCall().getId());
-                            toolUse.put("name", message.getToolCall().getName());
-                            toolUse.put("input", message.getToolCall().getArguments());
-                            
-                            // Create tool content with the required 'tool' field
-                            ClaudeContent toolContent = new ClaudeContent();
-                            toolContent.setType("tool_use");
-                            toolContent.setToolUse(toolUse);
-                            
-                            contents.add(toolContent);
-                            assistantMessage.setContent(contents);
-                        } else {
-                            // Regular assistant message
-                            assistantMessage.setContent(List.of(new ClaudeContent("text", message.getContent())));
-                        }
-                        
-                        messages.add(assistantMessage);
-                        break;
-                    case "tool":
-                        // Tool results are sent as user messages with tool_result content
-                        ClaudeMessage toolResultMessage = new ClaudeMessage();
-                        toolResultMessage.setRole("user");
-                        
-                        // Updated to match Claude API schema
-                        Map<String, Object> toolResult = new HashMap<>();
-                        toolResult.put("tool_use_id", message.getToolCallId());
-                        toolResult.put("content", message.getContent());
-                        
-                        // Create tool_result content with the required 'tool_result' field
-                        ClaudeContent toolResultContent = new ClaudeContent();
-                        toolResultContent.setType("tool_result");
-                        toolResultContent.setToolResult(toolResult);
-                        
-                        List<ClaudeContent> contents = new ArrayList<>();
-                        contents.add(toolResultContent);
-                        toolResultMessage.setContent(contents);
-                        messages.add(toolResultMessage);
-                        break;
-                    default:
-                        log.warn("Unknown message role: {}", message.getRole());
-                        break;
-                }
-            }
-        }
-        
-        // Add the prompt as a user message if provided
-        if (prompt != null && !prompt.isEmpty()) {
-            ClaudeMessage promptMessage = new ClaudeMessage();
-            promptMessage.setRole("user");
-            promptMessage.setContent(List.of(new ClaudeContent("text", prompt)));
-            messages.add(promptMessage);
-        }
-        
-        // Ensure messages array starts with a user message (Claude API requirement)
-        if (!messages.isEmpty() && !"user".equals(messages.get(0).getRole())) {
-            log.warn("First message is not from user, this may cause API errors");
-        }
-        
-        // Build the tools list
+        // Add tools
         List<ClaudeTool> tools = new ArrayList<>();
         for (Tool tool : toolRegistry.getAllTools()) {
             ClaudeTool claudeTool = new ClaudeTool();
             claudeTool.setName(tool.getName());
             claudeTool.setDescription(tool.getDescription());
             
-            // Build input schema
-            ClaudeInputSchema inputSchema = new ClaudeInputSchema();
-            inputSchema.setType("object");
-            
-            Map<String, ClaudePropertySchema> properties = new HashMap<>();
-            List<String> required = new ArrayList<>();
-            
-            for (Map.Entry<String, ParameterInfo> entry : tool.getParameters().entrySet()) {
-                ParameterInfo param = entry.getValue();
-                if (param.getName() != null) {
-                    ClaudePropertySchema propertySchema = new ClaudePropertySchema();
-                    propertySchema.setType(param.getType());
-                    propertySchema.setDescription(param.getDescription());
-                    
-                    properties.put(param.getName(), propertySchema);
-                    
-                    if (param.isRequired()) {
-                        required.add(param.getName());
-                    }
-                } else {
-                    log.warn("Skipping parameter with null name in tool: {}", tool.getName());
-                }
-            }
-            
-            inputSchema.setProperties(properties);
-            inputSchema.setRequired(required);
+            // Add input schema if available - using parameters as schema
+            Map<String, Object> inputSchema = new HashMap<>();
+            inputSchema.put("type", "object");
+            inputSchema.put("properties", tool.getParameters());
             claudeTool.setInputSchema(inputSchema);
             
             tools.add(claudeTool);
         }
+        request.setTools(tools);
         
-        // Build the request
-        ClaudeRequest request = new ClaudeRequest();
-        request.setModel(config.getModel() != null ? config.getModel() : "claude-3-5-sonnet-20241022");
-        request.setMessages(messages);
-        request.setSystem(systemPrompt);
-        request.setMaxTokens(config.getMaxTokens() != null ? config.getMaxTokens() : 4000);
-        request.setTemperature(config.getTemperature() != null ? config.getTemperature() : 0.7);
-        request.setStream(stream);
-        if (!tools.isEmpty()) {
-            request.setTools(tools);
+        // Add metadata with session ID if available
+        if (context.getSessionId() != null) {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("sessionId", context.getSessionId());
+            
+            // Add workspace path if available
+            if (context.getMetadata() != null && context.getMetadata().containsKey("workspacePath")) {
+                String workspacePath = (String) context.getMetadata().get("workspacePath");
+                metadata.put("workspacePath", workspacePath);
+            }
+            
+            request.setMetadata(metadata);
         }
         
-        return request;
+        // Thread-local variables to track state during streaming
+        ThreadLocal<StringBuilder> currentText = ThreadLocal.withInitial(StringBuilder::new);
+        ThreadLocal<StringBuilder> toolInputJson = ThreadLocal.withInitial(StringBuilder::new);
+        ThreadLocal<AtomicReference<ToolUseBlock>> currentToolUseBlock = ThreadLocal.withInitial(() -> new AtomicReference<>(null));
+        ThreadLocal<AtomicReference<String>> toolUseMarker = ThreadLocal.withInitial(() -> new AtomicReference<>(null));
+        
+        // Get session ID for tracking
+        String sessionId = context.getSessionId();
+        
+        return webClient.post()
+                .uri("/messages")
+                .header("x-api-key", apiKey)
+                .header("anthropic-version", "2023-06-01")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToFlux(String.class)
+                .flatMap(chunk -> {
+                    try {
+                        // Skip empty lines
+                        if (chunk.trim().isEmpty()) {
+                            return Mono.empty();
+                        }
+                        
+                        // Handle data chunks
+                        if (chunk.startsWith("data: ")) {
+                            String data = chunk.substring(6);
+                            
+                            // Handle stream end
+                            if ("[DONE]".equals(data)) {
+                                log.info("Stream completed");
+                                
+                                // Check if we have a pending tool use marker to emit
+                                String marker = toolUseMarker.get().get();
+                                if (marker != null) {
+                                    log.info("Emitting pending tool use marker at stream end");
+                                    return Mono.just(marker);
+                                }
+                                
+                                return Mono.empty();
+                            }
+                            
+                            // Parse the JSON data
+                            JsonNode jsonNode = objectMapper.readTree(data);
+                            
+                            // Check for content blocks
+                            if (jsonNode.has("type")) {
+                                String type = jsonNode.get("type").asText();
+                                
+                                if ("content_block_start".equals(type)) {
+                                    // Content block start
+                                    JsonNode contentBlock = jsonNode.get("content_block");
+                                    String blockType = contentBlock.get("type").asText();
+                                    
+                                    if ("text".equals(blockType)) {
+                                        // Text block started, reset current text
+                                        currentText.get().setLength(0);
+                                    } else if ("tool_use".equals(blockType)) {
+                                        // Tool use block started
+                                        String id = contentBlock.get("id").asText();
+                                        String name = contentBlock.get("name").asText();
+                                        
+                                        log.info("Tool use block started: {} ({})", name, id);
+                                        
+                                        // Create a new tool use block
+                                        ToolUseBlock toolUseBlock = ToolUseBlock.builder()
+                                                .id(id)
+                                                .name(name)
+                                                .input(new HashMap<String, Object>())
+                                                .build();
+                                        
+                                        // Store it for later use
+                                        currentToolUseBlock.get().set(toolUseBlock);
+                                        
+                                        // Also store in session map
+                                        if (sessionId != null) {
+                                            activeToolUseBlocks.put(sessionId, toolUseBlock);
+                                        }
+                                        
+                                        // Reset tool input JSON
+                                        toolInputJson.get().setLength(0);
+                                    }
+                                } else if ("content_block_delta".equals(type)) {
+                                    // Content block delta
+                                    JsonNode delta = jsonNode.get("delta");
+                                    String blockType = jsonNode.get("content_block_type").asText();
+                                    
+                                    if ("text".equals(blockType)) {
+                                        // Text delta
+                                        if (delta.has("text")) {
+                                            String text = delta.get("text").asText();
+                                            currentText.get().append(text);
+                                            return Mono.just(text);
+                                        }
+                                    } else if ("tool_use".equals(blockType)) {
+                                        // Tool use delta
+                                        if (delta.has("input")) {
+                                            String inputDelta = delta.get("input").asText();
+                                            toolInputJson.get().append(inputDelta);
+                                            log.debug("Tool use input delta: {}", inputDelta);
+                                        }
+                                    }
+                                } else if ("content_block_stop".equals(type)) {
+                                    // Content block stop
+                                    return handleContentBlockStop(jsonNode, sessionId, currentToolUseBlock, toolInputJson, toolUseMarker);
+                                }
+                            } else if (jsonNode.has("message")) {
+                                // Regular message
+                                JsonNode messageNode = jsonNode.get("message");
+                                if (messageNode.has("content")) {
+                                    JsonNode content = messageNode.get("content").get(0);
+                                    if (content.has("text")) {
+                                        String text = content.get("text").asText();
+                                        return Mono.just(text);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        return Mono.empty();
+                    } catch (Exception e) {
+                        log.error("Error processing chunk: {}", e.getMessage(), e);
+                        return Mono.empty();
+                    }
+                })
+                .timeout(Duration.ofMinutes(5))
+                .doOnError(e -> log.error("Error in stream: {}", e.getMessage(), e));
     }
     
-    // Helper methods for handling different streaming event types
-    
-    private Mono<String> handleContentBlockStart(ClaudeStreamingResponse response, 
-                                               AtomicReference<ToolUseBlock> currentToolUseBlock,
-                                               AtomicReference<StringBuilder> toolInputJson) {
-        log.info("DIAGNOSTIC: handleContentBlockStart called, current tool use block state: {}", 
-                 currentToolUseBlock.get() != null ? "present" : "null");
-                 
-        if (response.getContentBlock() == null) {
-            log.warn("Content block start event missing content block data");
-            return Mono.empty();
-        }
+    /**
+     * Handle content block stop events
+     */
+    private Mono<String> handleContentBlockStop(JsonNode response, String sessionId, 
+            ThreadLocal<AtomicReference<ToolUseBlock>> currentToolUseBlock,
+            ThreadLocal<StringBuilder> toolInputJson,
+            ThreadLocal<AtomicReference<String>> toolUseMarker) {
         
-        String blockType = response.getContentBlock().getType();
+        String blockType = response.get("content_block").get("type").asText();
         if (blockType == null) {
-            log.warn("Content block start event missing block type");
+            log.warn("Content block stop event missing block type");
             return Mono.empty();
         }
         
-        switch (blockType) {
-            case "tool_use":
-                log.info("Starting tool use block: id={}, name={}", 
-                        response.getContentBlock().getId(), response.getContentBlock().getName());
-                
-                // Validate required fields
-                if (response.getContentBlock().getId() == null || response.getContentBlock().getName() == null) {
-                    log.error("Tool use block missing required id or name");
+        if ("tool_use".equals(blockType)) {
+            // Get the current tool use block
+            ToolUseBlock toolUseBlock = currentToolUseBlock.get().get();
+            if (toolUseBlock == null) {
+                // Try to get from session map
+                toolUseBlock = activeToolUseBlocks.get(sessionId);
+                if (toolUseBlock == null) {
+                    log.error("Received tool use stop but no active tool use block found");
                     return Mono.empty();
                 }
-                
-                // Create new tool use block
-                ToolUseBlock toolUseBlock = ToolUseBlock.builder()
-                    .id(response.getContentBlock().getId())
-                    .name(response.getContentBlock().getName())
-                    .input(new HashMap<String, Object>())
-                    .build();
-                
-                // Store the tool use block in the atomic reference
-                currentToolUseBlock.set(toolUseBlock);
-                
-                // Reset the tool input JSON builder
-                toolInputJson.set(new StringBuilder());
-                
-                log.info("Tool use block initialized: {}", toolUseBlock);
-                
-                // Don't return any preliminary marker - wait for content_block_stop
-                return Mono.empty();
-                
-            case "text":
-                log.debug("Starting text block");
-                break;
-                
-            default:
-                log.warn("Unknown content block type: {}", blockType);
-                break;
-        }
-        
-        return Mono.empty();
-    }
-    
-    private Mono<String> handleContentBlockDelta(ClaudeStreamingResponse response,
-                                                AtomicReference<ToolUseBlock> currentToolUseBlock,
-                                                AtomicReference<StringBuilder> toolInputJson) {
-        if (response.getDelta() == null) {
-            log.warn("Content block delta event missing delta data");
-            return Mono.empty();
-        }
-        
-        String deltaType = response.getDelta().getType();
-        if (deltaType == null) {
-            log.warn("Content block delta event missing delta type");
-            return Mono.empty();
-        }
-        
-        switch (deltaType) {
-            case "text_delta":
-                // Handle text content updates
-                if (response.getDelta().getText() != null) {
-                    return Mono.just(response.getDelta().getText());
-                }
-                break;
-                
-            case "input_json_delta":  // Handle the correct delta type for tool input
-                // Handle tool input JSON accumulation
-                log.debug("Accumulating tool input JSON delta");
-                if (response.getDelta().getPartialJson() != null) {
-                    StringBuilder currentJson = toolInputJson.get();
-                    if (currentJson != null) {
-                        currentJson.append(response.getDelta().getPartialJson());
-                        log.debug("Accumulated JSON length: {}", currentJson.length());
-                    } else {
-                        log.warn("Received input JSON delta but no accumulator found");
-                    }
-                }
-                break;
-                
-            default:
-                log.warn("Unknown delta type: {}", deltaType);
-                break;
-        }
-        
-        return Mono.empty();
-    }
-    
-    private Mono<String> handleContentBlockStop(ClaudeStreamingResponse response,
-                                              AtomicReference<ToolUseBlock> currentToolUseBlock,
-                                              AtomicReference<StringBuilder> toolInputJson) {
-        ToolUseBlock toolUseBlock = currentToolUseBlock.get();
-        if (toolUseBlock == null) {
-            log.debug("Content block stop - no active tool use block");
-            return Mono.empty();
-        }
-        
-        try {
-            // Parse the accumulated JSON input
-            StringBuilder jsonBuilder = toolInputJson.get();
-            if (jsonBuilder != null && jsonBuilder.length() > 0) {
-                String jsonInput = jsonBuilder.toString();
-                log.debug("Parsing tool input JSON: {}", jsonInput);
-                
-                try {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> inputMap = objectMapper.readValue(jsonInput, Map.class);
-                    toolUseBlock.setInput(inputMap);
-                } catch (JsonProcessingException e) {
-                    log.error("Failed to parse tool input JSON: {} - JSON: {}", e.getMessage(), jsonInput);
-                    toolUseBlock.setInput(new HashMap<>()); // Use empty map as fallback
-                }
-            } else {
-                log.debug("No JSON input accumulated for tool use block");
-                toolUseBlock.setInput(new HashMap<>());
             }
             
-            log.info("Completed tool use block: {} with input keys: {}", 
-                    toolUseBlock.getName(), 
-                    toolUseBlock.getInput() != null ? ((Map<String, Object>)toolUseBlock.getInput()).keySet() : "none");
-            
-            // Convert the tool use block to a JSON string for the tool execution handler
-            String toolUseJson = objectMapper.writeValueAsString(toolUseBlock);
-            
-            // Reset state
-            currentToolUseBlock.set(null);
-            toolInputJson.set(new StringBuilder());
-            
-            // Create a special event for the frontend to display tool call
             try {
-                Map<String, Object> toolCallEvent = new HashMap<>();
-                toolCallEvent.put("id", toolUseBlock.getId());
-                toolCallEvent.put("name", toolUseBlock.getName());
-                toolCallEvent.put("arguments", toolUseBlock.getInput());
+                // Parse the accumulated JSON input
+                String inputJson = toolInputJson.get().toString();
+                if (!inputJson.isEmpty()) {
+                    Map<String, Object> inputMap = objectMapper.readValue(inputJson, Map.class);
+                    toolUseBlock.setInput(inputMap);
+                    
+                    log.info("Completed tool use block: {} with input keys: {}", 
+                            toolUseBlock.getName(), inputMap.keySet());
+                }
                 
-                String toolCallEventJson = objectMapper.writeValueAsString(toolCallEvent);
-                log.info("Emitting tool call event: {}", toolCallEventJson);
+                // Create tool call event
+                ToolCall toolCall = ToolCall.builder()
+                        .id(toolUseBlock.getId())
+                        .name(toolUseBlock.getName())
+                        .arguments(toolUseBlock.getInput() instanceof Map ? 
+                                   (Map<String, Object>)toolUseBlock.getInput() : 
+                                   new HashMap<String, Object>())
+                        .build();
                 
-                // Return a special marker with the tool use information
-                // The EVENT: prefix signals to the frontend this is a special event
-                return Mono.just("EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>");
+                // Serialize to JSON
+                String toolCallJson = objectMapper.writeValueAsString(toolCall);
+                String marker = "EVENT:toolCall:" + toolCallJson;
+                
+                log.info("Emitting tool call event: {}", toolCallJson);
+                
+                // Store the marker for later emission if needed
+                toolUseMarker.get().set(marker);
+                
+                // Return the marker immediately
+                return Mono.just(marker);
             } catch (Exception e) {
-                log.error("Error creating tool call event: {}", e.getMessage());
-                // Fallback to include both markers even in error case
-                return Mono.just("EVENT:toolCall:{\"id\":\"" + toolUseBlock.getId() + "\",\"name\":\"" + toolUseBlock.getName() + "\"}\n<tool_use>" + toolUseJson + "</tool_use>");
+                log.error("Error processing tool use block: {}", e.getMessage(), e);
+                return Mono.empty();
             }
-            
-        } catch (Exception e) {
-            log.error("Error processing completed tool use block: {}", e.getMessage(), e);
+        } else if ("text".equals(blockType)) {
+            // Text block stopped, nothing to do
+            return Mono.empty();
+        } else {
+            log.warn("Unknown content block type in stop event: {}", blockType);
             return Mono.empty();
         }
     }
     
-    // Inner classes for Claude API request/response
+    // Claude API request/response models
     
     @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeRequest {
+    private static class ClaudeRequest {
         private String model;
         private List<ClaudeMessage> messages;
         private String system;
-        
-        @JsonProperty("max_tokens")
-        @JsonInclude(JsonInclude.Include.ALWAYS)
         private Integer maxTokens;
-        
         private Double temperature;
         private Boolean stream;
         private List<ClaudeTool> tools;
+        private Map<String, Object> metadata;
     }
     
     @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeMessage {
+    private static class ClaudeMessage {
         private String role;
         private List<ClaudeContent> content;
     }
     
     @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeContent {
+    private static class ClaudeContent {
         private String type;
         private String text;
         
-        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("tool_use")
         private Map<String, Object> toolUse;
         
-        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonProperty("tool_result")
         private Map<String, Object> toolResult;
+        
+        public ClaudeContent() {
+        }
         
         public ClaudeContent(String type, String text) {
             this.type = type;
@@ -768,91 +377,96 @@ public class ClaudeLLMProvider implements LLMProvider {
     }
     
     @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeTool {
+    private static class ClaudeTool {
         private String name;
         private String description;
         
         @JsonProperty("input_schema")
-        private ClaudeInputSchema inputSchema;
+        private Map<String, Object> inputSchema;
     }
     
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeInputSchema {
-        private String type;
-        private Map<String, ClaudePropertySchema> properties;
-        private List<String> required;
+    /**
+     * Convert our message format to Claude's format
+     */
+    private List<ClaudeMessage> convertToClaude(List<Message> messages) {
+        List<ClaudeMessage> claudeMessages = new ArrayList<>();
+        
+        for (Message message : messages) {
+            ClaudeMessage claudeMessage = new ClaudeMessage();
+            claudeMessage.setRole(message.getRole());
+            
+            List<ClaudeContent> content = new ArrayList<>();
+            
+            if (message.getToolCall() != null) {
+                // This is a message with a tool call
+                ClaudeContent textContent = new ClaudeContent();
+                textContent.setType("text");
+                textContent.setText(message.getContent());
+                content.add(textContent);
+                
+                // Add tool use content
+                ClaudeContent toolUseContent = new ClaudeContent();
+                toolUseContent.setType("tool_use");
+                
+                // Convert tool call to Claude format
+                Map<String, Object> toolUseMap = new HashMap<>();
+                toolUseMap.put("id", message.getToolCall().getId());
+                toolUseMap.put("name", message.getToolCall().getName());
+                toolUseMap.put("input", message.getToolCall().getArguments());
+                toolUseContent.setToolUse(toolUseMap);
+                
+                content.add(toolUseContent);
+            } else if (message.getToolCallId() != null) {
+                // This is a tool result message
+                ClaudeContent toolResultContent = new ClaudeContent();
+                toolResultContent.setType("tool_result");
+                
+                // Convert tool result to Claude format
+                Map<String, Object> toolResultMap = new HashMap<>();
+                toolResultMap.put("tool_call_id", message.getToolCallId());
+                toolResultMap.put("content", message.getContent());
+                toolResultContent.setToolResult(toolResultMap);
+                
+                content.add(toolResultContent);
+            } else {
+                // Regular text message
+                ClaudeContent textContent = new ClaudeContent();
+                textContent.setType("text");
+                textContent.setText(message.getContent());
+                content.add(textContent);
+            }
+            
+            claudeMessage.setContent(content);
+            claudeMessages.add(claudeMessage);
+        }
+        
+        return claudeMessages;
     }
     
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudePropertySchema {
-        private String type;
-        private String description;
+    /**
+     * Extract tool use blocks from a response
+     */
+    private List<ToolUseBlock> extractToolUseBlocks(String response) {
+        List<ToolUseBlock> blocks = new ArrayList<>();
+        
+        Matcher matcher = TOOL_USE_PATTERN.matcher(response);
+        while (matcher.find()) {
+            try {
+                String json = matcher.group(1);
+                ToolUseBlock block = objectMapper.readValue(json, ToolUseBlock.class);
+                blocks.add(block);
+            } catch (JsonProcessingException e) {
+                log.error("Error parsing tool use block: {}", e.getMessage(), e);
+            }
+        }
+        
+        return blocks;
     }
     
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeResponse {
-        private String id;
-        private String type;
-        private String role;
-        private String model;
-        private List<ClaudeResponseContent> content;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeResponseContent {
-        private String type;
-        private String text;
-        private String id;
-        private String name;
-        private Map<String, Object> input;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeStreamingResponse {
-        private String type;
-        private ClaudeMessageData messageData;
-        private ClaudeContentBlock contentBlock;
-        private ClaudeDelta delta;
-        private Map<String, Object> additionalProperties;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeMessageData {
-        private String id;
-        private String model;
-        private String role;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeContentBlock {
-        private String id;
-        private String type;
-        private String name;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeDelta {
-        private String type;
-        private String text;
-        private String partialJson;
-        private String stopReason;
+    /**
+     * Generate a unique ID
+     */
+    private String generateId() {
+        return UUID.randomUUID().toString();
     }
 }

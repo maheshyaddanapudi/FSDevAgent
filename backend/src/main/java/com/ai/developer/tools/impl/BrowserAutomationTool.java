@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 import jakarta.annotation.PostConstruct;
@@ -14,6 +16,9 @@ import jakarta.annotation.PreDestroy;
 @Slf4j
 @Component
 public class BrowserAutomationTool implements Tool {
+    
+    // Default workspace path for tools
+    private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
     
     private Playwright playwright;
     private Browser browser;
@@ -39,7 +44,7 @@ public class BrowserAutomationTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Automate browser interactions and capture screenshots";
+        return "Automate browser interactions and capture screenshots within session-specific workspaces";
     }
     
     @Override
@@ -74,12 +79,39 @@ public class BrowserAutomationTool implements Tool {
             .required(false)
             .build());
             
+        params.put("sessionId", ParameterInfo.builder()
+            .name("sessionId")
+            .type("string")
+            .description("Chat session ID for workspace management")
+            .required(false)
+            .build());
+            
+        params.put("taskDir", ParameterInfo.builder()
+            .name("taskDir")
+            .type("string")
+            .description("Task-specific subdirectory within the session workspace")
+            .required(false)
+            .build());
+            
+        params.put("screenshotPath", ParameterInfo.builder()
+            .name("screenshotPath")
+            .type("string")
+            .description("Path to save screenshot (relative to session workspace)")
+            .required(false)
+            .build());
+            
         return params;
     }
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
         String action = (String) arguments.get("action");
+        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        String taskDir = (String) arguments.getOrDefault("taskDir", "");
+        String screenshotPath = (String) arguments.getOrDefault("screenshotPath", "screenshots");
+        
+        // Resolve screenshot path within session workspace
+        String resolvedScreenshotPath = resolveScreenshotPath(screenshotPath, sessionId, taskDir);
         
         return Mono.fromCallable(() -> {
             BrowserContext context = browser.newContext();
@@ -88,16 +120,16 @@ public class BrowserAutomationTool implements Tool {
             try {
                 switch (action.toLowerCase()) {
                     case "navigate":
-                        return navigateTo(page, (String) arguments.get("url"));
+                        return navigateTo(page, (String) arguments.get("url"), resolvedScreenshotPath, sessionId, taskDir);
                     case "screenshot":
-                        return captureScreenshot(page);
+                        return captureScreenshot(page, resolvedScreenshotPath, sessionId, taskDir);
                     case "click":
-                        return clickElement(page, (String) arguments.get("selector"));
+                        return clickElement(page, (String) arguments.get("selector"), resolvedScreenshotPath, sessionId, taskDir);
                     case "type":
                         return typeText(page, (String) arguments.get("selector"), 
-                                        (String) arguments.get("text"));
+                                        (String) arguments.get("text"), resolvedScreenshotPath, sessionId, taskDir);
                     case "wait":
-                        return waitForElement(page, (String) arguments.get("selector"));
+                        return waitForElement(page, (String) arguments.get("selector"), resolvedScreenshotPath, sessionId, taskDir);
                     default:
                         throw new IllegalArgumentException("Unknown action: " + action);
                 }
@@ -107,13 +139,59 @@ public class BrowserAutomationTool implements Tool {
         }).flux();
     }
     
-    private ToolOutput navigateTo(Page page, String url) {
+    /**
+     * Resolve screenshot path within session workspace
+     * Creates necessary directories if they don't exist
+     */
+    private String resolveScreenshotPath(String screenshotPath, String sessionId, String taskDir) {
+        // Create session workspace directory
+        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        
+        // If task directory is specified, include it in the path
+        if (taskDir != null && !taskDir.isEmpty()) {
+            sessionWorkspace = sessionWorkspace + "/" + taskDir;
+        }
+        
+        // Add screenshot directory
+        String fullPath = sessionWorkspace + "/" + screenshotPath;
+        
+        try {
+            Files.createDirectories(Path.of(fullPath));
+        } catch (Exception e) {
+            log.error("Error creating screenshot directory: {}", fullPath, e);
+        }
+        
+        return fullPath;
+    }
+    
+    /**
+     * Get the full workspace path including session ID and optional task directory
+     */
+    private String getWorkspacePath(String sessionId, String taskDir) {
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        if (taskDir != null && !taskDir.isEmpty()) {
+            workspacePath = workspacePath + "/" + taskDir;
+        }
+        return workspacePath;
+    }
+    
+    private ToolOutput navigateTo(Page page, String url, String screenshotPath, String sessionId, String taskDir) {
         page.navigate(url);
         page.waitForLoadState();  // Default is 'load' event
+        
+        // Generate screenshot filename
+        String filename = screenshotPath + "/navigation_" + System.currentTimeMillis() + ".png";
         
         // Capture screenshot for visualization
         byte[] screenshot = page.screenshot(new Page.ScreenshotOptions()
                 .setFullPage(true));
+        
+        // Save screenshot to file
+        try {
+            Files.write(Path.of(filename), screenshot);
+        } catch (Exception e) {
+            log.error("Error saving screenshot: {}", filename, e);
+        }
         
         return ToolOutput.builder()
                 .type("navigation")
@@ -123,15 +201,25 @@ public class BrowserAutomationTool implements Tool {
                     "title", page.title(),
                     "status", "success",
                     "screenshot", Base64.getEncoder().encodeToString(screenshot),
-                    "html", page.content()
+                    "screenshotPath", filename,
+                    "html", page.content(),
+                    "sessionId", sessionId,
+                    "workspacePath", getWorkspacePath(sessionId, taskDir)
                 ))
                 .build();
     }
     
-    private ToolOutput captureScreenshot(Page page) {
-        String filename = "screenshot_" + System.currentTimeMillis() + ".png";
+    private ToolOutput captureScreenshot(Page page, String screenshotPath, String sessionId, String taskDir) {
+        String filename = screenshotPath + "/screenshot_" + System.currentTimeMillis() + ".png";
         byte[] screenshot = page.screenshot(new Page.ScreenshotOptions()
                 .setFullPage(true));
+        
+        // Save screenshot to file
+        try {
+            Files.write(Path.of(filename), screenshot);
+        } catch (Exception e) {
+            log.error("Error saving screenshot: {}", filename, e);
+        }
         
         return ToolOutput.builder()
                 .type("screenshot")
@@ -140,15 +228,28 @@ public class BrowserAutomationTool implements Tool {
                     "filename", filename,
                     "format", "png",
                     "encoding", "base64",
-                    "html", page.content()
+                    "html", page.content(),
+                    "sessionId", sessionId,
+                    "workspacePath", getWorkspacePath(sessionId, taskDir)
                 ))
                 .build();
     }
     
-    private ToolOutput clickElement(Page page, String selector) {
+    private ToolOutput clickElement(Page page, String selector, String screenshotPath, String sessionId, String taskDir) {
+        // Generate screenshot filenames
+        String beforeFilename = screenshotPath + "/click_before_" + System.currentTimeMillis() + ".png";
+        String afterFilename = screenshotPath + "/click_after_" + System.currentTimeMillis() + ".png";
+        
         // Capture before state
         byte[] beforeScreenshot = page.screenshot(new Page.ScreenshotOptions()
                 .setFullPage(false));
+        
+        // Save before screenshot
+        try {
+            Files.write(Path.of(beforeFilename), beforeScreenshot);
+        } catch (Exception e) {
+            log.error("Error saving before screenshot: {}", beforeFilename, e);
+        }
         
         // Perform click
         page.click(selector);
@@ -160,6 +261,13 @@ public class BrowserAutomationTool implements Tool {
         byte[] afterScreenshot = page.screenshot(new Page.ScreenshotOptions()
                 .setFullPage(false));
         
+        // Save after screenshot
+        try {
+            Files.write(Path.of(afterFilename), afterScreenshot);
+        } catch (Exception e) {
+            log.error("Error saving after screenshot: {}", afterFilename, e);
+        }
+        
         return ToolOutput.builder()
                 .type("click")
                 .content("Clicked element: " + selector)
@@ -167,15 +275,30 @@ public class BrowserAutomationTool implements Tool {
                     "selector", selector,
                     "before_screenshot", Base64.getEncoder().encodeToString(beforeScreenshot),
                     "after_screenshot", Base64.getEncoder().encodeToString(afterScreenshot),
-                    "html", page.content()
+                    "before_screenshot_path", beforeFilename,
+                    "after_screenshot_path", afterFilename,
+                    "html", page.content(),
+                    "sessionId", sessionId,
+                    "workspacePath", getWorkspacePath(sessionId, taskDir)
                 ))
                 .build();
     }
     
-    private ToolOutput typeText(Page page, String selector, String text) {
+    private ToolOutput typeText(Page page, String selector, String text, String screenshotPath, String sessionId, String taskDir) {
+        // Generate screenshot filenames
+        String beforeFilename = screenshotPath + "/type_before_" + System.currentTimeMillis() + ".png";
+        String afterFilename = screenshotPath + "/type_after_" + System.currentTimeMillis() + ".png";
+        
         // Capture before state
         byte[] beforeScreenshot = page.screenshot(new Page.ScreenshotOptions()
                 .setFullPage(false));
+        
+        // Save before screenshot
+        try {
+            Files.write(Path.of(beforeFilename), beforeScreenshot);
+        } catch (Exception e) {
+            log.error("Error saving before screenshot: {}", beforeFilename, e);
+        }
         
         // Perform type
         page.fill(selector, text);
@@ -184,6 +307,13 @@ public class BrowserAutomationTool implements Tool {
         byte[] afterScreenshot = page.screenshot(new Page.ScreenshotOptions()
                 .setFullPage(false));
         
+        // Save after screenshot
+        try {
+            Files.write(Path.of(afterFilename), afterScreenshot);
+        } catch (Exception e) {
+            log.error("Error saving after screenshot: {}", afterFilename, e);
+        }
+        
         return ToolOutput.builder()
                 .type("type")
                 .content("Typed text into: " + selector)
@@ -191,24 +321,41 @@ public class BrowserAutomationTool implements Tool {
                     "selector", selector,
                     "text", text,
                     "before_screenshot", Base64.getEncoder().encodeToString(beforeScreenshot),
-                    "after_screenshot", Base64.getEncoder().encodeToString(afterScreenshot)
+                    "after_screenshot", Base64.getEncoder().encodeToString(afterScreenshot),
+                    "before_screenshot_path", beforeFilename,
+                    "after_screenshot_path", afterFilename,
+                    "sessionId", sessionId,
+                    "workspacePath", getWorkspacePath(sessionId, taskDir)
                 ))
                 .build();
     }
     
-    private ToolOutput waitForElement(Page page, String selector) {
+    private ToolOutput waitForElement(Page page, String selector, String screenshotPath, String sessionId, String taskDir) {
         page.waitForSelector(selector);
+        
+        // Generate screenshot filename
+        String filename = screenshotPath + "/wait_" + System.currentTimeMillis() + ".png";
         
         // Capture screenshot showing the element
         byte[] screenshot = page.screenshot(new Page.ScreenshotOptions()
                 .setFullPage(false));
+        
+        // Save screenshot
+        try {
+            Files.write(Path.of(filename), screenshot);
+        } catch (Exception e) {
+            log.error("Error saving screenshot: {}", filename, e);
+        }
         
         return ToolOutput.builder()
                 .type("wait")
                 .content("Element appeared: " + selector)
                 .metadata(Map.of(
                     "selector", selector,
-                    "screenshot", Base64.getEncoder().encodeToString(screenshot)
+                    "screenshot", Base64.getEncoder().encodeToString(screenshot),
+                    "screenshot_path", filename,
+                    "sessionId", sessionId,
+                    "workspacePath", getWorkspacePath(sessionId, taskDir)
                 ))
                 .build();
     }

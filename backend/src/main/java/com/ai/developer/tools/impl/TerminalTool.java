@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -14,6 +16,9 @@ import java.util.concurrent.TimeoutException;
 @Component
 public class TerminalTool implements Tool {
     
+    // Default workspace path for tools
+    private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
+    
     @Override
     public String getName() {
         return "execute_command";
@@ -21,7 +26,7 @@ public class TerminalTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Execute shell commands in the terminal";
+        return "Execute shell commands in the terminal within session-specific workspace";
     }
     
     @Override
@@ -38,7 +43,14 @@ public class TerminalTool implements Tool {
         params.put("workingDirectory", ParameterInfo.builder()
             .name("workingDirectory")
             .type("string")
-            .description("Working directory for command execution")
+            .description("Working directory for command execution (absolute path or relative to session workspace)")
+            .required(false)
+            .build());
+            
+        params.put("sessionId", ParameterInfo.builder()
+            .name("sessionId")
+            .type("string")
+            .description("Chat session ID for workspace management")
             .required(false)
             .build());
             
@@ -48,7 +60,11 @@ public class TerminalTool implements Tool {
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
         String command = (String) arguments.get("command");
-        String workingDir = (String) arguments.getOrDefault("workingDirectory", ".");
+        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        String workingDir = (String) arguments.getOrDefault("workingDirectory", null);
+        
+        // Resolve working directory within session workspace
+        String resolvedWorkingDir = resolveWorkingDirectory(workingDir, sessionId);
         
         return Flux.create(sink -> {
             try {
@@ -59,13 +75,26 @@ public class TerminalTool implements Tool {
                     return;
                 }
                 
+                // Ensure the working directory exists
+                try {
+                    Files.createDirectories(Path.of(resolvedWorkingDir));
+                } catch (IOException e) {
+                    log.error("Error creating working directory: {}", resolvedWorkingDir, e);
+                    sink.error(new IOException("Error creating working directory: " + e.getMessage()));
+                    return;
+                }
+                
                 Map<String, String> env = new HashMap<>(System.getenv());
+                // Add session workspace to environment variables
+                env.put("WORKSPACE_PATH", DEFAULT_WORKSPACE_PATH + "/" + sessionId);
+                env.put("SESSION_ID", sessionId);
+                
                 String[] cmd = command.split(" ");
                 
                 PtyProcessBuilder builder = new PtyProcessBuilder()
                         .setCommand(cmd)
                         .setEnvironment(env)
-                        .setDirectory(workingDir)
+                        .setDirectory(resolvedWorkingDir)
                         .setRedirectErrorStream(true);
                 
                 PtyProcess process = builder.start();
@@ -79,7 +108,11 @@ public class TerminalTool implements Tool {
                             sink.next(ToolOutput.builder()
                                     .type("stdout")
                                     .content(line)
-                                    .metadata(Map.of("command", command))
+                                    .metadata(Map.of(
+                                        "command", command,
+                                        "workingDirectory", resolvedWorkingDir,
+                                        "sessionId", sessionId
+                                    ))
                                     .build());
                         }
                     } catch (IOException e) {
@@ -99,7 +132,12 @@ public class TerminalTool implements Tool {
                     sink.next(ToolOutput.builder()
                             .type("exit")
                             .content(String.valueOf(exitCode))
-                            .metadata(Map.of("command", command, "exitCode", exitCode))
+                            .metadata(Map.of(
+                                "command", command, 
+                                "exitCode", exitCode,
+                                "workingDirectory", resolvedWorkingDir,
+                                "sessionId", sessionId
+                            ))
                             .build());
                     sink.complete();
                 }
@@ -109,5 +147,28 @@ public class TerminalTool implements Tool {
                 sink.error(e);
             }
         });
+    }
+    
+    /**
+     * Resolve working directory within session workspace
+     * If the path is absolute, return it as is
+     * If the path is relative or null, resolve it within the session workspace
+     */
+    private String resolveWorkingDirectory(String workingDir, String sessionId) {
+        // Create session workspace directory
+        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        
+        // If working directory is null or empty, use session workspace
+        if (workingDir == null || workingDir.isEmpty()) {
+            return sessionWorkspace;
+        }
+        
+        // If working directory is absolute, use it as is
+        if (workingDir.startsWith("/")) {
+            return workingDir;
+        }
+        
+        // Otherwise, resolve relative path within session workspace
+        return sessionWorkspace + "/" + workingDir;
     }
 }

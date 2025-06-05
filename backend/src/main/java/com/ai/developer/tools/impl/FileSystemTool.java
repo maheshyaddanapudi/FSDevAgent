@@ -13,6 +13,9 @@ import java.io.*;
 @Component
 public class FileSystemTool implements Tool {
     
+    // Default workspace path for tools
+    private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
+    
     @Override
     public String getName() {
         return "file_system";
@@ -20,7 +23,7 @@ public class FileSystemTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Perform file system operations like read, write, list, and delete";
+        return "Perform file system operations like read, write, list, and delete within workspace directories";
     }
     
     @Override
@@ -30,7 +33,7 @@ public class FileSystemTool implements Tool {
         params.put("operation", ParameterInfo.builder()
             .name("operation")
             .type("string")
-            .description("Operation: read, write, append, list, delete")
+            .description("Operation: read, write, append, list, delete, mkdir")
             .required(true)
             .build());
             
@@ -48,6 +51,13 @@ public class FileSystemTool implements Tool {
             .required(false)
             .build());
             
+        params.put("sessionId", ParameterInfo.builder()
+            .name("sessionId")
+            .type("string")
+            .description("Chat session ID for workspace management")
+            .required(false)
+            .build());
+            
         return params;
     }
     
@@ -55,6 +65,7 @@ public class FileSystemTool implements Tool {
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
         String operation = (String) arguments.get("operation");
         String path = (String) arguments.get("path");
+        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         
         // Fix for NullPointerException: Add null check for operation
         if (operation == null) {
@@ -68,14 +79,40 @@ public class FileSystemTool implements Tool {
             return Flux.error(new IllegalArgumentException("Path parameter is required"));
         }
         
+        // Resolve path within session workspace if it's not absolute
+        String resolvedPath = resolvePath(path, sessionId);
+        
         return switch (operation.toLowerCase()) {
-            case "read" -> readFile(path);
-            case "write" -> writeFile(path, (String) arguments.get("content"));
-            case "append" -> appendFile(path, (String) arguments.get("content"));
-            case "list" -> listDirectory(path);
-            case "delete" -> deleteFile(path);
+            case "read" -> readFile(resolvedPath);
+            case "write" -> writeFile(resolvedPath, (String) arguments.get("content"));
+            case "append" -> appendFile(resolvedPath, (String) arguments.get("content"));
+            case "list" -> listDirectory(resolvedPath);
+            case "delete" -> deleteFile(resolvedPath);
+            case "mkdir" -> createDirectory(resolvedPath);
             default -> Flux.error(new IllegalArgumentException("Unknown operation: " + operation));
         };
+    }
+    
+    /**
+     * Resolve a path within the session workspace
+     * If the path is absolute, return it as is
+     * If the path is relative, resolve it within the session workspace
+     */
+    private String resolvePath(String path, String sessionId) {
+        if (path.startsWith("/")) {
+            return path; // Absolute path, use as is
+        }
+        
+        // Create session workspace directory if it doesn't exist
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        try {
+            Files.createDirectories(Path.of(workspacePath));
+        } catch (IOException e) {
+            log.error("Error creating workspace directory: {}", workspacePath, e);
+        }
+        
+        // Resolve relative path within workspace
+        return workspacePath + "/" + path;
     }
     
     private Flux<ToolOutput> readFile(String path) {
@@ -100,7 +137,11 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> writeFile(String path, String content) {
         return Mono.fromCallable(() -> {
             try {
-                Files.writeString(Path.of(path), content);
+                // Ensure parent directories exist
+                Path filePath = Path.of(path);
+                Files.createDirectories(filePath.getParent());
+                
+                Files.writeString(filePath, content);
                 return ToolOutput.builder()
                         .type("file_written")
                         .content("File written successfully")
@@ -119,7 +160,11 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> appendFile(String path, String content) {
         return Mono.fromCallable(() -> {
             try {
-                Files.writeString(Path.of(path), content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                // Ensure parent directories exist
+                Path filePath = Path.of(path);
+                Files.createDirectories(filePath.getParent());
+                
+                Files.writeString(filePath, content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                 return ToolOutput.builder()
                         .type("file_appended")
                         .content("Content appended successfully")
@@ -138,8 +183,12 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> listDirectory(String path) {
         return Mono.fromCallable(() -> {
             try {
+                // Create directory if it doesn't exist
+                Path dirPath = Path.of(path);
+                Files.createDirectories(dirPath);
+                
                 List<Map<String, Object>> entries = new ArrayList<>();
-                try (DirectoryStream<Path> stream = Files.newDirectoryStream(Path.of(path))) {
+                try (DirectoryStream<Path> stream = Files.newDirectoryStream(dirPath)) {
                     for (Path entry : stream) {
                         boolean isDirectory = Files.isDirectory(entry);
                         entries.add(Map.of(
@@ -182,6 +231,24 @@ public class FileSystemTool implements Tool {
             } catch (IOException e) {
                 log.error("Error deleting file: {}", path, e);
                 throw new RuntimeException("Error deleting file: " + e.getMessage());
+            }
+        }).flux();
+    }
+    
+    private Flux<ToolOutput> createDirectory(String path) {
+        return Mono.fromCallable(() -> {
+            try {
+                Files.createDirectories(Path.of(path));
+                return ToolOutput.builder()
+                        .type("directory_created")
+                        .content("Directory created successfully")
+                        .metadata(Map.of(
+                            "path", path
+                        ))
+                        .build();
+            } catch (IOException e) {
+                log.error("Error creating directory: {}", path, e);
+                throw new RuntimeException("Error creating directory: " + e.getMessage());
             }
         }).flux();
     }

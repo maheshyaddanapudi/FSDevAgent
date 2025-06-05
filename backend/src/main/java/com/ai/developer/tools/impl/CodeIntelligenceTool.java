@@ -21,6 +21,9 @@ import java.util.stream.Collectors;
 @Component
 public class CodeIntelligenceTool implements Tool {
     
+    // Default workspace path for tools
+    private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
+    
     @Override
     public String getName() {
         return "code_intelligence";
@@ -28,7 +31,7 @@ public class CodeIntelligenceTool implements Tool {
     
     @Override
     public String getDescription() {
-        return "Analyze and manipulate code with AST operations";
+        return "Analyze and manipulate code with AST operations within session-specific workspaces";
     }
     
     @Override
@@ -45,7 +48,7 @@ public class CodeIntelligenceTool implements Tool {
         params.put("path", ParameterInfo.builder()
             .name("path")
             .type("string")
-            .description("File or directory path")
+            .description("File or directory path (absolute or relative to session workspace)")
             .required(true)
             .build());
             
@@ -53,6 +56,20 @@ public class CodeIntelligenceTool implements Tool {
             .name("query")
             .type("string")
             .description("Search query or pattern")
+            .required(false)
+            .build());
+            
+        params.put("sessionId", ParameterInfo.builder()
+            .name("sessionId")
+            .type("string")
+            .description("Chat session ID for workspace management")
+            .required(false)
+            .build());
+            
+        params.put("taskDir", ParameterInfo.builder()
+            .name("taskDir")
+            .type("string")
+            .description("Task-specific subdirectory within the session workspace")
             .required(false)
             .build());
             
@@ -64,17 +81,61 @@ public class CodeIntelligenceTool implements Tool {
         String operation = (String) arguments.get("operation");
         String path = (String) arguments.get("path");
         String query = (String) arguments.getOrDefault("query", "");
+        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        String taskDir = (String) arguments.getOrDefault("taskDir", "");
+        
+        // Resolve path within session workspace
+        String resolvedPath = resolvePath(path, sessionId, taskDir);
         
         return switch (operation.toLowerCase()) {
-            case "analyze" -> analyzeCode(path);
-            case "find_methods" -> findMethods(path, query);
-            case "find_classes" -> findClasses(path, query);
-            case "extract_javadoc" -> extractJavadoc(path);
+            case "analyze" -> analyzeCode(resolvedPath, sessionId, taskDir);
+            case "find_methods" -> findMethods(resolvedPath, query, sessionId, taskDir);
+            case "find_classes" -> findClasses(resolvedPath, query, sessionId, taskDir);
+            case "extract_javadoc" -> extractJavadoc(resolvedPath, sessionId, taskDir);
             default -> Flux.error(new IllegalArgumentException("Unknown operation: " + operation));
         };
     }
     
-    private Flux<ToolOutput> analyzeCode(String path) {
+    /**
+     * Resolve a path within the session workspace
+     * If the path is absolute, return it as is
+     * If the path is relative, resolve it within the session workspace and task directory
+     */
+    private String resolvePath(String path, String sessionId, String taskDir) {
+        if (path.startsWith("/")) {
+            return path; // Absolute path, use as is
+        }
+        
+        // Create session workspace directory
+        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        
+        // If task directory is specified, include it in the path
+        if (taskDir != null && !taskDir.isEmpty()) {
+            sessionWorkspace = sessionWorkspace + "/" + taskDir;
+        }
+        
+        try {
+            Files.createDirectories(Path.of(sessionWorkspace));
+        } catch (Exception e) {
+            log.error("Error creating workspace directory: {}", sessionWorkspace, e);
+        }
+        
+        // Resolve relative path within workspace
+        return sessionWorkspace + "/" + path;
+    }
+    
+    /**
+     * Get the full workspace path including session ID and optional task directory
+     */
+    private String getWorkspacePath(String sessionId, String taskDir) {
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        if (taskDir != null && !taskDir.isEmpty()) {
+            workspacePath = workspacePath + "/" + taskDir;
+        }
+        return workspacePath;
+    }
+    
+    private Flux<ToolOutput> analyzeCode(String path, String sessionId, String taskDir) {
         return Mono.fromCallable(() -> {
             try {
                 File file = new File(path);
@@ -83,9 +144,9 @@ public class CodeIntelligenceTool implements Tool {
                 }
                 
                 if (file.isDirectory()) {
-                    return analyzeDirectory(file);
+                    return analyzeDirectory(file, sessionId, taskDir);
                 } else {
-                    return analyzeFile(file);
+                    return analyzeFile(file, sessionId, taskDir);
                 }
             } catch (Exception e) {
                 log.error("Error analyzing code: {}", path, e);
@@ -94,12 +155,16 @@ public class CodeIntelligenceTool implements Tool {
         }).flux();
     }
     
-    private ToolOutput analyzeFile(File file) throws Exception {
+    private ToolOutput analyzeFile(File file, String sessionId, String taskDir) throws Exception {
         if (!file.getName().endsWith(".java")) {
             return ToolOutput.builder()
                     .type("analysis_result")
                     .content("Not a Java file: " + file.getName())
-                    .metadata(Map.of("path", file.getPath()))
+                    .metadata(Map.of(
+                        "path", file.getPath(),
+                        "sessionId", sessionId,
+                        "workspacePath", getWorkspacePath(sessionId, taskDir)
+                    ))
                     .build();
         }
         
@@ -120,6 +185,8 @@ public class CodeIntelligenceTool implements Tool {
             metadata.put("classes", classes);
             metadata.put("methods", methods);
             metadata.put("imports", cu.getImports().size());
+            metadata.put("sessionId", sessionId);
+            metadata.put("workspacePath", getWorkspacePath(sessionId, taskDir));
             
             return ToolOutput.builder()
                     .type("analysis_result")
@@ -129,7 +196,7 @@ public class CodeIntelligenceTool implements Tool {
         }
     }
     
-    private ToolOutput analyzeDirectory(File directory) throws Exception {
+    private ToolOutput analyzeDirectory(File directory, String sessionId, String taskDir) throws Exception {
         List<Map<String, Object>> fileResults = new ArrayList<>();
         int totalFiles = 0;
         int totalClasses = 0;
@@ -170,6 +237,8 @@ public class CodeIntelligenceTool implements Tool {
         metadata.put("totalClasses", totalClasses);
         metadata.put("totalMethods", totalMethods);
         metadata.put("fileResults", fileResults);
+        metadata.put("sessionId", sessionId);
+        metadata.put("workspacePath", getWorkspacePath(sessionId, taskDir));
         
         return ToolOutput.builder()
                 .type("analysis_result")
@@ -178,7 +247,7 @@ public class CodeIntelligenceTool implements Tool {
                 .build();
     }
     
-    private Flux<ToolOutput> findMethods(String path, String query) {
+    private Flux<ToolOutput> findMethods(String path, String query, String sessionId, String taskDir) {
         return Mono.fromCallable(() -> {
             try {
                 File file = new File(path);
@@ -204,7 +273,9 @@ public class CodeIntelligenceTool implements Tool {
                         .content("Found " + methods.size() + " methods matching: " + query)
                         .metadata(Map.of(
                             "query", query,
-                            "methods", methods
+                            "methods", methods,
+                            "sessionId", sessionId,
+                            "workspacePath", getWorkspacePath(sessionId, taskDir)
                         ))
                         .build();
             } catch (Exception e) {
@@ -246,7 +317,7 @@ public class CodeIntelligenceTool implements Tool {
         return methods;
     }
     
-    private Flux<ToolOutput> findClasses(String path, String query) {
+    private Flux<ToolOutput> findClasses(String path, String query, String sessionId, String taskDir) {
         return Mono.fromCallable(() -> {
             try {
                 File file = new File(path);
@@ -272,7 +343,9 @@ public class CodeIntelligenceTool implements Tool {
                         .content("Found " + classes.size() + " classes matching: " + query)
                         .metadata(Map.of(
                             "query", query,
-                            "classes", classes
+                            "classes", classes,
+                            "sessionId", sessionId,
+                            "workspacePath", getWorkspacePath(sessionId, taskDir)
                         ))
                         .build();
             } catch (Exception e) {
@@ -314,7 +387,7 @@ public class CodeIntelligenceTool implements Tool {
         return classes;
     }
     
-    private Flux<ToolOutput> extractJavadoc(String path) {
+    private Flux<ToolOutput> extractJavadoc(String path, String sessionId, String taskDir) {
         return Mono.fromCallable(() -> {
             try {
                 File file = new File(path);
@@ -326,7 +399,11 @@ public class CodeIntelligenceTool implements Tool {
                     return ToolOutput.builder()
                             .type("javadoc_result")
                             .content("Not a Java file: " + file.getName())
-                            .metadata(Map.of("path", file.getPath()))
+                            .metadata(Map.of(
+                                "path", file.getPath(),
+                                "sessionId", sessionId,
+                                "workspacePath", getWorkspacePath(sessionId, taskDir)
+                            ))
                             .build();
                 }
                 
@@ -363,7 +440,9 @@ public class CodeIntelligenceTool implements Tool {
                             .content("Extracted " + javadocs.size() + " javadoc comments from: " + file.getName())
                             .metadata(Map.of(
                                 "path", file.getPath(),
-                                "javadocs", javadocs
+                                "javadocs", javadocs,
+                                "sessionId", sessionId,
+                                "workspacePath", getWorkspacePath(sessionId, taskDir)
                             ))
                             .build();
                 }

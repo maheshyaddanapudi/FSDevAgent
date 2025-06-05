@@ -9,16 +9,22 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Tool for data visualization capabilities
+ * Tool for data visualization capabilities with workspace support
  */
 @Slf4j
 @Component
 public class DataVisualizationTool implements Tool {
+
+    // Default workspace path for tools
+    private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
 
     private final ToolOutputWebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -34,7 +40,7 @@ public class DataVisualizationTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "Creates data visualizations from provided data";
+        return "Creates data visualizations from provided data within session-specific workspaces";
     }
 
     @Override
@@ -69,6 +75,27 @@ public class DataVisualizationTool implements Tool {
                 .required(false)
                 .build());
                 
+        parameters.put("sessionId", ParameterInfo.builder()
+                .name("sessionId")
+                .type("string")
+                .description("Chat session ID for workspace management")
+                .required(false)
+                .build());
+                
+        parameters.put("taskDir", ParameterInfo.builder()
+                .name("taskDir")
+                .type("string")
+                .description("Task-specific subdirectory within the session workspace")
+                .required(false)
+                .build());
+                
+        parameters.put("outputPath", ParameterInfo.builder()
+                .name("outputPath")
+                .type("string")
+                .description("Path to save visualization output (relative to session workspace)")
+                .required(false)
+                .build());
+                
         return parameters;
     }
 
@@ -78,8 +105,15 @@ public class DataVisualizationTool implements Tool {
         Object data = parameters.get("data");
         String title = (String) parameters.getOrDefault("title", "Data Visualization");
         Map<String, Object> options = (Map<String, Object>) parameters.getOrDefault("options", new HashMap<>());
+        String sessionId = (String) parameters.getOrDefault("sessionId", UUID.randomUUID().toString());
+        String taskDir = (String) parameters.getOrDefault("taskDir", "");
+        String outputPath = (String) parameters.getOrDefault("outputPath", "visualizations");
         
-        log.info("Creating {} visualization with title: {}", type, title);
+        // Resolve output path within session workspace
+        String resolvedOutputPath = resolveOutputPath(outputPath, sessionId, taskDir);
+        
+        log.info("Creating {} visualization with title: {} in workspace: {}", 
+                type, title, getWorkspacePath(sessionId, taskDir));
         
         try {
             // Create visualization configuration
@@ -88,7 +122,25 @@ public class DataVisualizationTool implements Tool {
             visualization.put("data", data);
             visualization.put("title", title);
             visualization.put("options", options);
-            visualization.put("id", UUID.randomUUID().toString());
+            String visualId = UUID.randomUUID().toString();
+            visualization.put("id", visualId);
+            
+            // Add workspace information
+            visualization.put("sessionId", sessionId);
+            visualization.put("workspacePath", getWorkspacePath(sessionId, taskDir));
+            visualization.put("outputPath", resolvedOutputPath);
+            
+            // Generate output filename
+            String filename = resolvedOutputPath + "/" + type + "_" + visualId + ".json";
+            
+            // Save visualization configuration to file
+            try {
+                String visualizationJson = objectMapper.writeValueAsString(visualization);
+                Files.write(Path.of(filename), visualizationJson.getBytes());
+                log.info("Saved visualization configuration to: {}", filename);
+            } catch (Exception e) {
+                log.error("Error saving visualization configuration: {}", filename, e);
+            }
             
             // Convert visualization map to JSON string before sending to WebSocket
             String visualizationJson = objectMapper.writeValueAsString(visualization);
@@ -98,6 +150,10 @@ public class DataVisualizationTool implements Tool {
             
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("visualData", visualization);
+            metadata.put("sessionId", sessionId);
+            metadata.put("workspacePath", getWorkspacePath(sessionId, taskDir));
+            metadata.put("outputPath", resolvedOutputPath);
+            metadata.put("filename", filename);
             
             return Flux.just(ToolOutput.builder()
                     .type("visualization")
@@ -110,7 +166,47 @@ public class DataVisualizationTool implements Tool {
             return Flux.just(ToolOutput.builder()
                     .type("error")
                     .content("Error creating visualization: " + e.getMessage())
+                    .metadata(Map.of(
+                        "sessionId", sessionId,
+                        "workspacePath", getWorkspacePath(sessionId, taskDir)
+                    ))
                     .build());
         }
+    }
+    
+    /**
+     * Resolve output path within session workspace
+     * Creates necessary directories if they don't exist
+     */
+    private String resolveOutputPath(String outputPath, String sessionId, String taskDir) {
+        // Create session workspace directory
+        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        
+        // If task directory is specified, include it in the path
+        if (taskDir != null && !taskDir.isEmpty()) {
+            sessionWorkspace = sessionWorkspace + "/" + taskDir;
+        }
+        
+        // Add output directory
+        String fullPath = sessionWorkspace + "/" + outputPath;
+        
+        try {
+            Files.createDirectories(Path.of(fullPath));
+        } catch (Exception e) {
+            log.error("Error creating output directory: {}", fullPath, e);
+        }
+        
+        return fullPath;
+    }
+    
+    /**
+     * Get the full workspace path including session ID and optional task directory
+     */
+    private String getWorkspacePath(String sessionId, String taskDir) {
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        if (taskDir != null && !taskDir.isEmpty()) {
+            workspacePath = workspacePath + "/" + taskDir;
+        }
+        return workspacePath;
     }
 }

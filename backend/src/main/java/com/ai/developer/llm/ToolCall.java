@@ -13,5 +13,5 @@ import java.util.Map;
 public class ToolCall {
     private String id;
     private String name;
-    private String arguments;
+    private Map<String, Object> arguments;
 }
