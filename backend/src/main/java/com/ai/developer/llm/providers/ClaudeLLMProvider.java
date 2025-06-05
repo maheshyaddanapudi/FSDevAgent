@@ -350,37 +350,52 @@ public class ClaudeLLMProvider implements LLMProvider {
         // Convert context messages to Claude format
         for (Message message : context.getMessages()) {
             List<ClaudeContent> content = new ArrayList<>();
+            String role = message.getRole();
+            
+            // Map 'tool' role to 'user' for Claude API compatibility
+            if ("tool".equals(role)) {
+                role = "user";
+            }
+            
+            // Ensure only valid roles are used
+            if (!"user".equals(role) && !"assistant".equals(role)) {
+                log.warn("Skipping message with invalid role for Claude API: {}", role);
+                continue;
+            }
             
             if (message.getContent() != null && !message.getContent().isEmpty()) {
                 content.add(new ClaudeContent("text", message.getContent()));
             }
             
-            // Add tool use if present
-            if (message.getToolCall() != null) {
-                Map<String, Object> toolUse = new HashMap<>();
-                toolUse.put("name", message.getToolCall().getName());
-                toolUse.put("input", message.getToolCall().getArguments());
-                
-                ClaudeContent toolUseContent = new ClaudeContent();
-                toolUseContent.setType("tool_use");
-                toolUseContent.setToolUse(toolUse);
-                content.add(toolUseContent);
+            // Add tool use if present (only for assistant messages)
+            if ("assistant".equals(role) && message.getToolCall() != null) {
+                try {
+                    // Deserialize arguments string back to Map
+                    Map<String, Object> toolInput = objectMapper.readValue(message.getToolCall().getArguments(), Map.class);
+                    
+                    ClaudeContent toolUseContent = new ClaudeContent();
+                    toolUseContent.setType("tool_use");
+                    toolUseContent.setId(message.getToolCall().getId()); // Ensure ID is included
+                    toolUseContent.setName(message.getToolCall().getName());
+                    toolUseContent.setInput(toolInput);
+                    content.add(toolUseContent);
+                } catch (JsonProcessingException e) {
+                    log.error("Error deserializing tool arguments for Claude API: {}", e.getMessage());
+                    // Optionally skip this tool use or add an error message
+                }
             }
             
-            // Add tool result if present
-            if (message.getToolCallId() != null && message.getContent() != null) {
-                Map<String, Object> toolResult = new HashMap<>();
-                toolResult.put("tool_use_id", message.getToolCallId());
-                toolResult.put("content", message.getContent());
-                
+            // Add tool result if present (only for user messages)
+            if ("user".equals(role) && message.getToolCallId() != null && message.getContent() != null) {
                 ClaudeContent toolResultContent = new ClaudeContent();
                 toolResultContent.setType("tool_result");
-                toolResultContent.setToolResult(toolResult);
+                toolResultContent.setToolUseId(message.getToolCallId());
+                toolResultContent.setContent(message.getContent()); // Content should be the tool output string
                 content.add(toolResultContent);
             }
             
             if (!content.isEmpty()) {
-                messages.add(new ClaudeMessage(message.getRole(), content));
+                messages.add(new ClaudeMessage(role, content));
             }
         }
         
@@ -600,41 +615,38 @@ public class ClaudeLLMProvider implements LLMProvider {
                 toolCallEvent.put("sequence", toolCallSequence); // Add sequence number for ordering
                 
                 String toolCallEventJson = objectMapper.writeValueAsString(toolCallEvent);
-                log.info("Emitting tool call event #{}: {}", toolCallSequence, toolCallEventJson);
                 
-                // Return a special marker with the tool use information
-                // The EVENT: prefix signals to the frontend this is a special event
-                // Include sequence number in the event marker for proper ordering
-                return Mono.just("EVENT:toolCall:" + toolCallEventJson + "\n<tool_use>" + toolUseJson + "</tool_use>");
-            } catch (Exception e) {
-                log.error("Error creating tool call event: {}", e.getMessage());
-                // Fallback to include both markers even in error case
-                return Mono.just("EVENT:toolCall:{\"id\":\"" + toolUseBlock.getId() + 
-                                "\",\"name\":\"" + toolUseBlock.getName() + 
-                                "\",\"sequence\":" + toolCallSequence + "}\n<tool_use>" + toolUseJson + "</tool_use>");
+                // Fix: Return a Mono<String> instead of a Flux<String>
+                StringBuilder builder = new StringBuilder();
+                builder.append("<tool_call>")
+                       .append(toolCallEventJson)
+                       .append("</tool_call>");
+                return Mono.just(builder.toString());
+            } catch (JsonProcessingException e) {
+                log.error("Error creating tool call event JSON: {}", e.getMessage());
+                return Mono.empty();
             }
             
         } catch (Exception e) {
-            log.error("Error processing completed tool use block: {}", e.getMessage(), e);
+            log.error("Error handling content block stop: {}", e.getMessage(), e);
+            // Reset state in case of error
+            currentToolUseBlock.set(null);
+            toolInputJson.set(new StringBuilder());
             return Mono.empty();
         }
     }
     
-    // Inner classes for Claude API request/response
+    // Inner classes for Claude API request/response structure
     
     @Data
-    @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeRequest {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeRequest {
         private String model;
         private List<ClaudeMessage> messages;
         private String system;
-        
-        @JsonProperty("max_tokens")
-        @JsonInclude(JsonInclude.Include.ALWAYS)
         private Integer maxTokens;
-        
         private Double temperature;
         private Boolean stream;
         private List<ClaudeTool> tools;
@@ -643,7 +655,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeMessage {
+    private static class ClaudeMessage {
         private String role;
         private List<ClaudeContent> content;
     }
@@ -651,37 +663,49 @@ public class ClaudeLLMProvider implements LLMProvider {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeContent {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeContent {
         private String type;
         private String text;
+        private String toolUseId;
+        private String content; // For tool_result
+        private String id; // For tool_use
+        private String name; // For tool_use
+        private Map<String, Object> input; // For tool_use
         
-        @JsonInclude(JsonInclude.Include.NON_NULL)
-        private Map<String, Object> toolUse;
-        
-        @JsonInclude(JsonInclude.Include.NON_NULL)
-        private Map<String, Object> toolResult;
-        
+        // Constructor for text content
         public ClaudeContent(String type, String text) {
             this.type = type;
             this.text = text;
+        }
+        
+        // Setter for tool_use content
+        public void setToolUse(Map<String, Object> toolUse) {
+            this.id = (String) toolUse.get("id");
+            this.name = (String) toolUse.get("name");
+            this.input = (Map<String, Object>) toolUse.get("input");
+        }
+        
+        // Setter for tool_result content
+        public void setToolResult(Map<String, Object> toolResult) {
+            this.toolUseId = (String) toolResult.get("tool_use_id");
+            this.content = (String) toolResult.get("content");
         }
     }
     
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeTool {
+    private static class ClaudeTool {
         private String name;
         private String description;
-        
-        @JsonProperty("input_schema")
         private ClaudeInputSchema inputSchema;
     }
     
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeInputSchema {
+    private static class ClaudeInputSchema {
         private String type;
         private Map<String, ClaudePropertySchema> properties;
         private List<String> required;
@@ -690,7 +714,7 @@ public class ClaudeLLMProvider implements LLMProvider {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudePropertySchema {
+    private static class ClaudePropertySchema {
         private String type;
         private String description;
     }
@@ -698,7 +722,8 @@ public class ClaudeLLMProvider implements LLMProvider {
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeResponse {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeResponse {
         private String id;
         private String type;
         private String role;
@@ -706,70 +731,78 @@ public class ClaudeLLMProvider implements LLMProvider {
         private String model;
         private String stopReason;
         private String stopSequence;
-        private Usage usage;
+        private ClaudeUsage usage;
     }
     
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeResponseContent {
-        private String id;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeResponseContent {
         private String type;
         private String text;
-        private String name;
-        private Map<String, Object> input;
+        private String id; // For tool_use
+        private String name; // For tool_use
+        private Map<String, Object> input; // For tool_use
     }
     
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class Usage {
-        @JsonProperty("input_tokens")
+    private static class ClaudeUsage {
         private Integer inputTokens;
-        
-        @JsonProperty("output_tokens")
         private Integer outputTokens;
     }
     
+    // Inner classes for Claude Streaming API response structure
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeStreamingResponse {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeStreamingResponse {
         private String type;
-        private ClaudeMessageData messageData;
-        private ClaudeContentBlock contentBlock;
-        private ClaudeDelta delta;
-        private Map<String, Object> additionalProperties;
+        private Integer index; // For content_block_delta
+        private ClaudeStreamingDelta delta; // For content_block_delta and message_delta
+        private ClaudeStreamingContentBlock contentBlock; // For content_block_start
+        private ClaudeStreamingMessage messageData; // For message_start
+        private ClaudeUsage usage; // For message_delta
+        private Map<String, Object> additionalProperties; // Catch-all for unexpected fields
     }
     
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class ClaudeMessageData {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeStreamingDelta {
+        private String type;
+        private String text; // For text_delta
+        private String partialJson; // For input_json_delta
+        private String stopReason;
+        private String stopSequence;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeStreamingContentBlock {
+        private String type;
+        private String id; // For tool_use
+        private String name; // For tool_use
+    }
+    
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private static class ClaudeStreamingMessage {
         private String id;
         private String type;
         private String role;
+        private List<ClaudeContent> content;
         private String model;
         private String stopReason;
         private String stopSequence;
-        private Usage usage;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeContentBlock {
-        private String id;
-        private String type;
-        private String name;
-    }
-    
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ClaudeDelta {
-        private String type;
-        private String text;
-        private String partialJson;
+        private ClaudeUsage usage;
     }
 }
