@@ -361,28 +361,42 @@ public class ClaudeLLMProvider implements LLMProvider {
         if (context != null && context.getMessages() != null) {
             for (Message message : context.getMessages()) {
                 List<ClaudeContent> content = new ArrayList<>();
+                String role = message.getRole();
+                
+                // Map 'tool' role to 'user' for Claude API compatibility
+                if ("tool".equals(role)) {
+                    role = "user";
+                }
+                
+                // Ensure only valid roles are used
+                if (!"user".equals(role) && !"assistant".equals(role)) {
+                    log.warn("Skipping message with invalid role for Claude API: {}", role);
+                    continue;
+                }
                 
                 if (message.getContent() != null && !message.getContent().isEmpty()) {
                     content.add(new ClaudeContent("text", message.getContent()));
                 }
                 
-                // Add tool use if present - always use assistant role for historical tool calls
-                if (message.getToolCall() != null) {
-                    // For historical tool calls, we format them as text to avoid collision with current tool calls
-                    // Claude API expects only 'user' or 'assistant' roles, not 'tool'
-                    StringBuilder toolCallText = new StringBuilder();
-                    toolCallText.append("Previous tool call: ").append(message.getToolCall().getName()).append("\n");
-                    toolCallText.append("Arguments: ").append(objectMapper.writeValueAsString(message.getToolCall().getArguments()));
-                    
-                    // Add as regular text content instead of tool_use to avoid API errors
-                    ClaudeContent textContent = new ClaudeContent("text", toolCallText.toString());
-                    content.add(textContent);
+                // Add tool use if present (only for assistant messages)
+                if ("assistant".equals(role) && message.getToolCall() != null) {
+                    try {
+                        // For historical tool calls, we format them as text to avoid collision with current tool calls
+                        StringBuilder toolCallText = new StringBuilder();
+                        toolCallText.append("Previous tool call: ").append(message.getToolCall().getName()).append("\n");
+                        toolCallText.append("Arguments: ").append(objectMapper.writeValueAsString(message.getToolCall().getArguments()));
+                        
+                        // Add as regular text content instead of tool_use to avoid API errors
+                        ClaudeContent textContent = new ClaudeContent("text", toolCallText.toString());
+                        content.add(textContent);
+                    } catch (JsonProcessingException e) {
+                        log.error("Error serializing tool arguments for Claude API: {}", e.getMessage());
+                    }
                 }
                 
-                // Add tool result if present - format as text for historical tool results
-                if (message.getToolCallId() != null && message.getContent() != null) {
-                    // For historical tool results, we format them as text to avoid collision with current tool results
-                    // Claude API expects only 'user' or 'assistant' roles
+                // Add tool result if present (only for user messages)
+                if ("user".equals(role) && message.getToolCallId() != null && message.getContent() != null) {
+                    // For historical tool results, we format them as text
                     StringBuilder toolResultText = new StringBuilder();
                     toolResultText.append("Previous tool result for tool ID: ").append(message.getToolCallId()).append("\n");
                     toolResultText.append("Result: ").append(message.getContent());
@@ -393,7 +407,7 @@ public class ClaudeLLMProvider implements LLMProvider {
                 }
                 
                 if (!content.isEmpty()) {
-                    messages.add(new ClaudeMessage(message.getRole(), content));
+                    messages.add(new ClaudeMessage(role, content));
                 }
             }
         }
