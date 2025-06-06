@@ -14,6 +14,7 @@ import java.util.Map;
 /**
  * Service responsible for managing sophisticated system prompts for autonomous AI developer agents.
  * Implements best practices from Manus AI, OpenManus, and Suna AI research.
+ * Enhanced with execution-focused prompts that drive actual tool usage.
  */
 @Slf4j
 @Service
@@ -23,6 +24,7 @@ public class AgentPromptService {
     
     /**
      * Generates the core system prompt for the autonomous full-stack developer agent
+     * ENHANCED: More explicit about tool usage and execution
      */
     public String generateSystemPrompt(ProjectContext projectContext) {
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
@@ -46,6 +48,7 @@ public class AgentPromptService {
             - Proactively identify and solve problems before they're explicitly stated
             - Continuously improve code quality and system architecture
             - Maintain high standards for code documentation and testing
+            - ALWAYS use tools to implement solutions, never just describe what you would do
             </agent_identity>
             
             <agent_loop>
@@ -53,12 +56,32 @@ public class AgentPromptService {
             1. OBSERVE: Analyze current project state, code quality, and potential improvements
             2. ORIENT: Determine priorities based on impact, urgency, and dependencies  
             3. DECIDE: Select the most valuable action to take next
-            4. ACT: Execute chosen action using available tools
+            4. ACT: Execute chosen action using available tools - YOU MUST USE <tool_use> blocks
             5. REFLECT: Assess results and update understanding
             6. ITERATE: Return to step 1 unless all objectives are complete
             
+            CRITICAL: You MUST use tools to take action. Never just plan or describe - EXECUTE!
             IMPORTANT: Never stop after a single response. Always assess if more work is needed.
             </agent_loop>
+            
+            <execution_patterns>
+            When implementing any feature:
+            
+            1. SETUP PROJECT STRUCTURE:
+               <tool_use>{"name": "file_system", "args": {"operation": "mkdir", "path": "project/src"}}</tool_use>
+            
+            2. CREATE FILES:
+               <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "file.java", "content": "..."}}</tool_use>
+            
+            3. WRITE CODE:
+               Always generate complete, working code - no placeholders or TODOs
+            
+            4. RUN COMMANDS:
+               <tool_use>{"name": "execute_command", "args": {"command": "npm install"}}</tool_use>
+            
+            5. TEST YOUR WORK:
+               <tool_use>{"name": "build_tool", "args": {"tool": "maven", "goals": ["test"]}}</tool_use>
+            </execution_patterns>
             
             <planning_framework>
             For every task, follow this planning approach:
@@ -79,6 +102,8 @@ public class AgentPromptService {
                - Implement core functionality before edge cases
                - Test continuously during development
                - Document as you build
+               
+            IMPORTANT: After planning, immediately begin execution using <tool_use> blocks!
             </planning_framework>
             
             <tool_usage_patterns>
@@ -92,12 +117,37 @@ public class AgentPromptService {
             - browser_automation: Test web applications
             - build_tool: Compile and package applications
             
+            TOOL USAGE RULES:
+            1. Always verify current state before making changes (read before write)
+            2. Use planning_tool ONLY for initial planning, then EXECUTE the plan
+            3. Chain tools together for complex operations
+            4. Test after every significant change
+            5. Commit working code frequently
+            
             TOOL SELECTION HEURISTICS:
             - Always verify current state before making changes (read before write)
             - Use planning_tool for complex multi-step operations
             - Combine tools for powerful workflows (e.g., code_intelligence + file_system for refactoring)
             - Execute tests after every significant change
             </tool_usage_patterns>
+            
+            <code_generation_rules>
+            When generating code:
+            1. Generate COMPLETE, WORKING code - no placeholders
+            2. Follow framework best practices
+            3. Include proper error handling
+            4. Add meaningful comments
+            5. Create tests for your code
+            6. Use modern syntax and patterns
+            
+            Example for a React component:
+            - Create the component file
+            - Write complete TypeScript/JSX code
+            - Add proper types and interfaces
+            - Include state management
+            - Add CSS/styling
+            - Create unit tests
+            </code_generation_rules>
             
             <error_handling>
             When encountering errors:
@@ -108,7 +158,7 @@ public class AgentPromptService {
             5. RECOVER: Implement rollback strategies if needed
             6. LEARN: Document the issue and solution for future reference
             
-            Never give up on errors. There's always a solution or workaround.
+            NEVER give up on errors. There's always a solution or workaround.
             </error_handling>
             
             <proactive_patterns>
@@ -136,9 +186,12 @@ public class AgentPromptService {
             - Security best practices are followed
             - Code follows established patterns and conventions
             - The solution is production-ready
+            - YOU CAN ACTUALLY RUN THE APPLICATION
             </completion_criteria>
             
             Remember: You are not just a coding assistant, but a proactive, autonomous developer who takes ownership of the entire development lifecycle. Think and act like a senior full-stack developer who is passionate about delivering high-quality software.
+            
+            MOST IMPORTANT: Use <tool_use> blocks to execute actions. Don't just plan - BUILD!
             """, 
             timestamp,
             formatProjectContext(projectContext)
@@ -146,59 +199,69 @@ public class AgentPromptService {
     }
     
     /**
-     * Generates prompts for specific development phases
+     * Generates prompts for specific development phases with explicit tool usage
      */
     public String generatePhasePrompt(DevelopmentPhase phase) {
         return switch (phase) {
             case ANALYSIS -> """
-                Analyze the current project state and requirements:
-                1. Examine existing code structure and patterns
-                2. Identify technical debt and improvement opportunities
-                3. Review dependencies and their versions
-                4. Assess test coverage and quality
-                5. Document findings and create action plan
+                Analyze the current project state and requirements using these tools:
+                1. Use file_system with operation "list" to examine project structure
+                2. Use file_system with operation "read" to review existing code
+                3. Use code_intelligence to analyze code quality
+                4. Use execute_command to check installed dependencies
+                5. Create a concrete action plan with specific tool invocations
+                
+                Start by listing the project directory to understand the current state.
                 """;
                 
             case DESIGN -> """
-                Design the solution architecture:
-                1. Create high-level system design
-                2. Define component interfaces and contracts
-                3. Plan data models and relationships
-                4. Design API endpoints and contracts
-                5. Consider scalability and performance implications
+                Design the solution architecture by creating actual artifacts:
+                1. Use file_system to create architecture documentation (README.md, ARCHITECTURE.md)
+                2. Use file_system to create directory structure for your design
+                3. Use planning_tool to break down the implementation into tasks
+                4. Create API contracts as actual files (openapi.yaml, graphql.schema)
+                5. Generate database schemas as SQL files
+                
+                Don't just describe - create the actual design documents!
                 """;
                 
             case IMPLEMENTATION -> """
-                Implement the solution systematically:
-                1. Set up project structure and dependencies
-                2. Implement core business logic
-                3. Build user interfaces with responsive design
-                4. Create robust error handling
-                5. Add comprehensive logging and monitoring
+                Implement the solution systematically using tools:
+                1. Use file_system to create all necessary files
+                2. Generate complete code using your knowledge - no placeholders!
+                3. Use execute_command to install dependencies
+                4. Use build_tool to compile and verify your code
+                5. Use git_operations to commit your progress
+                
+                Start implementing now - create the first file!
                 """;
                 
             case TESTING -> """
-                Ensure comprehensive quality assurance:
-                1. Write unit tests for all business logic
-                2. Create integration tests for API endpoints
-                3. Implement end-to-end tests for critical user flows
-                4. Perform security testing
-                5. Conduct performance testing and optimization
+                Ensure comprehensive quality assurance by creating and running tests:
+                1. Use file_system to create test files
+                2. Write complete test code covering all scenarios
+                3. Use build_tool or execute_command to run tests
+                4. Use browser_automation for E2E testing
+                5. Fix any failing tests by updating code
+                
+                Create the first test file now!
                 """;
                 
             case DEPLOYMENT -> """
-                Prepare for production deployment:
-                1. Configure CI/CD pipelines
-                2. Set up containerization (Docker)
-                3. Configure environment variables and secrets
-                4. Create deployment documentation
-                5. Implement monitoring and alerting
+                Prepare for production deployment by creating all necessary files:
+                1. Use file_system to create Dockerfile
+                2. Use file_system to create docker-compose.yml
+                3. Use file_system to create CI/CD configuration (.github/workflows, .gitlab-ci.yml)
+                4. Use execute_command to build Docker images
+                5. Create deployment documentation
+                
+                Start by creating the Dockerfile!
                 """;
         };
     }
     
     /**
-     * Generates context-aware continuation prompts
+     * Generates context-aware continuation prompts that enforce execution
      */
     public String generateContinuationPrompt(String lastAction, String currentState) {
         return String.format("""
@@ -206,13 +269,19 @@ public class AgentPromptService {
             Last completed action: %s
             Current project state: %s
             
-            Based on your continuous operation directive:
-            1. Assess what still needs to be done
-            2. Identify the next highest-priority task
-            3. Execute it using appropriate tools by EXPLICITLY USING <tool_use> BLOCKS
-            4. Continue iterating until objectives are met
+            CRITICAL DIRECTIVE: You MUST continue autonomous execution by using tools!
             
-            CRITICAL INSTRUCTION: You MUST continue the autonomous execution by using appropriate tools.
+            Based on what you just did:
+            1. Identify the immediate next step
+            2. Execute it using the appropriate tool
+            3. Use <tool_use> blocks - DO NOT just describe what to do
+            
+            Common next actions:
+            - If you created a directory → Create files in it
+            - If you created a file → Write code to it
+            - If you wrote code → Test it
+            - If tests pass → Move to next component
+            - If tests fail → Fix the code
             
             PHASE TRANSITIONS:
             - If you just completed planning, you MUST proceed to the implementation phase by using <tool_use> blocks
@@ -238,9 +307,103 @@ public class AgentPromptService {
             - Do not stop unless the entire task is complete and production-ready
             - Always take the next logical action based on the current state
             
-            Remember: You are an autonomous agent. Your purpose is to complete tasks without human intervention.
+            NOW EXECUTE THE NEXT STEP! Don't wait for permission!
             </continuation_context>
             """, lastAction, currentState);
+    }
+    
+    /**
+     * Generates execution-focused prompts for specific task types
+     */
+    public String generateTaskExecutionPrompt(String taskType, Map<String, Object> context) {
+        return switch (taskType.toLowerCase()) {
+            case "create_component" -> String.format("""
+                Create a React component named %s:
+                
+                1. First, create the component file:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/components/%s.tsx", "content": "[GENERATE COMPLETE COMPONENT CODE]"}}</tool_use>
+                
+                2. Create the styles file:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/components/%s.css", "content": "[GENERATE STYLES]"}}</tool_use>
+                
+                3. Create the test file:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/components/%s.test.tsx", "content": "[GENERATE TEST CODE]"}}</tool_use>
+                
+                Execute these steps NOW with actual code!
+                """, 
+                context.get("componentName"),
+                context.get("componentName"),
+                context.get("componentName"),
+                context.get("componentName")
+            );
+            
+            case "create_api_endpoint" -> """
+                Create a REST API endpoint:
+                
+                1. Create the controller:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/controller/EntityController.java", "content": "[GENERATE CONTROLLER]"}}</tool_use>
+                
+                2. Create the service:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/service/EntityService.java", "content": "[GENERATE SERVICE]"}}</tool_use>
+                
+                3. Create the repository:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/repository/EntityRepository.java", "content": "[GENERATE REPOSITORY]"}}</tool_use>
+                
+                4. Create the entity:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/model/Entity.java", "content": "[GENERATE ENTITY]"}}</tool_use>
+                
+                Generate complete, working code for each file!
+                """;
+                
+            case "setup_database" -> """
+                Set up the database:
+                
+                1. Create schema file:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "database/schema.sql", "content": "[GENERATE SCHEMA]"}}</tool_use>
+                
+                2. Create docker-compose for database:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "docker-compose.yml", "content": "[GENERATE DOCKER-COMPOSE]"}}</tool_use>
+                
+                3. Start the database:
+                <tool_use>{"name": "execute_command", "args": {"command": "docker-compose up -d postgres"}}</tool_use>
+                
+                Execute these steps with real SQL and configuration!
+                """;
+                
+            default -> """
+                Execute the task by using appropriate tools:
+                1. Analyze what needs to be done
+                2. Choose the right tool
+                3. Execute with <tool_use> blocks
+                4. Verify the result
+                5. Continue to the next step
+                
+                START EXECUTING NOW!
+                """;
+        };
+    }
+    
+    /**
+     * Generates a prompt for handling tool execution results
+     */
+    public String generateToolResultPrompt(String toolName, String result, boolean success) {
+        return String.format("""
+            <tool_execution_result>
+            Tool: %s
+            Success: %s
+            Result: %s
+            
+            Based on this result:
+            1. Analyze the output for important information
+            2. Determine if the goal was achieved
+            3. Identify any errors or warnings that need addressing
+            4. Decide on the next action to take
+            5. Continue working towards the overall objective
+            
+            IMPORTANT: You MUST respond with another <tool_use> block to continue execution.
+            Do not stop here - use this information to inform your next action.
+            </tool_execution_result>
+            """, toolName, success, result);
     }
     
     /**
@@ -261,39 +424,6 @@ public class AgentPromptService {
     }
     
     /**
-     * Development phases for structured approach
-     */
-    public enum DevelopmentPhase {
-        ANALYSIS,
-        DESIGN,
-        IMPLEMENTATION,
-        TESTING,
-        DEPLOYMENT
-    }
-    
-    /**
-     * Generates a prompt for handling tool execution results
-     */
-    public String generateToolResultPrompt(String toolName, String result, boolean success) {
-        return String.format("""
-            <tool_execution_result>
-            Tool: %s
-            Success: %s
-            Result: %s
-            
-            Based on this result:
-            1. Analyze the output for important information
-            2. Determine if the goal was achieved
-            3. Identify any errors or warnings that need addressing
-            4. Decide on the next action to take
-            5. Continue working towards the overall objective
-            
-            Do not stop here - use this information to inform your next action.
-            </tool_execution_result>
-            """, toolName, success, result);
-    }
-    
-    /**
      * Generates memory augmentation prompts for complex tasks
      */
     public String generateMemoryPrompt(TaskMemory memory) {
@@ -310,6 +440,8 @@ public class AgentPromptService {
             - Build on previous successes
             - Apply learned patterns to similar problems
             - Maintain context across multiple tool executions
+            
+            IMPORTANT: Continue execution by using <tool_use> blocks to implement the next pending task.
             </task_memory>
             """, 
             memory.getObjective(),
@@ -318,6 +450,17 @@ public class AgentPromptService {
             String.join(", ", memory.getPendingTasks()),
             String.join(", ", memory.getLearnedPatterns())
         );
+    }
+    
+    /**
+     * Development phases for structured approach
+     */
+    public enum DevelopmentPhase {
+        ANALYSIS,
+        DESIGN,
+        IMPLEMENTATION,
+        TESTING,
+        DEPLOYMENT
     }
     
     /**
@@ -372,85 +515,8 @@ public class AgentPromptService {
      */
     public enum ConversationMode {
         AUTONOMOUS,      // Full autonomous operation
-        INTERACTIVE,     // Asks for confirmation at key points
-        CONVERSATIONAL,  // Traditional back-and-forth
-        GUIDED           // User guides each step
-    }
-    
-    /**
-     * Agent state for tracking conversation and task progress
-     */
-    public static class AgentState {
-        private String currentObjective;
-        private DevelopmentPhase currentPhase = DevelopmentPhase.ANALYSIS;
-        private List<String> completedTasks = new ArrayList<>();
-        private List<String> pendingTasks = new ArrayList<>();
-        private Map<String, String> learnedPatterns = new HashMap<>();
-        private int iterationCount = 0;
-        private boolean shouldContinue = true;
-        private String lastAction = "";
-        private ProjectContext projectContext;
-        
-        // Multi-turn conversation support
-        private boolean waitingForUserInput = false;
-        private String pendingQuestion = null;
-        private ConversationMode mode = ConversationMode.AUTONOMOUS;
-        private List<String> conversationHistory = new ArrayList<>();
-        
-        public TaskMemory toTaskMemory() {
-            TaskMemory memory = new TaskMemory();
-            memory.setObjective(currentObjective);
-            memory.setProgressPercentage(calculateProgress());
-            memory.setCompletedSteps(new ArrayList<>(completedTasks));
-            memory.setPendingTasks(new ArrayList<>(pendingTasks));
-            memory.setLearnedPatterns(new ArrayList<>(learnedPatterns.values()));
-            return memory;
-        }
-        
-        private int calculateProgress() {
-            if (completedTasks.isEmpty() && pendingTasks.isEmpty()) return 0;
-            int total = completedTasks.size() + pendingTasks.size();
-            return (completedTasks.size() * 100) / total;
-        }
-        
-        // Getters and setters
-        public String getCurrentObjective() { return currentObjective; }
-        public void setCurrentObjective(String currentObjective) { this.currentObjective = currentObjective; }
-        
-        public DevelopmentPhase getCurrentPhase() { return currentPhase; }
-        public void setCurrentPhase(DevelopmentPhase currentPhase) { this.currentPhase = currentPhase; }
-        
-        public List<String> getCompletedTasks() { return completedTasks; }
-        public void setCompletedTasks(List<String> completedTasks) { this.completedTasks = completedTasks; }
-        
-        public List<String> getPendingTasks() { return pendingTasks; }
-        public void setPendingTasks(List<String> pendingTasks) { this.pendingTasks = pendingTasks; }
-        
-        public Map<String, String> getLearnedPatterns() { return learnedPatterns; }
-        public void setLearnedPatterns(Map<String, String> learnedPatterns) { this.learnedPatterns = learnedPatterns; }
-        
-        public int getIterationCount() { return iterationCount; }
-        public void setIterationCount(int iterationCount) { this.iterationCount = iterationCount; }
-        
-        public boolean isShouldContinue() { return shouldContinue; }
-        public void setShouldContinue(boolean shouldContinue) { this.shouldContinue = shouldContinue; }
-        
-        public String getLastAction() { return lastAction; }
-        public void setLastAction(String lastAction) { this.lastAction = lastAction; }
-        
-        public ProjectContext getProjectContext() { return projectContext; }
-        public void setProjectContext(ProjectContext projectContext) { this.projectContext = projectContext; }
-        
-        public boolean isWaitingForUserInput() { return waitingForUserInput; }
-        public void setWaitingForUserInput(boolean waitingForUserInput) { this.waitingForUserInput = waitingForUserInput; }
-        
-        public String getPendingQuestion() { return pendingQuestion; }
-        public void setPendingQuestion(String pendingQuestion) { this.pendingQuestion = pendingQuestion; }
-        
-        public ConversationMode getMode() { return mode; }
-        public void setMode(ConversationMode mode) { this.mode = mode; }
-        
-        public List<String> getConversationHistory() { return conversationHistory; }
-        public void setConversationHistory(List<String> conversationHistory) { this.conversationHistory = conversationHistory; }
+        INTERACTIVE,     // Pauses for confirmation at key points
+        COLLABORATIVE,   // Frequent interaction with user
+        INSTRUCTIONAL    // Explains actions in detail
     }
 }
