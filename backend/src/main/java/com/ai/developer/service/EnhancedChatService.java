@@ -3,10 +3,10 @@ package com.ai.developer.service;
 import com.ai.developer.config.ToolOutputWebSocketHandler;
 import com.ai.developer.llm.*;
 import com.ai.developer.model.*;
-import com.ai.developer.service.AgentPromptService.AgentState;
-import com.ai.developer.service.AgentPromptService.ConversationMode;
-import com.ai.developer.service.AgentPromptService.TaskMemory;
-import com.ai.developer.service.AgentPromptService.UserIntent;
+import com.ai.developer.model.AgentState;
+import com.ai.developer.model.ConversationMode;
+import com.ai.developer.model.TaskMemory;
+import com.ai.developer.model.UserIntent;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolOutput;
 import com.ai.developer.tools.ToolRegistry;
@@ -652,7 +652,7 @@ public class EnhancedChatService {
                         
                         // Add tool result prompt
                         String toolResultPrompt = agentPromptService.generateToolResultPrompt(
-                                toolUse.getName(), output.getContent(), output.isSuccess());
+                                toolUse.getName(), output.getContent(), output.isSuccess() ? "success" : "failure");
                         
                         context.getMessages().add(Message.builder()
                                 .role("system")
@@ -712,11 +712,18 @@ public class EnhancedChatService {
             return tool.execute(args)
                 .doOnNext(output -> {
                     // Send tool output to WebSocket
-                    webSocketHandler.broadcastToolOutput(sessionId, toolName, args, output);
+                    // Create a map with all the information to broadcast
+                    Map<String, Object> toolOutputData = new HashMap<>();
+                    toolOutputData.put("sessionId", sessionId);
+                    toolOutputData.put("toolName", toolName);
+                    toolOutputData.put("args", args);
+                    toolOutputData.put("output", output);
+                    webSocketHandler.broadcastToolOutput(toolOutputData);
                     
                     // Update agent state based on tool output
                     updateAgentStateFromToolOutput(agentState, toolName, args, output);
-                });
+                })
+                .next(); // Convert Flux to Mono by taking the first element
         } catch (Exception e) {
             log.error("[AGENT_LOOP] Error executing tool {}: {}", toolName, e.getMessage(), e);
             return Mono.just(ToolOutput.builder()
@@ -742,14 +749,14 @@ public class EnhancedChatService {
         
         // Update phase based on tool type
         if ("planning_tool".equals(toolName)) {
-            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.DESIGN);
+            agentState.setCurrentPhase(DevelopmentPhase.DESIGN);
         } else if (toolName.contains("file_system") && args.containsKey("operation") && 
                   "write".equals(args.get("operation"))) {
-            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.IMPLEMENTATION);
+            agentState.setCurrentPhase(DevelopmentPhase.IMPLEMENTATION);
         } else if (toolName.contains("test") || toolName.contains("build_tool")) {
-            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.TESTING);
+            agentState.setCurrentPhase(DevelopmentPhase.TESTING);
         } else if (toolName.contains("deploy")) {
-            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.DEPLOYMENT);
+            agentState.setCurrentPhase(DevelopmentPhase.DEPLOYMENT);
         }
         
         // Extract events from output if present
@@ -821,8 +828,8 @@ public class EnhancedChatService {
                     
                 case "PHASE":
                     try {
-                        AgentPromptService.DevelopmentPhase phase = 
-                            AgentPromptService.DevelopmentPhase.valueOf(eventData.toUpperCase());
+                        DevelopmentPhase phase = 
+                            DevelopmentPhase.valueOf(eventData.toUpperCase());
                         agentState.setCurrentPhase(phase);
                     } catch (IllegalArgumentException e) {
                         log.warn("Invalid phase: {}", eventData);

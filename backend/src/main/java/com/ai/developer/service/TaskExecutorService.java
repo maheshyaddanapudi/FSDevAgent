@@ -431,18 +431,7 @@ public class TaskExecutorService {
             });
     }
     
-    /**
-     * Helper class for tool invocations
-     */
-    private static class ToolInvocation {
-        final String toolName;
-        final Map<String, Object> arguments;
-        
-        ToolInvocation(String toolName, Map<String, Object> arguments) {
-            this.toolName = toolName;
-            this.arguments = arguments;
-        }
-    }
+    // Using the standalone ToolInvocation model class from com.ai.developer.model package
     
     // Code generation methods (simplified - in real implementation these would be more sophisticated)
     

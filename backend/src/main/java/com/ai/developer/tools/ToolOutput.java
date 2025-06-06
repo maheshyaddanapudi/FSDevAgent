@@ -10,4 +10,9 @@ public class ToolOutput {
     private String type; // stdout, stderr, file, image, etc.
     private String content;
     private Map<String, Object> metadata;
+    private boolean success;
+    
+    public boolean isSuccess() {
+        return success;
+    }
 }

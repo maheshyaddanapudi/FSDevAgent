@@ -1,6 +1,11 @@
 package com.ai.developer.service;
 
 import com.ai.developer.llm.ProjectContext;
+import com.ai.developer.model.AgentState;
+import com.ai.developer.model.ConversationMode;
+import com.ai.developer.model.DevelopmentPhase;
+import com.ai.developer.model.TaskMemory;
+import com.ai.developer.model.UserIntent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -261,6 +266,30 @@ public class AgentPromptService {
     }
     
     /**
+     * Generates tool result prompts that guide the agent's next actions
+     */
+    public String generateToolResultPrompt(String toolName, String result, String status) {
+        return String.format("""
+            <tool_result>
+            Tool: %s
+            Status: %s
+            
+            TOOL EXECUTION RESULT:
+            %s
+            
+            NEXT STEPS:
+            1. Analyze the tool result carefully
+            2. Determine if the operation was successful
+            3. Take appropriate follow-up action based on the result
+            4. Use another tool to continue execution - DO NOT STOP HERE
+            
+            IMPORTANT: You MUST respond with another <tool_use> block to continue execution.
+            Do not wait for user input - proceed autonomously to the next logical step.
+            </tool_result>
+            """, toolName, status, result);
+    }
+    
+    /**
      * Generates context-aware continuation prompts that enforce execution
      */
     public String generateContinuationPrompt(String lastAction, String currentState) {
@@ -337,61 +366,109 @@ public class AgentPromptService {
                 context.get("componentName")
             );
             
-            case "create_api_endpoint" -> """
-                Create a REST API endpoint:
+            case "create_api" -> String.format("""
+                Create a REST API endpoint for %s:
                 
-                1. Create the controller:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/controller/EntityController.java", "content": "[GENERATE CONTROLLER]"}}</tool_use>
+                1. First, create the controller:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/controllers/%sController.java", "content": "[GENERATE COMPLETE CONTROLLER CODE]"}}</tool_use>
                 
                 2. Create the service:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/service/EntityService.java", "content": "[GENERATE SERVICE]"}}</tool_use>
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/services/%sService.java", "content": "[GENERATE COMPLETE SERVICE CODE]"}}</tool_use>
                 
-                3. Create the repository:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/repository/EntityRepository.java", "content": "[GENERATE REPOSITORY]"}}</tool_use>
+                3. Create the model:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/models/%s.java", "content": "[GENERATE COMPLETE MODEL CODE]"}}</tool_use>
                 
-                4. Create the entity:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/main/java/com/example/model/Entity.java", "content": "[GENERATE ENTITY]"}}</tool_use>
+                4. Create the repository:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/repositories/%sRepository.java", "content": "[GENERATE COMPLETE REPOSITORY CODE]"}}</tool_use>
                 
-                Generate complete, working code for each file!
+                5. Create tests:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/test/java/controllers/%sControllerTest.java", "content": "[GENERATE COMPLETE TEST CODE]"}}</tool_use>
+                
+                Execute these steps NOW with actual code!
+                """,
+                context.get("entityName"),
+                context.get("entityName"),
+                context.get("entityName"),
+                context.get("entityName"),
+                context.get("entityName"),
+                context.get("entityName")
+            );
+            
+            case "setup_project" -> """
+                Set up a new project with the following steps:
+                
+                1. Create project structure:
+                <tool_use>{"name": "file_system", "args": {"operation": "mkdir", "path": "src/main/java"}}</tool_use>
+                <tool_use>{"name": "file_system", "args": {"operation": "mkdir", "path": "src/main/resources"}}</tool_use>
+                <tool_use>{"name": "file_system", "args": {"operation": "mkdir", "path": "src/test/java"}}</tool_use>
+                
+                2. Create build configuration:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "pom.xml", "content": "[GENERATE COMPLETE POM.XML]"}}</tool_use>
+                
+                3. Create README:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "README.md", "content": "[GENERATE COMPLETE README]"}}</tool_use>
+                
+                4. Initialize git:
+                <tool_use>{"name": "git_operations", "args": {"operation": "init"}}</tool_use>
+                
+                5. Create .gitignore:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": ".gitignore", "content": "[GENERATE COMPLETE GITIGNORE]"}}</tool_use>
+                
+                Execute these steps NOW!
                 """;
                 
-            case "setup_database" -> """
-                Set up the database:
+            case "fix_bug" -> """
+                Fix the bug with these steps:
                 
-                1. Create schema file:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "database/schema.sql", "content": "[GENERATE SCHEMA]"}}</tool_use>
+                1. First, examine the error:
+                <tool_use>{"name": "file_system", "args": {"operation": "read", "path": "error.log"}}</tool_use>
                 
-                2. Create docker-compose for database:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "docker-compose.yml", "content": "[GENERATE DOCKER-COMPOSE]"}}</tool_use>
+                2. Examine the problematic file:
+                <tool_use>{"name": "file_system", "args": {"operation": "read", "path": "[PATH TO PROBLEMATIC FILE]"}}</tool_use>
                 
-                3. Start the database:
-                <tool_use>{"name": "execute_command", "args": {"command": "docker-compose up -d postgres"}}</tool_use>
+                3. Fix the issue:
+                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "[PATH TO PROBLEMATIC FILE]", "content": "[FIXED CODE]"}}</tool_use>
                 
-                Execute these steps with real SQL and configuration!
+                4. Test the fix:
+                <tool_use>{"name": "execute_command", "args": {"command": "[TEST COMMAND]"}}</tool_use>
+                
+                5. Commit the fix:
+                <tool_use>{"name": "git_operations", "args": {"operation": "commit", "message": "Fix bug in [COMPONENT]"}}</tool_use>
+                
+                Execute these steps NOW!
                 """;
                 
             default -> """
-                Execute the task by using appropriate tools:
-                1. Analyze what needs to be done
-                2. Choose the right tool
-                3. Execute with <tool_use> blocks
-                4. Verify the result
-                5. Continue to the next step
+                Execute the task using appropriate tools:
                 
-                START EXECUTING NOW!
+                1. First, analyze the current state:
+                <tool_use>{"name": "file_system", "args": {"operation": "list", "path": "."}}</tool_use>
+                
+                2. Determine what needs to be done based on the project structure
+                
+                3. Execute the necessary actions using <tool_use> blocks
+                
+                4. Test your changes
+                
+                5. Document what you've done
+                
+                Start NOW by examining the project structure!
                 """;
         };
     }
     
     /**
-     * Generates a prompt for handling tool execution results
+     * Generates prompts for handling tool execution results
      */
-    public String generateToolResultPrompt(String toolName, String result, boolean success) {
+    public String generateToolResultPrompt(String toolName, boolean success, String result) {
         return String.format("""
             <tool_execution_result>
             Tool: %s
             Success: %s
-            Result: %s
+            Result:
+            ```
+            %s
+            ```
             
             Based on this result:
             1. Analyze the output for important information
@@ -430,10 +507,11 @@ public class AgentPromptService {
         return String.format("""
             <task_memory>
             Current Objective: %s
+            Current Phase: %s
             Progress: %d%%
-            Completed Steps: %s
+            Completed Tasks: %s
             Pending Tasks: %s
-            Learned Patterns: %s
+            Last Action: %s
             
             Use this memory to:
             - Avoid repeating completed work
@@ -445,78 +523,13 @@ public class AgentPromptService {
             </task_memory>
             """, 
             memory.getObjective(),
+            memory.getPhase(),
             memory.getProgressPercentage(),
-            String.join(", ", memory.getCompletedSteps()),
+            String.join(", ", memory.getCompletedTasks()),
             String.join(", ", memory.getPendingTasks()),
-            String.join(", ", memory.getLearnedPatterns())
+            memory.getLastAction()
         );
     }
     
-    /**
-     * Development phases for structured approach
-     */
-    public enum DevelopmentPhase {
-        ANALYSIS,
-        DESIGN,
-        IMPLEMENTATION,
-        TESTING,
-        DEPLOYMENT
-    }
-    
-    /**
-     * Simple task memory representation
-     */
-    public static class TaskMemory {
-        private String objective;
-        private int progressPercentage;
-        private List<String> completedSteps;
-        private List<String> pendingTasks;
-        private List<String> learnedPatterns;
-        
-        public TaskMemory() {
-            this.completedSteps = new ArrayList<>();
-            this.pendingTasks = new ArrayList<>();
-            this.learnedPatterns = new ArrayList<>();
-        }
-        
-        // Getters and setters
-        public String getObjective() { return objective; }
-        public void setObjective(String objective) { this.objective = objective; }
-        
-        public int getProgressPercentage() { return progressPercentage; }
-        public void setProgressPercentage(int progressPercentage) { this.progressPercentage = progressPercentage; }
-        
-        public List<String> getCompletedSteps() { return completedSteps != null ? completedSteps : List.of(); }
-        public void setCompletedSteps(List<String> completedSteps) { this.completedSteps = completedSteps; }
-        
-        public List<String> getPendingTasks() { return pendingTasks != null ? pendingTasks : List.of(); }
-        public void setPendingTasks(List<String> pendingTasks) { this.pendingTasks = pendingTasks; }
-        
-        public List<String> getLearnedPatterns() { return learnedPatterns != null ? learnedPatterns : List.of(); }
-        public void setLearnedPatterns(List<String> learnedPatterns) { this.learnedPatterns = learnedPatterns; }
-    }
-    
-    /**
-     * User intent types for conversation analysis
-     */
-    public enum UserIntent {
-        NEW_TASK,
-        PAUSE_EXECUTION,
-        CONTINUE_EXECUTION,
-        REQUEST_EXPLANATION,
-        MODIFY_APPROACH,
-        ANSWER_QUESTION,
-        CHECK_STATUS,
-        GENERAL_CONVERSATION
-    }
-    
-    /**
-     * Conversation modes for flexible interaction
-     */
-    public enum ConversationMode {
-        AUTONOMOUS,      // Full autonomous operation
-        INTERACTIVE,     // Pauses for confirmation at key points
-        COLLABORATIVE,   // Frequent interaction with user
-        INSTRUCTIONAL    // Explains actions in detail
-    }
+    // Inner classes and enums have been moved to standalone model classes in com.ai.developer.model package
 }
