@@ -74,8 +74,11 @@ public class ChatService {
         
         List<Message> messagesCopy = new ArrayList<>();
         for (Message message : context.getMessages()) {
+            // Ensure no 'tool' role is used in the copy - map to 'assistant' instead
+            String role = "tool".equals(message.getRole()) ? "assistant" : message.getRole();
+            
             messagesCopy.add(Message.builder()
-                    .role(message.getRole())
+                    .role(role)
                     .content(message.getContent())
                     .toolCallId(message.getToolCallId())
                     .toolCall(message.getToolCall())
@@ -311,15 +314,39 @@ public class ChatService {
      * Parse a tool use block from JSON
      */
     private ToolUseBlock parseToolUseBlock(String json) {
+        log.info("Parsing tool use block from JSON: {}", json);
         try {
             // Try to parse as a direct tool use block
             Map<String, Object> toolUseMap = objectMapper.readValue(json, Map.class);
             String name = (String) toolUseMap.get("name");
-            Map<String, Object> args = (Map<String, Object>) toolUseMap.get("args");
+            
+            // Debug logging for args field
+            log.info("Tool use map: {}", toolUseMap);
+            log.info("Tool name: {}", name);
+            log.info("Args field in map: {}", toolUseMap.get("args"));
+            
+            // Check for args or arguments field
+            Map<String, Object> args = null;
+            if (toolUseMap.containsKey("args")) {
+                args = (Map<String, Object>) toolUseMap.get("args");
+                log.info("Found args field: {}", args);
+            } else if (toolUseMap.containsKey("arguments")) {
+                args = (Map<String, Object>) toolUseMap.get("arguments");
+                log.info("Found arguments field: {}", args);
+            } else {
+                log.warn("No args or arguments field found in tool use block");
+            }
+            
+            // Initialize empty map if args is null
+            if (args == null) {
+                args = new HashMap<>();
+                log.warn("Initializing empty args map for tool: {}", name);
+            }
             
             ToolUseBlock block = new ToolUseBlock();
             block.setName(name);
             block.setArgs(args);
+            log.info("Created ToolUseBlock: {}", block);
             return block;
         } catch (Exception e) {
             log.warn("Failed to parse direct tool use block: {}", e.getMessage());
@@ -327,24 +354,52 @@ public class ChatService {
             try {
                 // Try to extract from content block format
                 Map<String, Object> contentBlock = objectMapper.readValue(json, Map.class);
+                log.info("Content block: {}", contentBlock);
+                
                 if (contentBlock.containsKey("content") && contentBlock.get("content") instanceof Map) {
                     Map<String, Object> content = (Map<String, Object>) contentBlock.get("content");
+                    log.info("Content field: {}", content);
+                    
                     if (content.containsKey("tool_use")) {
                         Map<String, Object> toolUse = (Map<String, Object>) content.get("tool_use");
                         String name = (String) toolUse.get("name");
-                        Map<String, Object> args = (Map<String, Object>) toolUse.get("arguments");
+                        
+                        // Debug logging for arguments field
+                        log.info("Tool use in content block: {}", toolUse);
+                        log.info("Tool name in content block: {}", name);
+                        log.info("Arguments field in content block: {}", toolUse.get("arguments"));
+                        
+                        // Check for arguments field
+                        Map<String, Object> args = null;
+                        if (toolUse.containsKey("arguments")) {
+                            args = (Map<String, Object>) toolUse.get("arguments");
+                            log.info("Found arguments field in content block: {}", args);
+                        } else if (toolUse.containsKey("args")) {
+                            args = (Map<String, Object>) toolUse.get("args");
+                            log.info("Found args field in content block: {}", args);
+                        } else {
+                            log.warn("No arguments or args field found in content block tool use");
+                        }
+                        
+                        // Initialize empty map if args is null
+                        if (args == null) {
+                            args = new HashMap<>();
+                            log.warn("Initializing empty args map for tool in content block: {}", name);
+                        }
                         
                         ToolUseBlock block = new ToolUseBlock();
                         block.setName(name);
                         block.setArgs(args);
+                        log.info("Created ToolUseBlock from content block: {}", block);
                         return block;
                     }
                 }
             } catch (Exception ex) {
-                log.error("Failed to parse content block format: {}", ex.getMessage());
+                log.error("Failed to parse content block format: {}", ex.getMessage(), ex);
             }
         }
         
+        log.error("Failed to parse tool use block, returning null");
         return null;
     }
     
@@ -355,7 +410,29 @@ public class ChatService {
         String toolName = toolUseBlock.getName();
         Map<String, Object> args = toolUseBlock.getArgs();
         
-        log.info("Processing tool use block for session {}: tool={}, arguments={}", sessionId, toolName, args);
+        // Enhanced debug logging for tool use block
+        log.info("Raw tool use block for session {}: {}", sessionId, toolUseBlock);
+        log.info("Tool name: {}, Args object type: {}", toolName, args != null ? args.getClass().getName() : "null");
+        
+        // Ensure args is never null to prevent NullPointerException
+        if (args == null) {
+            args = new HashMap<>();
+            log.warn("Null arguments detected in tool use block for session {}: tool={}, initializing empty map", sessionId, toolName);
+        } else {
+            // Log detailed argument information
+            log.info("Arguments keys: {}", args.keySet());
+            if (toolName.equals("planning_tool")) {
+                log.info("Planning tool operation: {}", args.get("operation"));
+                log.info("Planning tool objective: {}", args.get("objective"));
+                log.info("Planning tool title: {}", args.get("title"));
+                log.info("Planning tool type: {}", args.get("type"));
+            }
+        }
+        
+        // Create a final reference to args for use in lambda expressions
+        final Map<String, Object> finalArgs = args;
+        
+        log.info("Processing tool use block for session {}: tool={}, arguments={}", sessionId, toolName, finalArgs);
         
         // Notify about tool execution start via WebSocket
         webSocketHandler.broadcastToolOutput("Executing tool: " + toolName);
@@ -382,8 +459,8 @@ public class ChatService {
             ChatContext context = sessions.get(sessionId);
             String workspacePath = (String) context.getMetadata().getOrDefault("workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId);
             
-            // Execute tool
-            Flux<ToolOutput> outputFlux = tool.execute(args);
+            // Execute tool with guaranteed non-null arguments
+            Flux<ToolOutput> outputFlux = tool.execute(finalArgs);
             
             return outputFlux.flatMap(output -> {
                 // Add tool response to context

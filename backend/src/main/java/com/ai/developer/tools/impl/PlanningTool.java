@@ -116,7 +116,28 @@ public class PlanningTool implements Tool {
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
         return Mono.fromCallable(() -> {
             try {
+                // Add null check and logging for arguments
+                if (arguments == null) {
+                    log.error("Planning tool received null arguments");
+                    return ToolOutput.builder()
+                            .type("error")
+                            .content("Error: Planning tool received null arguments")
+                            .build();
+                }
+                
+                log.info("Planning tool executing with arguments: {}", arguments);
+                
+                // Add null check and default for operation
                 String operation = (String) arguments.get("operation");
+                if (operation == null) {
+                    log.error("Planning tool operation is null");
+                    return ToolOutput.builder()
+                            .type("error")
+                            .content("Error: Planning tool operation is required but was null")
+                            .build();
+                }
+                
+                log.info("Planning tool executing operation: {}", operation);
                 
                 return switch (operation) {
                     case "create_plan" -> createHierarchicalPlan(arguments);

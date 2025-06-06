@@ -160,6 +160,12 @@ const useChatStore = create((set, get) => ({
               const hasToolExecution = chunk.toolExecution || false;
               const hasToolResult = chunk.toolResult || false;
               
+              // Convert arguments to args if present in toolCall
+              if (hasToolCall && chunk.toolCall.arguments && !chunk.toolCall.args) {
+                chunk.toolCall.args = chunk.toolCall.arguments;
+                delete chunk.toolCall.arguments;
+              }
+              
               if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
                 // Update existing assistant message
                 messages[messages.length - 1] = {

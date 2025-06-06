@@ -35,6 +35,10 @@ public class ToolUseBlock {
     }
 
     public Map<String, Object> getArgs() {
+        // If args is null but input is a Map, use input as args
+        if (args == null && input instanceof Map) {
+            return (Map<String, Object>) input;
+        }
         return args;
     }
 
