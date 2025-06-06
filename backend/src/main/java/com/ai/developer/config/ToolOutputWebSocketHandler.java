@@ -2,6 +2,7 @@ package com.ai.developer.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
+@Component
 public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
     
     private final ConcurrentHashMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
