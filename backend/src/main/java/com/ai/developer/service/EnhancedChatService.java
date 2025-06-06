@@ -9,6 +9,7 @@ import com.ai.developer.tools.ToolOutput;
 import com.ai.developer.tools.ToolRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -32,6 +33,7 @@ import java.util.regex.Pattern;
  * Enhanced with true autonomous execution capabilities for continuous operation without user intervention.
  */
 @Service
+@Primary
 @Slf4j
 public class EnhancedChatService {
     
@@ -378,7 +380,7 @@ public class EnhancedChatService {
                 return executeAutonomousAgentLoop(sessionId, context, agentState);
             
             case REQUEST_EXPLANATION:
-                // Provide explanation without stopping execution
+                // Provide explanation
                 return provideExplanation(sessionId, context, agentState, message);
             
             case MODIFY_APPROACH:
@@ -386,7 +388,7 @@ public class EnhancedChatService {
                 return modifyApproachAndContinue(sessionId, context, agentState, message);
             
             case ANSWER_QUESTION:
-                // Process user answer to a pending question
+                // Process user answer to a question
                 return processUserAnswer(sessionId, context, agentState, message);
             
             case CHECK_STATUS:
@@ -395,7 +397,7 @@ public class EnhancedChatService {
             
             case GENERAL_CONVERSATION:
             default:
-                // Handle as general conversation
+                // Handle general conversation
                 return handleConversationalResponse(sessionId, context, agentState, message);
         }
     }
@@ -406,29 +408,39 @@ public class EnhancedChatService {
     private String generateProgressSummary(AgentState agentState) {
         StringBuilder summary = new StringBuilder();
         
-        summary.append("Current Objective: ").append(agentState.getCurrentObjective()).append("\n\n");
-        summary.append("Current Phase: ").append(agentState.getCurrentPhase()).append("\n");
+        // Add objective
+        summary.append("Objective: ").append(agentState.getCurrentObjective()).append("\n\n");
+        
+        // Add current phase
+        summary.append("Current Phase: ").append(agentState.getCurrentPhase()).append("\n\n");
+        
+        // Add progress percentage
         summary.append("Progress: ").append(agentState.getProgress()).append("%\n\n");
         
-        if (!agentState.getCompletedTasks().isEmpty()) {
-            summary.append("Completed Tasks:\n");
+        // Add completed tasks
+        summary.append("Completed Tasks:\n");
+        if (agentState.getCompletedTasks().isEmpty()) {
+            summary.append("- None yet\n");
+        } else {
             for (String task : agentState.getCompletedTasks()) {
-                summary.append("✅ ").append(task).append("\n");
+                summary.append("- ").append(task).append("\n");
             }
-            summary.append("\n");
         }
+        summary.append("\n");
         
-        if (!agentState.getPendingTasks().isEmpty()) {
-            summary.append("Pending Tasks:\n");
+        // Add pending tasks
+        summary.append("Pending Tasks:\n");
+        if (agentState.getPendingTasks().isEmpty()) {
+            summary.append("- None yet\n");
+        } else {
             for (String task : agentState.getPendingTasks()) {
-                summary.append("⏳ ").append(task).append("\n");
+                summary.append("- ").append(task).append("\n");
             }
-            summary.append("\n");
         }
+        summary.append("\n");
         
-        if (agentState.getLastAction() != null) {
-            summary.append("Last Action: ").append(agentState.getLastAction()).append("\n");
-        }
+        // Add last action
+        summary.append("Last Action: ").append(agentState.getLastAction()).append("\n");
         
         return summary.toString();
     }
@@ -439,35 +451,32 @@ public class EnhancedChatService {
     private Flux<ChatResponse> provideExplanation(String sessionId, ChatContext context, AgentState agentState, String message) {
         log.info("Providing explanation for session {}: {}", sessionId, message);
         
-        // Generate explanation based on current state
-        String explanation = "Here's an explanation of what I'm doing:\n\n";
-        explanation += "Current Objective: " + agentState.getCurrentObjective() + "\n\n";
-        explanation += "Current Phase: " + agentState.getCurrentPhase() + "\n";
-        explanation += "Progress: " + agentState.getProgress() + "%\n\n";
+        // Generate explanation based on current state and memory
+        String explanation = "Let me explain my approach:\n\n";
         
-        if (agentState.getLastAction() != null) {
-            explanation += "Last Action: " + agentState.getLastAction() + "\n\n";
+        // Add objective
+        explanation += "I'm working on: " + agentState.getCurrentObjective() + "\n\n";
+        
+        // Add current phase
+        explanation += "Current phase: " + agentState.getCurrentPhase() + "\n\n";
+        
+        // Add reasoning based on memory
+        explanation += "My reasoning process:\n";
+        explanation += "1. I analyzed the task and broke it down into manageable steps\n";
+        explanation += "2. I'm currently in the " + agentState.getCurrentPhase() + " phase\n";
+        explanation += "3. I've completed " + agentState.getCompletedTasks().size() + " tasks so far\n";
+        explanation += "4. My last action was: " + agentState.getLastAction() + "\n\n";
+        
+        // Add specific explanation based on user question
+        if (message.toLowerCase().contains("why")) {
+            explanation += "As for why I'm taking this approach: I'm following software development best practices for creating a maintainable and well-structured solution. Each step builds on the previous one in a logical sequence.";
+        } else if (message.toLowerCase().contains("how")) {
+            explanation += "As for how I'm implementing this: I'm using the tools available to me to write code, test functionality, and ensure everything works correctly. I'm following a step-by-step process to ensure quality.";
+        } else {
+            explanation += "I hope this explanation helps! Let me know if you have more specific questions about my approach or implementation.";
         }
         
-        explanation += "My approach is to break down the task into smaller steps, execute them sequentially, and adapt based on the results. ";
-        explanation += "I'm using a variety of tools to accomplish this, including file operations, code generation, and execution.\n\n";
-        
-        if (!agentState.getCompletedTasks().isEmpty()) {
-            explanation += "So far, I've completed:\n";
-            for (String task : agentState.getCompletedTasks()) {
-                explanation += "- " + task + "\n";
-            }
-            explanation += "\n";
-        }
-        
-        if (!agentState.getPendingTasks().isEmpty()) {
-            explanation += "Next, I plan to:\n";
-            for (String task : agentState.getPendingTasks()) {
-                explanation += "- " + task + "\n";
-            }
-        }
-        
-        // Add explanation to context
+        // Add assistant message to context
         context.getMessages().add(Message.builder()
                 .role("assistant")
                 .content(explanation)
@@ -488,14 +497,10 @@ public class EnhancedChatService {
     }
     
     /**
-     * Process user answer to a pending question
+     * Process user answer to a question
      */
     private Flux<ChatResponse> processUserAnswer(String sessionId, ChatContext context, AgentState agentState, String message) {
         log.info("Processing user answer for session {}: {}", sessionId, message);
-        
-        // Get the pending question
-        String pendingQuestion = (String) agentState.getMemory().get("pendingQuestion");
-        agentState.getMemory().remove("pendingQuestion");
         
         // Store the answer in memory
         agentState.getMemory().put("userAnswer", message);
@@ -756,8 +761,8 @@ public class EnhancedChatService {
                                 Thread.currentThread().interrupt();
                             }
                             
-                            // Continue to next iteration
-                            executeAutonomousLoop(sessionId, context, agentState, sink);
+                            // Continue to next iteration - this is handled by the outer while loop
+                            // The recursive call is removed to avoid stack overflow
                         }
                     })
                     .doOnError(error -> {
@@ -781,14 +786,10 @@ public class EnhancedChatService {
                             Thread.currentThread().interrupt();
                         }
                         
-                        // Continue to next iteration
-                        executeAutonomousLoop(sessionId, context, agentState, sink);
+                        // Continue to next iteration - this is handled by the outer while loop
+                        // The recursive call is removed to avoid stack overflow
                     })
-                    .subscribe();
-                
-                // Wait for the streaming to complete before continuing
-                // This is necessary to prevent multiple iterations from running concurrently
-                return;
+                    .blockLast(); // Use blockLast() instead of subscribe() to ensure the streaming completes before continuing
                 
             } catch (Exception e) {
                 log.error("Error in autonomous iteration for session {}: {}", sessionId, e.getMessage(), e);
@@ -834,6 +835,7 @@ public class EnhancedChatService {
     
     /**
      * Process autonomous response with ReAct paradigm
+     * This method now explicitly ensures the agent continues after tool execution
      */
     private void processAutonomousResponse(String sessionId, ChatContext context, AgentState agentState, 
                                           String llmResponse, Sinks.Many<ChatResponse> sink) {
@@ -919,6 +921,14 @@ public class EnhancedChatService {
                         .message(toolOutput.toString())
                         .timestamp(Instant.now())
                         .build());
+                
+                // Explicitly ensure the agent continues after tool execution
+                // by setting the shouldContinue flag to true
+                agentState.setShouldContinue(true);
+                
+                // Log that we're ensuring continuation after tool execution
+                log.info("Tool execution complete for session {}. Ensuring agent continues execution.", sessionId);
+                
             } catch (Exception e) {
                 log.error("Error processing tool call for session {}: {}", sessionId, e.getMessage(), e);
                 
@@ -942,6 +952,9 @@ public class EnhancedChatService {
                         .message(errorMessage)
                         .timestamp(Instant.now())
                         .build());
+                
+                // Even on error, ensure the agent continues
+                agentState.setShouldContinue(true);
             }
         }
     }
@@ -1063,5 +1076,20 @@ public class EnhancedChatService {
         ANSWER_QUESTION,
         CHECK_STATUS,
         GENERAL_CONVERSATION
+    }
+    
+    /**
+     * Execute a tool directly
+     * This method is needed to maintain compatibility with the original ChatService interface
+     */
+    public Mono<ToolOutput> executeTool(String sessionId, String toolName, Map<String, Object> arguments) {
+        log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
+        
+        Tool tool = toolRegistry.getTool(toolName);
+        if (tool == null) {
+            return Mono.error(new IllegalArgumentException("Tool not found: " + toolName));
+        }
+        
+        return tool.execute(arguments).next();
     }
 }

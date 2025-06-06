@@ -1,7 +1,8 @@
 package com.ai.developer.controller;
 
 import com.ai.developer.model.*;
-import com.ai.developer.service.ChatService;
+import com.ai.developer.service.EnhancedChatService;
+import com.ai.developer.tools.ToolOutput;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -19,7 +20,7 @@ import java.util.Map;
 @Slf4j
 public class ChatController {
     
-    private final ChatService chatService;
+    private final EnhancedChatService chatService;
     
     // Session creation endpoint moved to SessionController to avoid mapping conflicts
     // and to leverage enhanced session management capabilities
@@ -62,8 +63,21 @@ public class ChatController {
             @RequestBody Map<String, Object> arguments) {
         log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
         return chatService.executeTool(sessionId, toolName, arguments)
+            .map(toolOutput -> convertToToolCallResponse(toolName, sessionId, arguments, toolOutput))
             .doOnNext(output -> log.info("Tool {} execution output for session {}: {}", toolName, sessionId, output))
             .doOnSuccess(output -> log.info("Completed tool {} execution for session {}", toolName, sessionId))
             .doOnError(error -> log.error("Error executing tool {} for session {}", toolName, sessionId, error));
+    }
+    
+    /**
+     * Convert ToolOutput to ToolCallResponse for API compatibility
+     */
+    private ToolCallResponse convertToToolCallResponse(String toolName, String sessionId, Map<String, Object> arguments, ToolOutput toolOutput) {
+        return ToolCallResponse.builder()
+                .name(toolName)
+                .arguments(arguments)
+                .result(toolOutput.getContent())
+                .sessionId(sessionId)
+                .build();
     }
 }
