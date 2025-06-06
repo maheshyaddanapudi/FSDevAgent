@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,6 +31,8 @@ import java.util.regex.Pattern;
  * Enhanced Chat Service with multi-turn conversation support and autonomous agent capabilities.
  * This service extends the original ChatService functionality while preserving the working
  * Claude tool call communication.
+ * 
+ * Enhanced with true autonomous execution capabilities for continuous operation without user intervention.
  */
 @Service
 @Slf4j
@@ -40,6 +43,8 @@ public class EnhancedChatService {
     private final ObjectMapper objectMapper;
     private final ToolOutputWebSocketHandler webSocketHandler;
     private final AgentPromptService agentPromptService;
+    private final TaskExecutorService taskExecutorService;
+    private final CodeGenerationService codeGenerationService;
     
     private final ConcurrentHashMap<String, ChatContext> sessions = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AgentState> agentStates = new ConcurrentHashMap<>();
@@ -52,6 +57,10 @@ public class EnhancedChatService {
     private static final Pattern TOOL_USE_PATTERN = Pattern.compile("<tool_use>(.*?)</tool_use>|\\{\"type\":\"content_block_start\".*?\"type\":\"tool_use\".*?\\}", Pattern.DOTALL);
     private static final Pattern COMPLETION_PATTERN = Pattern.compile("(?i)(task complete|objectives? (?:met|achieved|completed)|all (?:done|finished)|nothing (?:more|else) to do)");
     private static final Pattern QUESTION_PATTERN = Pattern.compile("(?i)(\\?|would you like|should i|do you want|can you clarify|need more information|what about)");
+    private static final Pattern EVENT_PATTERN = Pattern.compile("EVENT:([^:]+):(.+)");
+    
+    // Maximum iterations to prevent infinite loops
+    private static final int MAX_AUTONOMOUS_ITERATIONS = 100;
     
     public EnhancedChatService(LLMProvider llmProvider, ToolRegistry toolRegistry, ObjectMapper objectMapper, 
                       ToolOutputWebSocketHandler webSocketHandler, AgentPromptService agentPromptService) {
@@ -61,7 +70,11 @@ public class EnhancedChatService {
         this.webSocketHandler = webSocketHandler;
         this.agentPromptService = agentPromptService;
         
-        log.info("EnhancedChatService initialized with autonomous agent capabilities and multi-turn support");
+        // Initialize auxiliary services
+        this.taskExecutorService = new TaskExecutorService(toolRegistry, objectMapper, webSocketHandler);
+        this.codeGenerationService = new CodeGenerationService();
+        
+        log.info("EnhancedChatService initialized with TRUE autonomous agent capabilities and multi-turn support");
     }
     
     /**
@@ -80,22 +93,13 @@ public class EnhancedChatService {
             log.error("Error creating workspace directory for session {}: {}", sessionId, e.getMessage(), e);
         }
         
-        // Create chat context
+        // Create chat context with autonomous agent prompt
         ChatContext context = new ChatContext();
-        // Updated system prompt with explicit instructions for tool use blocks
-        context.setSystemPrompt("You are an AI Developer Agent, designed to help with coding, debugging, and using various development tools. " +
-                "Your workspace directory is: " + workspacePath + "\n\n" +
-                "IMPORTANT: When using tools, you MUST wrap your tool calls in <tool_use> tags like this:\n" +
-                "<tool_use>\n" +
-                "{\n" +
-                "  \"name\": \"tool_name\",\n" +
-                "  \"args\": {\n" +
-                "    \"arg1\": \"value1\",\n" +
-                "    \"arg2\": \"value2\"\n" +
-                "  }\n" +
-                "}\n" +
-                "</tool_use>\n\n" +
-                "Always use this format for tool calls. Available tools: " + String.join(", ", toolRegistry.getToolNames()));
+        ProjectContext projectContext = new ProjectContext();
+        projectContext.setProjectPath(workspacePath);
+        
+        String systemPrompt = agentPromptService.generateSystemPrompt(projectContext);
+        context.setSystemPrompt(systemPrompt);
         context.setMessages(new ArrayList<>());
         
         // Add metadata with session ID and workspace path
@@ -106,9 +110,8 @@ public class EnhancedChatService {
         
         // Create agent state
         AgentState agentState = new AgentState();
-        agentState.setProjectContext(new ProjectContext());
-        agentState.getProjectContext().setProjectPath(workspacePath);
-        agentState.setMode(ConversationMode.CONVERSATIONAL); // Start in conversational mode
+        agentState.setProjectContext(projectContext);
+        agentState.setMode(ConversationMode.AUTONOMOUS); // Start in autonomous mode for true autonomy
         
         // Store context and state
         sessions.put(sessionId, context);
@@ -243,6 +246,17 @@ public class EnhancedChatService {
         // Analyze user intent
         UserIntent intent = analyzeUserIntent(message, agentState);
         
+        // For new tasks, set objective and start autonomous execution
+        if (intent == UserIntent.NEW_TASK) {
+            agentState.setCurrentObjective(message);
+            agentState.setShouldContinue(true);
+            agentState.setIterationCount(0);
+            agentState.setMode(ConversationMode.AUTONOMOUS);
+            
+            // Start the autonomous execution loop
+            return executeAutonomousAgentLoop(sessionId, context, agentState);
+        }
+        
         return handleUserIntent(sessionId, context, agentState, intent, message);
     }
     
@@ -300,7 +314,7 @@ public class EnhancedChatService {
                 agentState.setShouldContinue(true);
                 agentState.setIterationCount(0);
                 agentState.setMode(ConversationMode.AUTONOMOUS);
-                return executeAgentLoop(sessionId, context, agentState);
+                return executeAutonomousAgentLoop(sessionId, context, agentState);
             
             case PAUSE_EXECUTION:
                 // Pause autonomous execution
@@ -320,7 +334,7 @@ public class EnhancedChatService {
                 agentState.setShouldContinue(true);
                 agentState.setMode(ConversationMode.AUTONOMOUS);
                 agentState.setWaitingForUserInput(false);
-                return executeAgentLoop(sessionId, context, agentState);
+                return executeAutonomousAgentLoop(sessionId, context, agentState);
             
             case REQUEST_EXPLANATION:
                 // Provide explanation without stopping execution
@@ -334,7 +348,7 @@ public class EnhancedChatService {
                 // Process answer to agent's question
                 agentState.setWaitingForUserInput(false);
                 agentState.setPendingQuestion(null);
-                return executeAgentLoop(sessionId, context, agentState);
+                return executeAutonomousAgentLoop(sessionId, context, agentState);
             
             case CHECK_STATUS:
                 // Provide status without interrupting
@@ -384,217 +398,88 @@ public class EnhancedChatService {
     }
     
     /**
-     * Provide an explanation based on the current state and context
+     * Execute the TRUE autonomous agent loop with actual tool execution
      */
-    private Flux<ChatResponse> provideExplanation(String sessionId, ChatContext context, AgentState agentState, String message) {
-        // Add explanation prompt to context
-        String explanationPrompt = "Please explain " + message + " based on the current project state and your actions so far.";
-        
-        // Use the LLM to generate an explanation
-        return llmProvider.streamResponse(explanationPrompt, context)
-            .reduceWith(() -> new StringBuilder(), StringBuilder::append)
-            .flatMapMany(completeResponse -> {
-                String responseText = completeResponse.toString();
-                
-                // Add assistant message to context
-                Message assistantMessage = Message.builder()
-                        .role("assistant")
-                        .content(responseText)
-                        .timestamp(Instant.now())
-                        .build();
-                context.getMessages().add(assistantMessage);
-                
-                return Flux.just(ChatResponse.builder()
-                        .sessionId(sessionId)
-                        .role("assistant")
-                        .message(responseText)
-                        .timestamp(Instant.now())
-                        .build());
-            });
-    }
-    
-    /**
-     * Modify approach based on user feedback and continue execution
-     */
-    private Flux<ChatResponse> modifyApproachAndContinue(String sessionId, ChatContext context, AgentState agentState, String message) {
-        // Add modification prompt to context
-        String modificationPrompt = "Based on the user's feedback: \"" + message + "\", adjust your approach and continue working on the objective.";
-        
-        // Use the LLM to acknowledge the modification
-        return llmProvider.streamResponse(modificationPrompt, context)
-            .reduceWith(() -> new StringBuilder(), StringBuilder::append)
-            .flatMapMany(completeResponse -> {
-                String responseText = completeResponse.toString();
-                
-                // Add assistant message to context
-                Message assistantMessage = Message.builder()
-                        .role("assistant")
-                        .content(responseText)
-                        .timestamp(Instant.now())
-                        .build();
-                context.getMessages().add(assistantMessage);
-                
-                // Continue execution if in autonomous mode
-                if (agentState.getMode() == ConversationMode.AUTONOMOUS && agentState.isShouldContinue()) {
-                    return Flux.just(ChatResponse.builder()
-                            .sessionId(sessionId)
-                            .role("assistant")
-                            .message(responseText)
-                            .timestamp(Instant.now())
-                            .build())
-                            .concatWith(executeAgentLoop(sessionId, context, agentState));
-                } else {
-                    return Flux.just(ChatResponse.builder()
-                            .sessionId(sessionId)
-                            .role("assistant")
-                            .message(responseText)
-                            .timestamp(Instant.now())
-                            .build());
-                }
-            });
-    }
-    
-    /**
-     * Provide a status update on the current task
-     */
-    private Flux<ChatResponse> provideStatusUpdate(String sessionId, AgentState agentState) {
-        String statusUpdate = generateProgressSummary(agentState);
-        
-        return Flux.just(ChatResponse.builder()
-                .sessionId(sessionId)
-                .role("assistant")
-                .message("Here's the current status of your task:\n\n" + statusUpdate)
-                .timestamp(Instant.now())
-                .build());
-    }
-    
-    /**
-     * Handle a general conversational response
-     */
-    private Flux<ChatResponse> handleConversationalResponse(String sessionId, ChatContext context, AgentState agentState, String message) {
-        // Use the LLM to generate a response
-        return llmProvider.streamResponse(message, context)
-            .reduceWith(() -> new StringBuilder(), StringBuilder::append)
-            .flatMapMany(completeResponse -> {
-                String responseText = completeResponse.toString();
-                
-                // Add assistant message to context
-                Message assistantMessage = Message.builder()
-                        .role("assistant")
-                        .content(responseText)
-                        .timestamp(Instant.now())
-                        .build();
-                context.getMessages().add(assistantMessage);
-                
-                // Check for tool use blocks in the response
-                List<ToolUseBlock> toolUseBlocks = extractToolUseBlocks(responseText);
-                
-                if (!toolUseBlocks.isEmpty()) {
-                    // Process each tool use block
-                    return Flux.fromIterable(toolUseBlocks)
-                            .concatMap(toolUseBlock -> processToolUseBlock(sessionId, context, agentState, toolUseBlock))
-                            .concatWith(Flux.just(ChatResponse.builder()
-                                    .sessionId(sessionId)
-                                    .role("assistant")
-                                    .message(responseText)
-                                    .timestamp(Instant.now())
-                                    .build()));
-                } else {
-                    // No tool use blocks, just return the assistant's response
-                    return Flux.just(ChatResponse.builder()
-                            .sessionId(sessionId)
-                            .role("assistant")
-                            .message(responseText)
-                            .timestamp(Instant.now())
-                            .build());
-                }
-            });
-    }
-    
-    /**
-     * Execute the autonomous agent loop with streaming support
-     */
-    private Flux<ChatResponse> executeAgentLoop(String sessionId, ChatContext context, AgentState agentState) {
-        // Create a sink for this session if it doesn't exist
+    private Flux<ChatResponse> executeAutonomousAgentLoop(String sessionId, ChatContext context, AgentState agentState) {
+        // Create a sink for this session
         Sinks.Many<ChatResponse> sink = sessionSinks.computeIfAbsent(sessionId, 
             k -> Sinks.many().multicast().onBackpressureBuffer());
         
-        log.info("[AGENT_LOOP] Starting autonomous agent loop for session {} with objective: {}", 
-                sessionId, agentState.getCurrentObjective());
-        log.info("[AGENT_LOOP] Current mode: {}, shouldContinue: {}, iteration: {}", 
-                agentState.getMode(), agentState.isShouldContinue(), agentState.getIterationCount());
-        
-        // Start the agent loop in a separate thread to allow streaming
-        executeAgentIteration(sessionId, context, agentState, sink);
+        // Start the autonomous execution in a separate thread
+        executeAutonomousIteration(sessionId, context, agentState, sink);
         
         return sink.asFlux();
     }
     
     /**
-     * Execute a single iteration of the agent loop with full streaming
+     * Execute a single iteration of the autonomous agent loop with REAL execution
      */
-    private void executeAgentIteration(String sessionId, ChatContext context, AgentState agentState, 
-                                      Sinks.Many<ChatResponse> sink) {
+    private void executeAutonomousIteration(String sessionId, ChatContext context, AgentState agentState, 
+                                           Sinks.Many<ChatResponse> sink) {
         
         agentState.setIterationCount(agentState.getIterationCount() + 1);
-        log.info("[AGENT_LOOP] Starting agent iteration {} for session {} in {} mode", 
-                agentState.getIterationCount(), sessionId, agentState.getMode());
-        log.info("[AGENT_LOOP] Current phase: {}, shouldContinue: {}, lastAction: {}", 
-                agentState.getCurrentPhase(), agentState.isShouldContinue(), agentState.getLastAction());
+        log.info("[AGENT_LOOP] AUTONOMOUS AGENT ITERATION {} for session {}", 
+                agentState.getIterationCount(), sessionId);
         
         // Check iteration limit
-        if (agentState.getIterationCount() > 50) {
+        if (agentState.getIterationCount() > MAX_AUTONOMOUS_ITERATIONS) {
             log.warn("[AGENT_LOOP] Agent reached maximum iteration limit for session {}", sessionId);
             sink.tryEmitNext(ChatResponse.builder()
                     .sessionId(sessionId)
                     .role("assistant")
-                    .message("I've reached my iteration limit. The task might be too complex or require human intervention.")
+                    .message("I've reached my iteration limit. The task might be too complex or I may need human intervention.")
                     .timestamp(Instant.now())
                     .build());
             sink.tryEmitComplete();
             return;
         }
         
-        // Add continuation prompt for subsequent iterations
-        if (agentState.getIterationCount() > 1 && !agentState.isWaitingForUserInput()) {
-            String continuationPrompt = agentPromptService.generateContinuationPrompt(
-                    agentState.getLastAction(), 
-                    "Phase: " + agentState.getCurrentPhase() + ", Iteration: " + agentState.getIterationCount()
-            );
-            
-            log.info("[AGENT_LOOP] Adding continuation prompt for session {}: {}", sessionId, continuationPrompt);
-            
-            context.getMessages().add(Message.builder()
-                    .role("system")
-                    .content(continuationPrompt)
-                    .timestamp(Instant.now())
-                    .build());
-        }
+        // Build the prompt for the next action
+        String prompt = buildAutonomousPrompt(agentState);
         
-        // Stream the LLM response
+        // Add the prompt to context
+        context.getMessages().add(Message.builder()
+                .role("system")
+                .content(prompt)
+                .timestamp(Instant.now())
+                .build());
+        
+        // Stream the LLM response and process it
         final StringBuilder responseBuilder = new StringBuilder();
-        final AtomicBoolean hasQuestion = new AtomicBoolean(false);
+        final AtomicBoolean hasToolUse = new AtomicBoolean(false);
+        final List<ToolUseBlock> pendingToolUses = new ArrayList<>();
         
-        llmProvider.streamResponse("Continue working on: " + agentState.getCurrentObjective(), context)
+        llmProvider.streamResponse("Continue working autonomously on the objective.", context)
             .doOnNext(chunk -> {
                 responseBuilder.append(chunk);
                 
-                // STREAM EACH CHUNK TO UI IMMEDIATELY
-                sink.tryEmitNext(ChatResponse.builder()
-                        .sessionId(sessionId)
-                        .role("assistant")
-                        .message(chunk)
-                        .timestamp(Instant.now())
-                        .build());
+                // Check for tool use patterns in the chunk
+                Matcher toolMatcher = TOOL_USE_PATTERN.matcher(responseBuilder.toString());
+                while (toolMatcher.find()) {
+                    String toolUseJson = toolMatcher.group(1);
+                    if (!isToolUseProcessed(toolUseJson, pendingToolUses)) {
+                        ToolUseBlock toolUse = parseToolUseBlock(toolUseJson);
+                        if (toolUse != null) {
+                            pendingToolUses.add(toolUse);
+                            hasToolUse.set(true);
+                        }
+                    }
+                }
                 
-                // Check if chunk contains a question
-                if (QUESTION_PATTERN.matcher(chunk).find()) {
-                    hasQuestion.set(true);
+                // Stream non-tool chunks to UI
+                if (!chunk.contains("<tool_use>") && !chunk.contains("</tool_use>")) {
+                    sink.tryEmitNext(ChatResponse.builder()
+                            .sessionId(sessionId)
+                            .role("assistant")
+                            .message(chunk)
+                            .timestamp(Instant.now())
+                            .build());
                 }
             })
             .doOnComplete(() -> {
                 String completeResponse = responseBuilder.toString();
-                log.info("Agent iteration {} complete for session {}", agentState.getIterationCount(), sessionId);
+                log.info("[AGENT_LOOP] Agent iteration {} complete. Found {} tool uses.", 
+                        agentState.getIterationCount(), pendingToolUses.size());
                 
                 // Update context
                 Message assistantMessage = Message.builder()
@@ -603,259 +488,108 @@ public class EnhancedChatService {
                         .timestamp(Instant.now())
                         .build();
                 context.getMessages().add(assistantMessage);
-                agentState.getConversationHistory().add("Assistant: " + completeResponse);
                 
-                // Check if agent is asking a question
-                if (hasQuestion.get() && agentState.getMode() != ConversationMode.AUTONOMOUS) {
-                    agentState.setWaitingForUserInput(true);
-                    agentState.setPendingQuestion(completeResponse);
-                    log.info("Agent waiting for user input after question");
-                    return;
-                }
-                
-                // Check for tool use blocks
-                List<ToolUseBlock> toolUseBlocks = extractToolUseBlocks(completeResponse);
-                
-                if (!toolUseBlocks.isEmpty()) {
-                    log.info("[AGENT_LOOP] Found {} tool use blocks in response for session {}", toolUseBlocks.size(), sessionId);
-                    processToolUseAndContinue(sessionId, context, agentState, toolUseBlocks, sink);
-                } else if (isTaskComplete(completeResponse)) {
+                // If there are tool uses, execute them
+                if (!pendingToolUses.isEmpty()) {
+                    executeToolsAndContinue(sessionId, context, agentState, pendingToolUses, sink);
+                } else if (isTaskComplete(completeResponse) || !agentState.isShouldContinue()) {
                     // Task complete
-                    log.info("[AGENT_LOOP] Task completion detected for session {}", sessionId);
-                    agentState.setShouldContinue(false);
-                    sink.tryEmitNext(ChatResponse.builder()
-                            .sessionId(sessionId)
-                            .role("assistant")
-                            .message("\n\n✅ Task completed successfully! All objectives have been met.\n\n" +
-                                    "Would you like me to:\n" +
-                                    "- Explain any part of the implementation?\n" +
-                                    "- Make any modifications?\n" +
-                                    "- Start a new task?")
+                    completeAutonomousExecution(sessionId, agentState, sink);
+                } else {
+                    // No tool use but task not complete - prompt for next action
+                    agentState.setLastAction("Analyzed current state");
+                    
+                    // Add continuation prompt to force tool use
+                    String continuationPrompt = agentPromptService.generateContinuationPrompt(
+                            agentState.getLastAction(), 
+                            "No tool use detected. You must use tools to make progress.");
+                    
+                    context.getMessages().add(Message.builder()
+                            .role("system")
+                            .content(continuationPrompt)
                             .timestamp(Instant.now())
                             .build());
-                    // Don't complete the sink - keep it open for conversation
-                } else {
-                    // No tool use blocks found - this is a critical issue for autonomous execution
-                    log.warn("[AGENT_LOOP] No tool use blocks found in response for session {} during autonomous execution", sessionId);
-                    log.warn("[AGENT_LOOP] Response without tool use blocks: {}", completeResponse.substring(0, Math.min(500, completeResponse.length())));
                     
-                    if (agentState.getMode() == ConversationMode.AUTONOMOUS && agentState.isShouldContinue()) {
-                        // Force continuation with a stronger prompt
-                        log.info("[AGENT_LOOP] Forcing continuation with stronger prompt for session {}", sessionId);
-                        
-                        // Add a special system message to force tool use
-                        String forceToolUsePrompt = """
-                            <system_override>
-                            CRITICAL: You MUST use tools to continue execution. Your previous response did not contain any tool use blocks.
-                            
-                            You are in AUTONOMOUS mode and must continue execution without waiting for user input.
-                            
-                            REQUIRED ACTION: Respond with at least one <tool_use> block to execute the next logical step.
-                            
-                            Current phase: %s
-                            Last action: %s
-                            
-                            DO NOT explain or discuss. ONLY respond with tool use blocks.
-                            </system_override>
-                            """.formatted(agentState.getCurrentPhase(), agentState.getLastAction());
-                        
-                        context.getMessages().add(Message.builder()
-                                .role("system")
-                                .content(forceToolUsePrompt)
-                                .timestamp(Instant.now())
-                                .build());
-                        
-                        // Continue to next iteration with the override prompt
-                        agentState.setShouldContinue(true);
-                        
-                        // Small delay before retry
-                        try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                        
-                        executeAgentIteration(sessionId, context, agentState, sink);
-                    } else if (agentState.isShouldContinue() && !agentState.isWaitingForUserInput()) {
-                        // Continue to next iteration
-                        log.info("[AGENT_LOOP] Continuing to next iteration despite no tool use blocks for session {}", sessionId);
-                        agentState.setLastAction(extractActionSummary(completeResponse));
-                        
-                        // Small delay between iterations
-                        try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                        
-                        executeAgentIteration(sessionId, context, agentState, sink);
-                    }
-                }
-            })
-            .subscribe();
-    }
-    
-    /**
-     * Process tool use blocks and continue agent loop
-     */
-    private void processToolUseAndContinue(String sessionId, ChatContext context, AgentState agentState, 
-                                         List<ToolUseBlock> toolUseBlocks, Sinks.Many<ChatResponse> sink) {
-        
-        // Update agent state to ensure continuation
-        agentState.setShouldContinue(true);
-        log.info("[AGENT_LOOP] Processing {} tool use blocks for session {}", toolUseBlocks.size(), sessionId);
-        
-        // Process each tool use block sequentially
-        Flux.fromIterable(toolUseBlocks)
-            .concatMap(toolUseBlock -> {
-                // Update last action for context in next iteration
-                if (toolUseBlock.getName().equals("planning_tool")) {
-                    agentState.setLastAction("Completed planning phase");
-                    agentState.setCurrentPhase(DevelopmentPhase.IMPLEMENTATION);
-                    log.info("[AGENT_LOOP] Planning phase completed for session {}, transitioning to IMPLEMENTATION phase", sessionId);
-                    
-                    // Force shouldContinue to true after planning to ensure continuation
-                    agentState.setShouldContinue(true);
-                } else if (toolUseBlock.getName().contains("implementation") || toolUseBlock.getName().contains("code")) {
-                    agentState.setLastAction("Implemented code: " + toolUseBlock.getName());
-                    log.info("[AGENT_LOOP] Implementation action completed for session {}", sessionId);
-                } else if (toolUseBlock.getName().contains("test")) {
-                    agentState.setLastAction("Executed tests: " + toolUseBlock.getName());
-                    log.info("[AGENT_LOOP] Testing action completed for session {}", sessionId);
-                } else {
-                    agentState.setLastAction("Executed tool: " + toolUseBlock.getName());
-                    log.info("[AGENT_LOOP] Tool execution completed: {} for session {}", toolUseBlock.getName(), sessionId);
-                }
-                
-                return processToolUseBlock(sessionId, context, agentState, toolUseBlock);
-            })
-            .doOnComplete(() -> {
-                // Force shouldContinue to true to ensure autonomous continuation
-                agentState.setShouldContinue(true);
-                
-                // Continue agent loop if in autonomous mode
-                if (agentState.getMode() == ConversationMode.AUTONOMOUS) {
-                    log.info("[AGENT_LOOP] Continuing autonomous execution for session {} after tool execution", sessionId);
-                    log.info("[AGENT_LOOP] Current phase: {}, shouldContinue: {}", agentState.getCurrentPhase(), agentState.isShouldContinue());
-                    
-                    // Small delay to ensure proper state propagation
+                    // Small delay to prevent tight loops
                     try {
-                        Thread.sleep(500);
+                        Thread.sleep(1000);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
                     
-                    executeAgentIteration(sessionId, context, agentState, sink);
-                } else {
-                    log.warn("[AGENT_LOOP] Not continuing autonomous execution because mode is {}", agentState.getMode());
+                    // Continue to next iteration
+                    executeAutonomousIteration(sessionId, context, agentState, sink);
                 }
+            })
+            .doOnError(error -> {
+                log.error("[AGENT_LOOP] Error in autonomous iteration: {}", error.getMessage(), error);
+                sink.tryEmitNext(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("assistant")
+                        .message("I encountered an error: " + error.getMessage() + "\nI'll try a different approach.")
+                        .timestamp(Instant.now())
+                        .build());
+                
+                // Recover and continue
+                agentState.setLastAction("Recovered from error");
+                executeAutonomousIteration(sessionId, context, agentState, sink);
             })
             .subscribe();
     }
     
     /**
-     * Process a single tool use block
+     * Build a prompt that encourages autonomous action
      */
-    private Flux<ChatResponse> processToolUseBlock(String sessionId, ChatContext context, AgentState agentState, ToolUseBlock toolUseBlock) {
-        log.info("Processing tool use block for session {}: {}", sessionId, toolUseBlock);
+    private String buildAutonomousPrompt(AgentState agentState) {
+        StringBuilder prompt = new StringBuilder();
         
-        // Get the tool
-        Tool tool = toolRegistry.getTool(toolUseBlock.getName());
-        if (tool == null) {
-            log.warn("Tool not found: {}", toolUseBlock.getName());
-            return Flux.just(ChatResponse.builder()
-                    .sessionId(sessionId)
-                    .role("tool")
-                    .message("Error: Tool not found: " + toolUseBlock.getName())
-                    .timestamp(Instant.now())
-                    .build());
+        prompt.append("AUTONOMOUS EXECUTION DIRECTIVE\n\n");
+        prompt.append("Current Objective: ").append(agentState.getCurrentObjective()).append("\n");
+        prompt.append("Iteration: ").append(agentState.getIterationCount()).append("\n");
+        
+        if (agentState.getLastAction() != null && !agentState.getLastAction().isEmpty()) {
+            prompt.append("Last Action: ").append(agentState.getLastAction()).append("\n");
         }
         
-        // Get workspace path from agent state
-        String workspacePath = agentState.getProjectContext() != null && agentState.getProjectContext().getProjectPath() != null ?
-                agentState.getProjectContext().getProjectPath() :
-                DEFAULT_WORKSPACE_PATH + "/" + sessionId;
-        
-        // Add workspace path to arguments if needed
-        Map<String, Object> args = new HashMap<>(toolUseBlock.getArgs());
-        if (!args.containsKey("workspacePath")) {
-            args.put("workspacePath", workspacePath);
+        // Add task progress if available
+        if (!agentState.getCompletedTasks().isEmpty()) {
+            prompt.append("\nCompleted Tasks:\n");
+            for (String task : agentState.getCompletedTasks()) {
+                prompt.append("- ").append(task).append("\n");
+            }
         }
-                 // Create tool call response
-        ToolCallResponse toolCallResponse = ToolCallResponse.builder()
-                .sessionId(sessionId)
-                .name(toolUseBlock.getName())
-                .arguments(args)
-                .build();
         
-        // Execute the tool
-        return tool.execute(args)
-                .doOnNext(output -> {
-                    // Stream tool output via WebSocket
-                    webSocketHandler.broadcastToolOutput(output);
-                })
-                .reduceWith(() -> new StringBuilder(), (sb, output) -> sb.append(output.getContent()).append("\n"))
-                .flatMapMany(result -> {
-                    String resultText = result.toString();
-                    
-                    // Add tool result to context
-                    Message toolResultMessage = Message.builder()
-                            .role("assistant")
-                            .content("Tool result: " + resultText)
-                            .timestamp(Instant.now())
-                            .build();
-                    context.getMessages().add(toolResultMessage);
-                    
-                    // Add tool result prompt to context
-                    String toolResultPrompt = agentPromptService.generateToolResultPrompt(
-                            toolUseBlock.getName(),
-                            resultText,
-                            !resultText.contains("Error")
-                    );
-                    
-                    Message toolResultPromptMessage = Message.builder()
-                            .role("system")
-                            .content(toolResultPrompt)
-                            .timestamp(Instant.now())
-                            .build();
-                    context.getMessages().add(toolResultPromptMessage);
-                    
-                    // Return tool result response
-                    return Flux.just(ChatResponse.builder()
-                            .sessionId(sessionId)
-                            .role("tool")
-                            .message(resultText)
-                            .toolCall(toolCallResponse)
-                            .timestamp(Instant.now())
-                            .build());
-                });
+        if (!agentState.getPendingTasks().isEmpty()) {
+            prompt.append("\nPending Tasks:\n");
+            for (String task : agentState.getPendingTasks()) {
+                prompt.append("- ").append(task).append("\n");
+            }
+        }
+        
+        prompt.append("\nIMPORTANT: You MUST take concrete action to progress toward the objective. ");
+        prompt.append("Use the available tools to:\n");
+        prompt.append("1. Create files and directories\n");
+        prompt.append("2. Write code\n");
+        prompt.append("3. Execute commands\n");
+        prompt.append("4. Test your implementation\n");
+        prompt.append("5. Make corrections as needed\n\n");
+        
+        prompt.append("Do not just plan or describe - EXECUTE the next concrete step using <tool_use> blocks.\n");
+        prompt.append("If you've completed a phase, move to the next phase immediately.\n");
+        
+        return prompt.toString();
     }
     
     /**
-     * Extract tool use blocks from a response
+     * Check if a tool use JSON has already been processed
      */
-    private List<ToolUseBlock> extractToolUseBlocks(String response) {
-        List<ToolUseBlock> toolUseBlocks = new ArrayList<>();
-        Matcher matcher = TOOL_USE_PATTERN.matcher(response);
-        
-        while (matcher.find()) {
-            String toolUseJson = matcher.group(1);
-            if (toolUseJson == null) {
-                // This might be a content block format
-                toolUseJson = matcher.group(0);
-            }
-            
-            try {
-                ToolUseBlock toolUseBlock = parseToolUseBlock(toolUseJson);
-                if (toolUseBlock != null) {
-                    toolUseBlocks.add(toolUseBlock);
-                }
-            } catch (Exception e) {
-                log.error("Error parsing tool use block: {}", e.getMessage(), e);
+    private boolean isToolUseProcessed(String toolUseJson, List<ToolUseBlock> processedToolUses) {
+        for (ToolUseBlock processed : processedToolUses) {
+            if (toolUseJson.equals(processed.getJsonContent())) {
+                return true;
             }
         }
-        
-        return toolUseBlocks;
+        return false;
     }
     
     /**
@@ -863,87 +597,415 @@ public class EnhancedChatService {
      */
     private ToolUseBlock parseToolUseBlock(String json) {
         try {
-            // Try to parse as a direct tool use block
             Map<String, Object> toolUseMap = objectMapper.readValue(json, Map.class);
-            String name = (String) toolUseMap.get("name");
+            String toolName = (String) toolUseMap.get("name");
+            Map<String, Object> args = (Map<String, Object>) toolUseMap.get("args");
             
-            // Check for args or arguments field
-            Map<String, Object> args = null;
-            if (toolUseMap.containsKey("args")) {
-                args = (Map<String, Object>) toolUseMap.get("args");
-            } else if (toolUseMap.containsKey("arguments")) {
-                args = (Map<String, Object>) toolUseMap.get("arguments");
-            } else if (toolUseMap.containsKey("input")) {
-                args = (Map<String, Object>) toolUseMap.get("input");
+            if (toolName == null || args == null) {
+                log.warn("[AGENT_LOOP] Invalid tool use format: {}", json);
+                return null;
             }
             
-            // Initialize empty map if args is null
-            if (args == null) {
-                args = new HashMap<>();
-            }
-            
-            ToolUseBlock block = new ToolUseBlock();
-            block.setName(name);
-            block.setArgs(args);
-            return block;
+            return ToolUseBlock.builder()
+                    .name(toolName)
+                    .args(args)
+                    .jsonContent(json)
+                    .build();
         } catch (Exception e) {
-            log.warn("Failed to parse direct tool use block: {}", e.getMessage());
-            
-            try {
-                // Try to extract from content block format
-                Map<String, Object> contentBlock = objectMapper.readValue(json, Map.class);
-                
-                if (contentBlock.containsKey("content") && contentBlock.get("content") instanceof Map) {
-                    Map<String, Object> content = (Map<String, Object>) contentBlock.get("content");
-                    
-                    if (content.containsKey("tool_use")) {
-                        Map<String, Object> toolUse = (Map<String, Object>) content.get("tool_use");
-                        String name = (String) toolUse.get("name");
-                        
-                        // Check for arguments field
-                        Map<String, Object> args = null;
-                        if (toolUse.containsKey("arguments")) {
-                            args = (Map<String, Object>) toolUse.get("arguments");
-                        } else if (toolUse.containsKey("input")) {
-                            args = (Map<String, Object>) toolUse.get("input");
-                        }
-                        
-                        // Initialize empty map if args is null
-                        if (args == null) {
-                            args = new HashMap<>();
-                        }
-                        
-                        ToolUseBlock block = new ToolUseBlock();
-                        block.setName(name);
-                        block.setArgs(args);
-                        return block;
-                    }
-                }
-            } catch (Exception ex) {
-                log.error("Failed to parse content block format: {}", ex.getMessage());
-            }
+            log.error("[AGENT_LOOP] Error parsing tool use: {}", e.getMessage(), e);
+            return null;
         }
-        
-        return null;
     }
     
     /**
-     * Check if a response indicates task completion
+     * Execute tools and continue the autonomous loop
+     */
+    private void executeToolsAndContinue(String sessionId, ChatContext context, AgentState agentState,
+                                       List<ToolUseBlock> toolUses, Sinks.Many<ChatResponse> sink) {
+        
+        log.info("[AGENT_LOOP] Executing {} tools for session {}", toolUses.size(), sessionId);
+        
+        // Execute tools sequentially
+        Flux.fromIterable(toolUses)
+            .concatMap(toolUse -> {
+                // Update last action
+                agentState.setLastAction("Executed tool: " + toolUse.getName());
+                
+                // Execute the tool
+                return executeToolUse(sessionId, toolUse, agentState)
+                    .doOnNext(output -> {
+                        // Send tool output to UI
+                        sink.tryEmitNext(ChatResponse.builder()
+                                .sessionId(sessionId)
+                                .role("tool")
+                                .message("Tool: " + toolUse.getName() + "\nResult: " + output.getContent())
+                                .timestamp(Instant.now())
+                                .build());
+                        
+                        // Add tool result to context
+                        context.getMessages().add(Message.builder()
+                                .role("tool")
+                                .content(output.getContent())
+                                .toolCallId(UUID.randomUUID().toString())
+                                .timestamp(Instant.now())
+                                .build());
+                        
+                        // Add tool result prompt
+                        String toolResultPrompt = agentPromptService.generateToolResultPrompt(
+                                toolUse.getName(), output.getContent(), output.isSuccess());
+                        
+                        context.getMessages().add(Message.builder()
+                                .role("system")
+                                .content(toolResultPrompt)
+                                .timestamp(Instant.now())
+                                .build());
+                    });
+            })
+            .collectList()
+            .subscribe(results -> {
+                log.info("[AGENT_LOOP] All tools executed for session {}", sessionId);
+                
+                // Continue to next iteration
+                executeAutonomousIteration(sessionId, context, agentState, sink);
+            }, error -> {
+                log.error("[AGENT_LOOP] Error executing tools: {}", error.getMessage(), error);
+                sink.tryEmitNext(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("assistant")
+                        .message("I encountered an error executing tools: " + error.getMessage() + 
+                                "\nI'll try a different approach.")
+                        .timestamp(Instant.now())
+                        .build());
+                
+                // Recover and continue
+                agentState.setLastAction("Recovered from tool execution error");
+                executeAutonomousIteration(sessionId, context, agentState, sink);
+            });
+    }
+    
+    /**
+     * Execute a single tool use
+     */
+    private Mono<ToolOutput> executeToolUse(String sessionId, ToolUseBlock toolUse, AgentState agentState) {
+        String toolName = toolUse.getName();
+        Map<String, Object> args = toolUse.getArgs();
+        
+        log.info("[AGENT_LOOP] Executing tool {} with args: {}", toolName, args);
+        
+        // Get the tool from registry
+        Tool tool = toolRegistry.getTool(toolName);
+        if (tool == null) {
+            log.warn("[AGENT_LOOP] Tool not found: {}", toolName);
+            return Mono.just(ToolOutput.builder()
+                    .content("Tool not found: " + toolName)
+                    .success(false)
+                    .build());
+        }
+        
+        // Add workspace path to args if not present
+        if (!args.containsKey("workspacePath") && agentState.getProjectContext() != null) {
+            args.put("workspacePath", agentState.getProjectContext().getProjectPath());
+        }
+        
+        // Execute the tool
+        try {
+            return tool.execute(args)
+                .doOnNext(output -> {
+                    // Send tool output to WebSocket
+                    webSocketHandler.broadcastToolOutput(sessionId, toolName, args, output);
+                    
+                    // Update agent state based on tool output
+                    updateAgentStateFromToolOutput(agentState, toolName, args, output);
+                });
+        } catch (Exception e) {
+            log.error("[AGENT_LOOP] Error executing tool {}: {}", toolName, e.getMessage(), e);
+            return Mono.just(ToolOutput.builder()
+                    .content("Error executing tool: " + e.getMessage())
+                    .success(false)
+                    .build());
+        }
+    }
+    
+    /**
+     * Update agent state based on tool output
+     */
+    private void updateAgentStateFromToolOutput(AgentState agentState, String toolName, 
+                                              Map<String, Object> args, ToolOutput output) {
+        // Track completed task
+        String taskDescription = generateTaskDescription(toolName, args);
+        if (output.isSuccess()) {
+            agentState.getCompletedTasks().add(taskDescription);
+            
+            // Remove from pending if present
+            agentState.getPendingTasks().remove(taskDescription);
+        }
+        
+        // Update phase based on tool type
+        if ("planning_tool".equals(toolName)) {
+            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.DESIGN);
+        } else if (toolName.contains("file_system") && args.containsKey("operation") && 
+                  "write".equals(args.get("operation"))) {
+            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.IMPLEMENTATION);
+        } else if (toolName.contains("test") || toolName.contains("build_tool")) {
+            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.TESTING);
+        } else if (toolName.contains("deploy")) {
+            agentState.setCurrentPhase(AgentPromptService.DevelopmentPhase.DEPLOYMENT);
+        }
+        
+        // Extract events from output if present
+        extractEventsFromOutput(agentState, output.getContent());
+    }
+    
+    /**
+     * Generate a human-readable task description from tool use
+     */
+    private String generateTaskDescription(String toolName, Map<String, Object> args) {
+        StringBuilder description = new StringBuilder();
+        
+        switch (toolName) {
+            case "file_system":
+                String operation = (String) args.get("operation");
+                String path = (String) args.get("path");
+                
+                if ("mkdir".equals(operation)) {
+                    description.append("Created directory: ").append(path);
+                } else if ("write".equals(operation)) {
+                    description.append("Created/updated file: ").append(path);
+                } else if ("read".equals(operation)) {
+                    description.append("Read file: ").append(path);
+                } else if ("list".equals(operation)) {
+                    description.append("Listed directory: ").append(path);
+                } else {
+                    description.append("File operation: ").append(operation).append(" on ").append(path);
+                }
+                break;
+                
+            case "execute_command":
+                String command = (String) args.get("command");
+                description.append("Executed command: ").append(command);
+                break;
+                
+            case "build_tool":
+                String tool = (String) args.get("tool");
+                List<String> goals = (List<String>) args.get("goals");
+                description.append("Built project with ").append(tool).append(": ")
+                          .append(String.join(" ", goals));
+                break;
+                
+            default:
+                description.append("Used tool: ").append(toolName);
+                break;
+        }
+        
+        return description.toString();
+    }
+    
+    /**
+     * Extract events from tool output
+     */
+    private void extractEventsFromOutput(AgentState agentState, String output) {
+        Matcher matcher = EVENT_PATTERN.matcher(output);
+        while (matcher.find()) {
+            String eventType = matcher.group(1);
+            String eventData = matcher.group(2);
+            
+            switch (eventType) {
+                case "TASK":
+                    agentState.getPendingTasks().add(eventData);
+                    break;
+                    
+                case "COMPLETE":
+                    agentState.getCompletedTasks().add(eventData);
+                    agentState.getPendingTasks().remove(eventData);
+                    break;
+                    
+                case "PHASE":
+                    try {
+                        AgentPromptService.DevelopmentPhase phase = 
+                            AgentPromptService.DevelopmentPhase.valueOf(eventData.toUpperCase());
+                        agentState.setCurrentPhase(phase);
+                    } catch (IllegalArgumentException e) {
+                        log.warn("Invalid phase: {}", eventData);
+                    }
+                    break;
+                    
+                case "PROGRESS":
+                    try {
+                        int progress = Integer.parseInt(eventData);
+                        agentState.setProgress(progress);
+                    } catch (NumberFormatException e) {
+                        log.warn("Invalid progress value: {}", eventData);
+                    }
+                    break;
+            }
+        }
+    }
+    
+    /**
+     * Check if the task is complete based on response content
      */
     private boolean isTaskComplete(String response) {
         return COMPLETION_PATTERN.matcher(response).find();
     }
     
     /**
-     * Extract a summary of the action taken from a response
+     * Complete the autonomous execution
      */
-    private String extractActionSummary(String response) {
-        // Extract the first sentence or first 100 characters
-        int endIndex = response.indexOf(". ");
-        if (endIndex > 0) {
-            return response.substring(0, endIndex + 1);
-        } else {
-            return response.length() > 100 ? response.substring(0, 100) + "..." : response;
-        }
+    private void completeAutonomousExecution(String sessionId, AgentState agentState, Sinks.Many<ChatResponse> sink) {
+        log.info("[AGENT_LOOP] Completing autonomous execution for session {}", sessionId);
+        
+        // Generate completion message
+        String completionMessage = "I've completed the task: " + agentState.getCurrentObjective() + "\n\n" +
+                generateProgressSummary(agentState);
+        
+        // Send completion message
+        sink.tryEmitNext(ChatResponse.builder()
+                .sessionId(sessionId)
+                .role("assistant")
+                .message(completionMessage)
+                .timestamp(Instant.now())
+                .build());
+        
+        // Reset state for next task
+        agentState.setShouldContinue(false);
+        agentState.setMode(ConversationMode.CONVERSATIONAL);
+        
+        // Complete the sink
+        sink.tryEmitComplete();
+    }
+    
+    /**
+     * Provide explanation without stopping execution
+     */
+    private Flux<ChatResponse> provideExplanation(String sessionId, ChatContext context, AgentState agentState, String message) {
+        // Create explanation response
+        String explanation = "Here's an explanation of what I'm doing:\n\n" +
+                "Current objective: " + agentState.getCurrentObjective() + "\n\n" +
+                "Current phase: " + agentState.getCurrentPhase() + "\n\n" +
+                "Last action: " + agentState.getLastAction() + "\n\n" +
+                generateProgressSummary(agentState) + "\n\n" +
+                "I'll continue working on this task autonomously unless you tell me to stop.";
+        
+        // Return explanation without stopping execution
+        return Flux.just(ChatResponse.builder()
+                .sessionId(sessionId)
+                .role("assistant")
+                .message(explanation)
+                .timestamp(Instant.now())
+                .build());
+    }
+    
+    /**
+     * Modify approach and continue execution
+     */
+    private Flux<ChatResponse> modifyApproachAndContinue(String sessionId, ChatContext context, AgentState agentState, String message) {
+        // Update agent state with new approach
+        agentState.setLastAction("Modified approach based on user feedback: " + message);
+        
+        // Add user guidance to context
+        context.getMessages().add(Message.builder()
+                .role("system")
+                .content("User has provided new guidance: " + message + "\n" +
+                        "Adjust your approach accordingly while continuing to work on the objective.")
+                .timestamp(Instant.now())
+                .build());
+        
+        // Acknowledge the change
+        Sinks.Many<ChatResponse> sink = sessionSinks.computeIfAbsent(sessionId, 
+            k -> Sinks.many().multicast().onBackpressureBuffer());
+        
+        sink.tryEmitNext(ChatResponse.builder()
+                .sessionId(sessionId)
+                .role("assistant")
+                .message("I'll adjust my approach based on your feedback and continue working on the task.")
+                .timestamp(Instant.now())
+                .build());
+        
+        // Continue execution
+        executeAutonomousIteration(sessionId, context, agentState, sink);
+        
+        return sink.asFlux();
+    }
+    
+    /**
+     * Provide status update without interrupting execution
+     */
+    private Flux<ChatResponse> provideStatusUpdate(String sessionId, AgentState agentState) {
+        // Generate status message
+        String statusMessage = "Here's the current status of the task:\n\n" +
+                generateProgressSummary(agentState) + "\n\n" +
+                "I'll continue working on this task autonomously.";
+        
+        // Return status without stopping execution
+        return Flux.just(ChatResponse.builder()
+                .sessionId(sessionId)
+                .role("assistant")
+                .message(statusMessage)
+                .timestamp(Instant.now())
+                .build());
+    }
+    
+    /**
+     * Handle conversational response
+     */
+    private Flux<ChatResponse> handleConversationalResponse(String sessionId, ChatContext context, AgentState agentState, String message) {
+        // Create a sink for this session
+        Sinks.Many<ChatResponse> sink = sessionSinks.computeIfAbsent(sessionId, 
+            k -> Sinks.many().multicast().onBackpressureBuffer());
+        
+        // Get conversational response
+        llmProvider.streamResponse(message, context)
+            .doOnNext(chunk -> {
+                // Stream response to UI
+                sink.tryEmitNext(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("assistant")
+                        .message(chunk)
+                        .timestamp(Instant.now())
+                        .build());
+            })
+            .collectList()
+            .subscribe(chunks -> {
+                // Join chunks
+                String completeResponse = String.join("", chunks);
+                
+                // Add to context
+                context.getMessages().add(Message.builder()
+                        .role("assistant")
+                        .content(completeResponse)
+                        .timestamp(Instant.now())
+                        .build());
+                
+                // Check if response contains a question
+                if (QUESTION_PATTERN.matcher(completeResponse).find()) {
+                    agentState.setWaitingForUserInput(true);
+                    agentState.setPendingQuestion(completeResponse);
+                }
+                
+                // Complete the sink
+                sink.tryEmitComplete();
+            }, error -> {
+                log.error("Error in conversational response: {}", error.getMessage(), error);
+                sink.tryEmitNext(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("assistant")
+                        .message("I encountered an error: " + error.getMessage())
+                        .timestamp(Instant.now())
+                        .build());
+                sink.tryEmitComplete();
+            });
+        
+        return sink.asFlux();
+    }
+    
+    /**
+     * Tool use block representation
+     */
+    @lombok.Data
+    @lombok.Builder
+    private static class ToolUseBlock {
+        private String name;
+        private Map<String, Object> args;
+        private String jsonContent;
     }
 }
