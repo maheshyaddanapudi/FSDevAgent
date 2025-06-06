@@ -1,13 +1,14 @@
 package com.ai.developer.llm;
 
-import lombok.Builder;
 import lombok.Data;
 
+/**
+ * Represents the context of a project for agent operations
+ */
 @Data
-@Builder
 public class ProjectContext {
+    private String projectType;
+    private String buildTool;
+    private String frameworkType;
     private String projectPath;
-    private String projectType; // java, javascript, python, etc.
-    private String buildTool; // maven, gradle, npm, etc.
-    private String frameworkType; // spring, react, angular, etc.
 }

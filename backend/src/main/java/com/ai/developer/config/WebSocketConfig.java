@@ -2,32 +2,34 @@ package com.ai.developer.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.socket.config.annotation.EnableWebSocket;
-import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
-import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
-import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
+import org.springframework.web.reactive.handler.SimpleUrlHandlerMapping;
+import org.springframework.web.reactive.socket.WebSocketHandler;
+import org.springframework.web.reactive.socket.server.support.WebSocketHandlerAdapter;
 
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Configuration for WebSocket handlers
+ */
 @Configuration
-@EnableWebSocket
-public class WebSocketConfig implements WebSocketConfigurer {
+public class WebSocketConfig {
 
-    @Override
-    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(toolOutputWebSocketHandler(), "/ws/tools")
-               .setAllowedOrigins("*");
-    }
-    
     @Bean
-    public ToolOutputWebSocketHandler toolOutputWebSocketHandler() {
-        return new ToolOutputWebSocketHandler();
+    public WebSocketHandlerAdapter handlerAdapter() {
+        return new WebSocketHandlerAdapter();
     }
-    
+
     @Bean
-    public ServletServerContainerFactoryBean createWebSocketContainer() {
-        ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
-        container.setMaxTextMessageBufferSize(8192 * 4); // 32KB
-        container.setMaxBinaryMessageBufferSize(8192 * 4); // 32KB
-        container.setMaxSessionIdleTimeout(3600000L); // 1 hour
-        return container;
+    public SimpleUrlHandlerMapping webSocketHandlerMapping(ToolOutputWebSocketHandler toolOutputHandler,
+                                                          AgentStateWebSocketHandler agentStateHandler) {
+        Map<String, WebSocketHandler> urlMap = new HashMap<>();
+        urlMap.put("/ws/tool-output", toolOutputHandler);
+        urlMap.put("/ws/agent-state", agentStateHandler);
+        
+        SimpleUrlHandlerMapping mapping = new SimpleUrlHandlerMapping();
+        mapping.setOrder(1);
+        mapping.setUrlMap(urlMap);
+        return mapping;
     }
 }
