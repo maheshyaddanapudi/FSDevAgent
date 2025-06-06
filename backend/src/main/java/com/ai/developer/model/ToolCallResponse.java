@@ -10,4 +10,5 @@ public class ToolCallResponse {
     private String name;
     private Map<String, Object> arguments;
     private String result;
+    private String sessionId;
 }

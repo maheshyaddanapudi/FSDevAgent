@@ -686,20 +686,18 @@ public class EnhancedChatService {
         if (!args.containsKey("workspacePath")) {
             args.put("workspacePath", workspacePath);
         }
-        
-        // Create tool call response
+                 // Create tool call response
         ToolCallResponse toolCallResponse = ToolCallResponse.builder()
                 .sessionId(sessionId)
-                .toolName(toolUseBlock.getName())
-                .args(args)
-                .timestamp(Instant.now())
+                .name(toolUseBlock.getName())
+                .arguments(args)
                 .build();
         
         // Execute the tool
         return tool.execute(args)
                 .doOnNext(output -> {
                     // Stream tool output via WebSocket
-                    webSocketHandler.broadcastToolOutput(sessionId, output.getContent());
+                    webSocketHandler.broadcastToolOutput(output);
                 })
                 .reduceWith(() -> new StringBuilder(), (sb, output) -> sb.append(output.getContent()).append("\n"))
                 .flatMapMany(result -> {

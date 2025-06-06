@@ -2,13 +2,11 @@ package com.ai.developer.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.socket.WebSocketHandler;
-import org.springframework.web.reactive.socket.WebSocketMessage;
-import org.springframework.web.reactive.socket.WebSocketSession;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -17,27 +15,21 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 @Slf4j
-public class AgentStateWebSocketHandler implements WebSocketHandler {
+public class AgentStateWebSocketHandler extends TextWebSocketHandler {
 
     private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
-    private final Sinks.Many<String> sink = Sinks.many().multicast().onBackpressureBuffer();
 
     @Override
-    public Mono<Void> handle(WebSocketSession session) {
+    public void afterConnectionEstablished(WebSocketSession session) {
         log.info("New WebSocket connection for agent state: {}", session.getId());
         sessions.put(session.getId(), session);
-
-        // Send messages to this client
-        Mono<Void> output = session.send(
-                sink.asFlux()
-                        .map(session::textMessage)
-        );
-
-        // Remove session when connection is closed
-        return output.doFinally(signalType -> {
-            sessions.remove(session.getId());
-            log.info("WebSocket connection closed for agent state: {}", session.getId());
-        });
+    }
+    
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, org.springframework.web.socket.CloseStatus status) {
+        String sessionId = session.getId();
+        sessions.remove(sessionId);
+        log.info("WebSocket connection closed for agent state: {}", sessionId);
     }
 
     /**
@@ -45,7 +37,7 @@ public class AgentStateWebSocketHandler implements WebSocketHandler {
      */
     public void broadcastAgentState(String sessionId, String state) {
         String message = String.format("{\"sessionId\":\"%s\",\"state\":%s}", sessionId, state);
-        sink.tryEmitNext(message);
+        broadcast(message);
     }
 
     /**
@@ -55,6 +47,23 @@ public class AgentStateWebSocketHandler implements WebSocketHandler {
         String message = String.format(
                 "{\"sessionId\":\"%s\",\"type\":\"progress\",\"phase\":\"%s\",\"progress\":%d,\"currentTask\":\"%s\"}",
                 sessionId, phase, progress, currentTask.replace("\"", "\\\""));
-        sink.tryEmitNext(message);
+        broadcast(message);
+    }
+    
+    /**
+     * Broadcast message to all connected sessions
+     */
+    private void broadcast(String message) {
+        TextMessage textMessage = new TextMessage(message);
+        sessions.forEach((id, session) -> {
+            try {
+                if (session.isOpen()) {
+                    session.sendMessage(textMessage);
+                    log.debug("Message sent to session: {}", id);
+                }
+            } catch (IOException e) {
+                log.error("Error sending message to session {}: {}", id, e.getMessage());
+            }
+        });
     }
 }
