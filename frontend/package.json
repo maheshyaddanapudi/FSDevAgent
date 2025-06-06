@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.14.9",
@@ -15,12 +16,17 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^8.0.7",
+    "react-router-dom": "^6.15.0",
     "react-scripts": "5.0.1",
     "react-syntax-highlighter": "^15.5.0",
     "remark-gfm": "^3.0.1",
     "sockjs-client": "^1.6.1",
     "stompjs": "^2.3.3",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "xterm": "^5.2.1",
+    "xterm-addon-fit": "^0.7.0",
+    "xterm-addon-web-links": "^0.8.0",
+    "zustand": "^4.4.1"
   },
   "scripts": {
     "start": "react-app-rewired start",
@@ -50,5 +56,5 @@
     "customize-cra": "^1.0.0",
     "react-app-rewired": "^2.2.1"
   },
-  "proxy": "http://localhost:8081"
+  "proxy": "http://localhost:8080"
 }
