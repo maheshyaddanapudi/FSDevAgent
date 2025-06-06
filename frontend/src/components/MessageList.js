@@ -158,7 +158,7 @@ const MessageItem = ({ message, renderMarkdown }) => {
               <span className="claude-section-icon">{getToolIcon(message.toolCall.name)}</span>
               <span className="claude-section-title">Using {message.toolCall.name}</span>
               <span className="claude-section-preview">
-                {!expandedSections.toolCall && getPreviewText(JSON.stringify(message.toolCall.arguments))}
+                {!expandedSections.toolCall && getPreviewText(JSON.stringify(message.toolCall.args))}
               </span>
               <span className="claude-section-chevron">
                 {expandedSections.toolCall ? '▼' : '▶'}
@@ -172,13 +172,13 @@ const MessageItem = ({ message, renderMarkdown }) => {
                       <span>Arguments</span>
                       <button 
                         className="copy-button"
-                        onClick={() => copyToClipboard(JSON.stringify(message.toolCall.arguments, null, 2))}
+                        onClick={() => copyToClipboard(JSON.stringify(message.toolCall.args, null, 2))}
                         title="Copy to clipboard"
                       >
                         📋 Copy
                       </button>
                     </div>
-                    <pre className="code-block">{JSON.stringify(message.toolCall.arguments, null, 2)}</pre>
+                    <pre className="code-block">{JSON.stringify(message.toolCall.args, null, 2)}</pre>
                   </div>
                 </div>
               </div>
