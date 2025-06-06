@@ -1,165 +1,144 @@
 # FSDevAgent Setup Instructions
 
-This document provides detailed instructions for setting up and running the FSDevAgent project.
-
 ## Prerequisites
 
 - Java 17 or higher
+- Maven 3.6 or higher
 - Node.js 16 or higher
-- npm or yarn
+- npm 8 or higher
 - Git
-- Claude API key (for LLM integration)
 
-## Repository Setup
+## Environment Variables
 
-1. Clone the repository:
-```bash
-git clone https://github.com/maheshyaddanapudi/FSDevAgent.git
-cd FSDevAgent
-```
+The following environment variables are required:
 
-2. Switch to the test-1 branch:
-```bash
-git checkout test-1
-```
+- `LLM_API_KEY`: Claude API key for LLM integration
 
 ## Backend Setup
 
-1. Navigate to the backend directory:
-```bash
-cd backend
-```
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/maheshyaddanapudi/FSDevAgent.git
+   cd FSDevAgent
+   ```
 
-2. Set the Claude API key as an environment variable:
-```bash
-# Linux/macOS
-export LLM_API_KEY="your-claude-api-key"
+2. Switch to the test-1 branch:
+   ```bash
+   git checkout test-1
+   ```
 
-# Windows
-set LLM_API_KEY=your-claude-api-key
-```
+3. Build the backend:
+   ```bash
+   cd backend
+   mvn clean install -DskipTests
+   ```
 
-3. Build the project using Maven:
-```bash
-./mvnw clean install -DskipTests
-```
-
-4. Run the backend service:
-```bash
-java -DLLM_API_KEY="$LLM_API_KEY" -jar target/ai-developer-agent-1.0.0.jar
-```
-
-The backend service will start on port 8080 by default.
+4. Run the backend:
+   ```bash
+   export LLM_API_KEY="your_claude_api_key"
+   java -DLLM_API_KEY="$LLM_API_KEY" -Xms128m -Xmx200m -jar target/ai-developer-agent-1.0.0.jar
+   ```
 
 ## Frontend Setup
 
-1. Navigate to the frontend directory:
-```bash
-cd frontend
-```
+1. Install dependencies:
+   ```bash
+   cd ../frontend
+   npm install
+   ```
 
-2. Install dependencies:
-```bash
-npm install
-# or
-yarn install
-```
+2. Run the frontend:
+   ```bash
+   npm start
+   ```
 
-3. Create or update the `.env` file with the following content:
-```
-REACT_APP_API_URL=http://localhost:8080
-```
+3. Access the application:
+   Open your browser and navigate to `http://localhost:3001`
 
-4. Create or update the `.env.development` file with the following content:
-```
-REACT_APP_API_URL=http://localhost:8080
-```
+## Docker Setup (Optional)
 
-5. Start the development server:
-```bash
-npm start
-# or
-yarn start
-```
+1. Build the Docker images:
+   ```bash
+   docker-compose build
+   ```
 
-The frontend will be available at http://localhost:3001.
+2. Run the Docker containers:
+   ```bash
+   docker-compose up -d
+   ```
 
-## Configuration Options
+3. Access the application:
+   Open your browser and navigate to `http://localhost:3001`
+
+## Configuration
 
 ### Backend Configuration
 
-The backend configuration can be modified in `backend/src/main/resources/application.properties`:
+The backend configuration is located in `backend/src/main/resources/application.properties`. Key properties include:
 
-```properties
-# Server configuration
-server.port=8080
-
-# Logging configuration
-logging.level.com.ai.developer=DEBUG
-
-# CORS configuration
-spring.webmvc.cors.allowed-origins=*
-spring.webmvc.cors.allowed-methods=GET,POST,PUT,DELETE,OPTIONS
-spring.webmvc.cors.allowed-headers=*
-
-# WebSocket configuration
-spring.websocket.enabled=true
-```
+- `server.port`: The port on which the backend server runs (default: 8080)
+- `logging.level.root`: The logging level (default: INFO)
 
 ### Frontend Configuration
 
-The frontend configuration can be modified through environment variables:
+The frontend configuration is located in `.env` and `.env.development` files. Key properties include:
 
-- `REACT_APP_API_URL`: Backend API URL (default: http://localhost:8080)
-- `PORT`: Frontend server port (default: 3001)
+- `REACT_APP_API_URL`: The URL of the backend API (default: http://localhost:8080)
+- `PORT`: The port on which the frontend server runs (default: 3001)
 
-## Workspace Directory
+## Project Structure
 
-The agent creates session-specific workspaces in the following directory:
+### Backend
+
+- `src/main/java/com/ai/developer/config`: Configuration classes
+- `src/main/java/com/ai/developer/controller`: REST controllers
+- `src/main/java/com/ai/developer/llm`: LLM integration classes
+- `src/main/java/com/ai/developer/service`: Service classes
+- `src/main/java/com/ai/developer/tools`: Tool implementation classes
+
+### Frontend
+
+- `src/components`: React components
+- `src/hooks`: Custom React hooks
+- `src/App.js`: Main application component
+- `src/index.js`: Entry point
+
+## Testing
+
+### Backend Testing
+
+```bash
+cd backend
+mvn test
 ```
-/tmp/ai-developer-agent/{sessionId}
+
+### Frontend Testing
+
+```bash
+cd frontend
+npm test
 ```
-
-Each session gets its own isolated workspace for file operations and tool execution.
-
-## Testing the Setup
-
-1. Open the frontend application at http://localhost:3001
-2. The application should connect to the backend automatically
-3. Type a message like "Please run ls -la in the current directory" and send it
-4. The agent should execute the command and display the results
 
 ## Troubleshooting
 
 ### Backend Issues
 
-1. **API Key Issues**:
-   - Ensure the Claude API key is correctly set as an environment variable
-   - Check the logs for authentication errors
-
-2. **Port Conflicts**:
-   - If port 8080 is already in use, modify the `server.port` in `application.properties`
-
-3. **Java Version**:
-   - Ensure you're using Java 17 or higher: `java -version`
+- If the backend fails to start, check the logs for errors
+- Ensure the Claude API key is correctly set
+- Verify that port 8080 is not in use by another application
 
 ### Frontend Issues
 
-1. **Dependency Issues**:
-   - If you encounter missing dependencies, run `npm install` or `yarn install` again
-   - Check that all required packages are listed in `package.json`
+- If the frontend fails to start, check the console for errors
+- Ensure all dependencies are installed
+- Verify that port 3001 is not in use by another application
 
-2. **Connection Issues**:
-   - Verify that the backend is running and accessible
-   - Check that the `REACT_APP_API_URL` is correctly set in the `.env` file
-   - Look for CORS errors in the browser console
+## Additional Resources
 
-3. **WebSocket Issues**:
-   - If real-time updates aren't working, check WebSocket connection in browser developer tools
-   - Ensure the backend WebSocket endpoint is correctly configured
+- [Claude API Documentation](https://docs.anthropic.com/claude/reference/getting-started-with-the-api)
+- [Spring Boot Documentation](https://docs.spring.io/spring-boot/docs/current/reference/html/)
+- [React Documentation](https://reactjs.org/docs/getting-started.html)
 
-## Security Notes
+---
 
-- The Claude API key should be kept secure and not committed to version control
-- For production deployment, implement proper authentication and authorization
-- Consider using environment-specific configuration files for different deployment environments
+Last Updated: June 6, 2025
