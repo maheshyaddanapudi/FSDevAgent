@@ -379,16 +379,17 @@ public class ClaudeLLMProvider implements LLMProvider {
                     content.add(textContent);
                 }
                 
-                // Add tool result if present
+                // Add tool result if present - format as text for historical tool results
                 if (message.getToolCallId() != null && message.getContent() != null) {
-                    Map<String, Object> toolResult = new HashMap<>();
-                    toolResult.put("tool_use_id", message.getToolCallId());
-                    toolResult.put("content", message.getContent());
+                    // For historical tool results, we format them as text to avoid collision with current tool results
+                    // Claude API expects only 'user' or 'assistant' roles
+                    StringBuilder toolResultText = new StringBuilder();
+                    toolResultText.append("Previous tool result for tool ID: ").append(message.getToolCallId()).append("\n");
+                    toolResultText.append("Result: ").append(message.getContent());
                     
-                    ClaudeContent toolResultContent = new ClaudeContent();
-                    toolResultContent.setType("tool_result");
-                    toolResultContent.setToolResult(toolResult);
-                    content.add(toolResultContent);
+                    // Add as regular text content instead of tool_result to avoid API errors
+                    ClaudeContent textContent = new ClaudeContent("text", toolResultText.toString());
+                    content.add(textContent);
                 }
                 
                 if (!content.isEmpty()) {
