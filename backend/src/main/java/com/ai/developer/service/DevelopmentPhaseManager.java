@@ -79,7 +79,12 @@ public class DevelopmentPhaseManager {
         
         // Broadcast phase transition via WebSocket
         if (webSocketHandler != null) {
-            webSocketHandler.broadcastPhaseTransition(sessionId, previousPhase, newPhase);
+            Map<String, Object> phaseData = new HashMap<>();
+            phaseData.put("sessionId", sessionId);
+            phaseData.put("fromPhase", previousPhase.toString());
+            phaseData.put("toPhase", newPhase.toString());
+            phaseData.put("timestamp", Instant.now().toString());
+            webSocketHandler.broadcastPhaseTransition(phaseData);
         }
         
         return PhaseTransitionResult.builder()
@@ -144,10 +149,15 @@ public class DevelopmentPhaseManager {
         int completionPercentage = totalCriteria > 0 ? (metCriteria * 100) / totalCriteria : 0;
         boolean isComplete = completionPercentage >= 80; // 80% threshold for phase completion
         
-        // Update agent state via WebSocket if significant progress
+        // Update agent state via WebSocket
         if (webSocketHandler != null && completionPercentage > 0) {
-            webSocketHandler.broadcastAgentState(sessionId, currentPhase, completionPercentage, 
-                    "Working on " + currentPhase.name().toLowerCase() + " phase");
+            Map<String, Object> stateData = new HashMap<>();
+            stateData.put("sessionId", sessionId);
+            stateData.put("phase", currentPhase.toString());
+            stateData.put("completionPercentage", completionPercentage);
+            stateData.put("status", "Working on " + currentPhase.name().toLowerCase() + " phase");
+            stateData.put("timestamp", Instant.now().toString());
+            webSocketHandler.broadcastAgentStateUpdate(stateData);
         }
         
         return PhaseCompletionStatus.builder()
@@ -169,9 +179,13 @@ public class DevelopmentPhaseManager {
             
             // Update agent state via WebSocket
             if (webSocketHandler != null) {
-                webSocketHandler.broadcastAgentState(sessionId, tracker.getCurrentPhase(), 
-                        calculateProgressPercentage(tracker), 
-                        "Completed: " + taskDescription);
+                Map<String, Object> stateData = new HashMap<>();
+                stateData.put("sessionId", sessionId);
+                stateData.put("phase", tracker.getCurrentPhase().toString());
+                stateData.put("progress", calculateProgressPercentage(tracker));
+                stateData.put("status", "Completed: " + taskDescription);
+                stateData.put("timestamp", Instant.now().toString());
+                webSocketHandler.broadcastAgentStateUpdate(stateData);
             }
         }
     }

@@ -4,6 +4,8 @@ import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -269,10 +271,13 @@ public class ProjectTemplateManager {
         // Broadcast template creation via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> templateData = new HashMap<>();
+            templateData.put("sessionId", sessionId);
             templateData.put("id", template.getId());
             templateData.put("name", template.getName());
             templateData.put("fileCount", template.getFiles().size());
-            webSocketHandler.broadcastToolOutput("template_created", templateData.toString());
+            templateData.put("timestamp", Instant.now().toString());
+            templateData.put("type", "template_created");
+            webSocketHandler.broadcastToolOutput(templateData);
         }
         
         log.info("Created template {} with {} files", template.getName(), templateFiles.size());
@@ -326,11 +331,14 @@ public class ProjectTemplateManager {
         // Broadcast template application via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> applicationData = new HashMap<>();
+            applicationData.put("sessionId", sessionId);
             applicationData.put("templateId", templateId);
             applicationData.put("templateName", template.getName());
             applicationData.put("targetDir", targetDir);
             applicationData.put("fileCount", createdFiles.size());
-            webSocketHandler.broadcastToolOutput("template_applied", applicationData.toString());
+            applicationData.put("timestamp", Instant.now().toString());
+            applicationData.put("type", "template_applied");
+            webSocketHandler.broadcastToolOutput(applicationData);
         }
         
         log.info("Applied template {} to {} with {} files", template.getName(), targetDir, createdFiles.size());
@@ -1098,6 +1106,8 @@ public class ProjectTemplateManager {
      */
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class TemplateCreationRequest {
         private String id;
         private String name;
@@ -1112,6 +1122,8 @@ public class ProjectTemplateManager {
      */
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class ProjectTemplate {
         private String id;
         private String name;
@@ -1129,6 +1141,8 @@ public class ProjectTemplateManager {
      */
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class ProjectCreationResult {
         private String templateId;
         private String templateName;

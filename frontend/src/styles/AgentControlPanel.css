@@ -1,0 +1,274 @@
+/* AgentControlPanel.css */
+
+.agent-control-panel {
+  background-color: #1e1e2e;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  color: #e0e0e0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin-bottom: 16px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.agent-control-panel:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.control-panel-header {
+  align-items: center;
+  background-color: #2a2a3a;
+  border-bottom: 1px solid #3a3a4a;
+  display: flex;
+  padding: 12px 16px;
+}
+
+.control-panel-header h3 {
+  color: #ffffff;
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.status-indicator {
+  border-radius: 50%;
+  height: 12px;
+  margin-right: 12px;
+  width: 12px;
+}
+
+.status-indicator.idle {
+  background-color: #888888;
+  box-shadow: 0 0 5px #888888;
+}
+
+.status-indicator.running {
+  animation: pulse 1.5s infinite;
+  background-color: #4caf50;
+  box-shadow: 0 0 5px #4caf50;
+}
+
+.status-indicator.paused {
+  background-color: #ff9800;
+  box-shadow: 0 0 5px #ff9800;
+}
+
+.status-indicator.completed {
+  background-color: #2196f3;
+  box-shadow: 0 0 5px #2196f3;
+}
+
+.status-indicator.error {
+  background-color: #f44336;
+  box-shadow: 0 0 5px #f44336;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.connection-status {
+  font-size: 12px;
+  text-align: right;
+}
+
+.connection-status .connected {
+  color: #4caf50;
+}
+
+.connection-status .disconnected {
+  color: #f44336;
+}
+
+.control-panel-body {
+  padding: 16px;
+}
+
+.phase-indicator {
+  align-items: center;
+  display: flex;
+  margin-bottom: 12px;
+}
+
+.phase-label {
+  color: #a0a0a0;
+  font-size: 14px;
+  margin-right: 8px;
+}
+
+.phase-value {
+  background-color: #3a3a4a;
+  border-radius: 4px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 4px 8px;
+}
+
+.progress-tracker {
+  margin-bottom: 16px;
+}
+
+.progress-bar {
+  background-color: #3a3a4a;
+  border-radius: 4px;
+  height: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+  border-radius: 4px;
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  color: #a0a0a0;
+  font-size: 12px;
+  text-align: right;
+}
+
+.control-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.control-button {
+  align-items: center;
+  background-color: #3a3a4a;
+  border: none;
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  flex: 1;
+  font-size: 14px;
+  justify-content: center;
+  min-width: 80px;
+  padding: 8px 12px;
+  transition: all 0.2s ease;
+}
+
+.control-button:hover:not(:disabled) {
+  background-color: #4a4a5a;
+}
+
+.control-button:active:not(:disabled) {
+  background-color: #5a5a6a;
+  transform: translateY(1px);
+}
+
+.control-button:disabled {
+  background-color: #2a2a3a;
+  color: #666666;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.control-button .button-icon {
+  margin-right: 6px;
+}
+
+.control-button.pause {
+  background-color: #ff9800;
+  color: #ffffff;
+}
+
+.control-button.pause:hover:not(:disabled) {
+  background-color: #f57c00;
+}
+
+.control-button.resume {
+  background-color: #4caf50;
+  color: #ffffff;
+}
+
+.control-button.resume:hover:not(:disabled) {
+  background-color: #43a047;
+}
+
+.control-button.stop {
+  background-color: #f44336;
+  color: #ffffff;
+}
+
+.control-button.stop:hover:not(:disabled) {
+  background-color: #e53935;
+}
+
+.error-notification {
+  background-color: rgba(244, 67, 54, 0.1);
+  border-left: 4px solid #f44336;
+  margin-top: 16px;
+  padding: 12px;
+}
+
+.error-header {
+  align-items: center;
+  display: flex;
+  margin-bottom: 8px;
+}
+
+.error-icon {
+  margin-right: 8px;
+}
+
+.error-title {
+  color: #f44336;
+  font-weight: 600;
+}
+
+.error-message {
+  color: #e0e0e0;
+  font-size: 14px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .control-buttons {
+    flex-direction: column;
+  }
+  
+  .control-button {
+    margin-bottom: 8px;
+    width: 100%;
+  }
+}
+
+/* Dark mode optimizations */
+@media (prefers-color-scheme: dark) {
+  .agent-control-panel {
+    background-color: #1a1a2a;
+  }
+  
+  .control-panel-header {
+    background-color: #252535;
+  }
+}
+
+/* Animation for state transitions */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.agent-control-panel {
+  animation: fadeIn 0.3s ease;
+}

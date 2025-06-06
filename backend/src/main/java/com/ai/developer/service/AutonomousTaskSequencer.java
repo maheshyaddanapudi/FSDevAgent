@@ -127,10 +127,12 @@ public class AutonomousTaskSequencer {
         // Broadcast plan creation via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> planData = new HashMap<>();
+            planData.put("sessionId", sessionId);
             planData.put("executionId", executionId);
             planData.put("objective", context.getObjective());
             planData.put("stepCount", steps.size());
-            webSocketHandler.broadcastToolOutput("execution_plan_created", planData.toString());
+            planData.put("timestamp", Instant.now().toString());
+            webSocketHandler.broadcastPlanningUpdate(planData);
         }
         
         log.info("Created execution plan for session {}, task {} with {} steps", 
@@ -176,10 +178,13 @@ public class AutonomousTaskSequencer {
         // Broadcast step execution via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> stepData = new HashMap<>();
+            stepData.put("sessionId", sessionId);
             stepData.put("executionId", executionId);
             stepData.put("step", nextStep);
             stepData.put("stepNumber", stepNumber);
-            webSocketHandler.broadcastToolOutput("execution_step_started", stepData.toString());
+            stepData.put("timestamp", Instant.now().toString());
+            stepData.put("status", "started");
+            webSocketHandler.broadcastToolExecution(stepData);
         }
         
         log.info("Executing step {} for session {}, task {}: {}", 
@@ -215,11 +220,14 @@ public class AutonomousTaskSequencer {
         // Broadcast step completion via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> completionData = new HashMap<>();
+            completionData.put("sessionId", sessionId);
             completionData.put("executionId", executionId);
             completionData.put("step", nextStep);
             completionData.put("stepNumber", stepNumber);
             completionData.put("success", true);
-            webSocketHandler.broadcastToolOutput("execution_step_completed", completionData.toString());
+            completionData.put("timestamp", Instant.now().toString());
+            completionData.put("status", "completed");
+            webSocketHandler.broadcastToolResult(completionData);
         }
         
         return StepExecutionResult.builder()
@@ -307,11 +315,14 @@ public class AutonomousTaskSequencer {
         // Broadcast step error via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> errorData = new HashMap<>();
+            errorData.put("sessionId", sessionId);
             errorData.put("executionId", executionId);
             errorData.put("step", context.getCurrentStep());
             errorData.put("error", errorMessage);
             errorData.put("recovery", recovery.getNextAction().toString());
-            webSocketHandler.broadcastToolOutput("execution_step_error", errorData.toString());
+            errorData.put("timestamp", Instant.now().toString());
+            errorData.put("severity", "error");
+            webSocketHandler.broadcastErrorEvent(errorData);
         }
         
         return result;

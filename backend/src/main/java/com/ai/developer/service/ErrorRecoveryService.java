@@ -57,11 +57,12 @@ public class ErrorRecoveryService {
         // Broadcast error via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> errorData = new HashMap<>();
+            errorData.put("sessionId", sessionId);
             errorData.put("message", errorMessage);
             errorData.put("context", context);
             errorData.put("severity", severity.toString());
             errorData.put("timestamp", Instant.now().toString());
-            webSocketHandler.broadcastError(sessionId, errorMessage, context);
+            webSocketHandler.broadcastErrorEvent(errorData);
         }
         
         // Determine recovery strategy

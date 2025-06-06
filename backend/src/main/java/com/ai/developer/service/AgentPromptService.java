@@ -266,6 +266,93 @@ public class AgentPromptService {
     }
     
     /**
+     * Generates ReAct paradigm prompt for autonomous agent execution
+     * This method guides the agent through the Reasoning and Acting cycle
+     */
+    public String generateReActPrompt(AgentState agentState) {
+        String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
+        StringBuilder promptBuilder = new StringBuilder();
+        
+        // Add header with current state information
+        promptBuilder.append(String.format("""
+            <react_prompt>
+            Current time: %s
+            Current objective: %s
+            Current phase: %s
+            Progress: %d%%
+            Iteration: %d
+            
+            """, 
+            timestamp, 
+            agentState.getCurrentObjective(),
+            agentState.getCurrentPhase(),
+            agentState.getProgress(),
+            agentState.getIterationCount()
+        ));
+        
+        // Add completed tasks
+        if (!agentState.getCompletedTasks().isEmpty()) {
+            promptBuilder.append("COMPLETED TASKS:\n");
+            for (String task : agentState.getCompletedTasks()) {
+                promptBuilder.append("✅ ").append(task).append("\n");
+            }
+            promptBuilder.append("\n");
+        }
+        
+        // Add pending tasks
+        if (!agentState.getPendingTasks().isEmpty()) {
+            promptBuilder.append("PENDING TASKS:\n");
+            for (String task : agentState.getPendingTasks()) {
+                promptBuilder.append("⏳ ").append(task).append("\n");
+            }
+            promptBuilder.append("\n");
+        }
+        
+        // Add last action if available
+        if (agentState.getLastAction() != null) {
+            promptBuilder.append("LAST ACTION: ").append(agentState.getLastAction()).append("\n\n");
+        }
+        
+        // Add user feedback if available
+        if (agentState.getMemory().containsKey("userFeedback")) {
+            promptBuilder.append("USER FEEDBACK: ").append(agentState.getMemory().get("userFeedback")).append("\n\n");
+        }
+        
+        // Add ReAct instructions
+        promptBuilder.append("""
+            REACT LOOP INSTRUCTIONS:
+            1. THINK: Analyze the current state and determine the next logical step
+            2. REASON: Explain your thought process and why this is the best next action
+            3. ACT: Execute the action using appropriate tools with <tool_use> blocks
+            4. OBSERVE: Analyze the results of your action
+            5. REPEAT: Continue the loop until the objective is complete
+            
+            IMPORTANT GUIDELINES:
+            - Always use <tool_use> blocks to execute actions
+            - Be specific and concrete in your reasoning
+            - Focus on making tangible progress toward the objective
+            - Adapt your approach based on results and feedback
+            - Track progress by updating task status with EVENT markers
+            
+            EVENT MARKERS:
+            Use these markers to track progress:
+            - EVENT:TASK_COMPLETE:task description
+            - EVENT:TASK_PENDING:task description
+            - EVENT:PHASE_TRANSITION:NEW_PHASE
+            - EVENT:PROGRESS:percentage
+            - EVENT:ACTION:description
+            
+            NOW CONTINUE THE REACT LOOP:
+            1. THINK: What is the current state and what needs to be done next?
+            2. REASON: Why is this the best next step?
+            3. ACT: Execute the action using <tool_use> blocks
+            </react_prompt>
+            """);
+        
+        return promptBuilder.toString();
+    }
+    
+    /**
      * Generates tool result prompts that guide the agent's next actions
      */
     public String generateToolResultPrompt(String toolName, String result, String status) {
@@ -345,191 +432,128 @@ public class AgentPromptService {
      * Generates execution-focused prompts for specific task types
      */
     public String generateTaskExecutionPrompt(String taskType, Map<String, Object> context) {
-        return switch (taskType.toLowerCase()) {
-            case "create_component" -> String.format("""
-                Create a React component named %s:
+        return switch (taskType) {
+            case "code_generation" -> """
+                <code_generation_task>
+                Generate complete, production-ready code for the specified component.
                 
-                1. First, create the component file:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/components/%s.tsx", "content": "[GENERATE COMPLETE COMPONENT CODE]"}}</tool_use>
+                REQUIREMENTS:
+                - Write fully functional code - no placeholders or TODOs
+                - Include proper error handling and edge cases
+                - Follow best practices for the language/framework
+                - Add comprehensive comments and documentation
+                - Include unit tests
                 
-                2. Create the styles file:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/components/%s.css", "content": "[GENERATE STYLES]"}}</tool_use>
+                EXECUTION STEPS:
+                1. Create the file structure
+                2. Write the complete implementation
+                3. Add tests
+                4. Verify compilation/syntax
+                5. Run tests to validate
                 
-                3. Create the test file:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/components/%s.test.tsx", "content": "[GENERATE TEST CODE]"}}</tool_use>
-                
-                Execute these steps NOW with actual code!
-                """, 
-                context.get("componentName"),
-                context.get("componentName"),
-                context.get("componentName"),
-                context.get("componentName")
-            );
-            
-            case "create_api" -> String.format("""
-                Create a REST API endpoint for %s:
-                
-                1. First, create the controller:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/controllers/%sController.java", "content": "[GENERATE COMPLETE CONTROLLER CODE]"}}</tool_use>
-                
-                2. Create the service:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/services/%sService.java", "content": "[GENERATE COMPLETE SERVICE CODE]"}}</tool_use>
-                
-                3. Create the model:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/models/%s.java", "content": "[GENERATE COMPLETE MODEL CODE]"}}</tool_use>
-                
-                4. Create the repository:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/repositories/%sRepository.java", "content": "[GENERATE COMPLETE REPOSITORY CODE]"}}</tool_use>
-                
-                5. Create tests:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "src/test/java/controllers/%sControllerTest.java", "content": "[GENERATE COMPLETE TEST CODE]"}}</tool_use>
-                
-                Execute these steps NOW with actual code!
-                """,
-                context.get("entityName"),
-                context.get("entityName"),
-                context.get("entityName"),
-                context.get("entityName"),
-                context.get("entityName"),
-                context.get("entityName")
-            );
-            
-            case "setup_project" -> """
-                Set up a new project with the following steps:
-                
-                1. Create project structure:
-                <tool_use>{"name": "file_system", "args": {"operation": "mkdir", "path": "src/main/java"}}</tool_use>
-                <tool_use>{"name": "file_system", "args": {"operation": "mkdir", "path": "src/main/resources"}}</tool_use>
-                <tool_use>{"name": "file_system", "args": {"operation": "mkdir", "path": "src/test/java"}}</tool_use>
-                
-                2. Create build configuration:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "pom.xml", "content": "[GENERATE COMPLETE POM.XML]"}}</tool_use>
-                
-                3. Create README:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "README.md", "content": "[GENERATE COMPLETE README]"}}</tool_use>
-                
-                4. Initialize git:
-                <tool_use>{"name": "git_operations", "args": {"operation": "init"}}</tool_use>
-                
-                5. Create .gitignore:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": ".gitignore", "content": "[GENERATE COMPLETE GITIGNORE]"}}</tool_use>
-                
-                Execute these steps NOW!
+                Use <tool_use> blocks to execute each step - don't just describe the code!
+                </code_generation_task>
                 """;
                 
-            case "fix_bug" -> """
-                Fix the bug with these steps:
+            case "debugging" -> """
+                <debugging_task>
+                Identify and fix the issue in the specified component.
                 
-                1. First, examine the error:
-                <tool_use>{"name": "file_system", "args": {"operation": "read", "path": "error.log"}}</tool_use>
+                DEBUGGING APPROACH:
+                1. Understand the expected behavior
+                2. Examine the error messages/symptoms
+                3. Locate the source of the problem
+                4. Develop a fix
+                5. Test the solution
+                6. Verify no regressions
                 
-                2. Examine the problematic file:
-                <tool_use>{"name": "file_system", "args": {"operation": "read", "path": "[PATH TO PROBLEMATIC FILE]"}}</tool_use>
+                EXECUTION STEPS:
+                1. Read the relevant files
+                2. Run tests to reproduce the issue
+                3. Analyze the code and error patterns
+                4. Implement the fix
+                5. Verify the solution works
                 
-                3. Fix the issue:
-                <tool_use>{"name": "file_system", "args": {"operation": "write", "path": "[PATH TO PROBLEMATIC FILE]", "content": "[FIXED CODE]"}}</tool_use>
+                Use <tool_use> blocks for each step - execute real debugging actions!
+                </debugging_task>
+                """;
                 
-                4. Test the fix:
-                <tool_use>{"name": "execute_command", "args": {"command": "[TEST COMMAND]"}}</tool_use>
+            case "refactoring" -> """
+                <refactoring_task>
+                Improve the code quality without changing functionality.
                 
-                5. Commit the fix:
-                <tool_use>{"name": "git_operations", "args": {"operation": "commit", "message": "Fix bug in [COMPONENT]"}}</tool_use>
+                REFACTORING GOALS:
+                - Improve readability and maintainability
+                - Reduce complexity and duplication
+                - Enhance performance where possible
+                - Apply design patterns appropriately
+                - Ensure backward compatibility
                 
-                Execute these steps NOW!
+                EXECUTION STEPS:
+                1. Analyze the current code
+                2. Identify refactoring opportunities
+                3. Make incremental improvements
+                4. Verify functionality is preserved
+                5. Document the improvements
+                
+                Use <tool_use> blocks to execute real refactoring - don't just describe changes!
+                </refactoring_task>
                 """;
                 
             default -> """
-                Execute the task using appropriate tools:
+                <general_task>
+                Complete the specified task with a focus on execution.
                 
-                1. First, analyze the current state:
-                <tool_use>{"name": "file_system", "args": {"operation": "list", "path": "."}}</tool_use>
+                EXECUTION PRINCIPLES:
+                - Break down the task into concrete steps
+                - Execute each step using appropriate tools
+                - Verify results after each step
+                - Adapt based on outcomes
+                - Document your work
                 
-                2. Determine what needs to be done based on the project structure
+                IMPORTANT:
+                - Use <tool_use> blocks to execute real actions
+                - Don't just describe what to do - ACTUALLY DO IT
+                - Continue autonomously until the task is complete
                 
-                3. Execute the necessary actions using <tool_use> blocks
-                
-                4. Test your changes
-                
-                5. Document what you've done
-                
-                Start NOW by examining the project structure!
+                Start execution now with your first <tool_use> block!
+                </general_task>
                 """;
         };
     }
     
     /**
-     * Generates prompts for handling tool execution results
+     * Format project context for inclusion in prompts
      */
-    public String generateToolResultPrompt(String toolName, boolean success, String result) {
-        return String.format("""
-            <tool_execution_result>
-            Tool: %s
-            Success: %s
-            Result:
-            ```
-            %s
-            ```
+    private String formatProjectContext(ProjectContext projectContext) {
+        StringBuilder contextBuilder = new StringBuilder();
+        
+        if (projectContext != null) {
+            contextBuilder.append("Project Path: ").append(projectContext.getProjectPath()).append("\n");
             
-            Based on this result:
-            1. Analyze the output for important information
-            2. Determine if the goal was achieved
-            3. Identify any errors or warnings that need addressing
-            4. Decide on the next action to take
-            5. Continue working towards the overall objective
+            if (projectContext.getProjectType() != null) {
+                contextBuilder.append("Project Type: ").append(projectContext.getProjectType()).append("\n");
+            }
             
-            IMPORTANT: You MUST respond with another <tool_use> block to continue execution.
-            Do not stop here - use this information to inform your next action.
-            </tool_execution_result>
-            """, toolName, success, result);
-    }
-    
-    /**
-     * Formats project context for inclusion in prompts
-     */
-    private String formatProjectContext(ProjectContext context) {
-        if (context == null) {
-            return "No specific project context provided. Infer from available information.";
+            if (projectContext.getFrameworks() != null && !projectContext.getFrameworks().isEmpty()) {
+                contextBuilder.append("Frameworks: ").append(String.join(", ", projectContext.getFrameworks())).append("\n");
+            }
+            
+            if (projectContext.getLanguages() != null && !projectContext.getLanguages().isEmpty()) {
+                contextBuilder.append("Languages: ").append(String.join(", ", projectContext.getLanguages())).append("\n");
+            }
+            
+            if (projectContext.getDatabases() != null && !projectContext.getDatabases().isEmpty()) {
+                contextBuilder.append("Databases: ").append(String.join(", ", projectContext.getDatabases())).append("\n");
+            }
+            
+            if (projectContext.getDescription() != null) {
+                contextBuilder.append("\nDescription: ").append(projectContext.getDescription()).append("\n");
+            }
+        } else {
+            contextBuilder.append("No project context available.");
         }
         
-        StringBuilder sb = new StringBuilder();
-        sb.append("Project Type: ").append(context.getProjectType() != null ? context.getProjectType() : "Unknown").append("\n");
-        sb.append("Build Tool: ").append(context.getBuildTool() != null ? context.getBuildTool() : "Unknown").append("\n");
-        sb.append("Framework: ").append(context.getFrameworkType() != null ? context.getFrameworkType() : "Unknown").append("\n");
-        sb.append("Project Path: ").append(context.getProjectPath() != null ? context.getProjectPath() : "Current directory").append("\n");
-        
-        return sb.toString();
+        return contextBuilder.toString();
     }
-    
-    /**
-     * Generates memory augmentation prompts for complex tasks
-     */
-    public String generateMemoryPrompt(TaskMemory memory) {
-        return String.format("""
-            <task_memory>
-            Current Objective: %s
-            Current Phase: %s
-            Progress: %d%%
-            Completed Tasks: %s
-            Pending Tasks: %s
-            Last Action: %s
-            
-            Use this memory to:
-            - Avoid repeating completed work
-            - Build on previous successes
-            - Apply learned patterns to similar problems
-            - Maintain context across multiple tool executions
-            
-            IMPORTANT: Continue execution by using <tool_use> blocks to implement the next pending task.
-            </task_memory>
-            """, 
-            memory.getObjective(),
-            memory.getPhase(),
-            memory.getProgressPercentage(),
-            String.join(", ", memory.getCompletedTasks()),
-            String.join(", ", memory.getPendingTasks()),
-            memory.getLastAction()
-        );
-    }
-    
-    // Inner classes and enums have been moved to standalone model classes in com.ai.developer.model package
 }

@@ -81,9 +81,11 @@ public class TaskMemoryService {
             // Broadcast step completion via WebSocket
             if (webSocketHandler != null) {
                 Map<String, Object> stepData = new HashMap<>();
+                stepData.put("sessionId", sessionId);
                 stepData.put("step", step.getDescription());
                 stepData.put("timestamp", step.getTimestamp().toString());
-                webSocketHandler.broadcastToolOutput("task_step_completed", stepData.toString());
+                stepData.put("type", "task_step_completed");
+                webSocketHandler.broadcastToolOutput(stepData);
             }
         }
         
@@ -93,9 +95,11 @@ public class TaskMemoryService {
             // Broadcast pending steps update via WebSocket
             if (webSocketHandler != null && !update.getPendingSteps().isEmpty()) {
                 Map<String, Object> pendingData = new HashMap<>();
+                pendingData.put("sessionId", sessionId);
                 pendingData.put("count", update.getPendingSteps().size());
                 pendingData.put("next", update.getPendingSteps().get(0));
-                webSocketHandler.broadcastToolOutput("task_pending_steps", pendingData.toString());
+                pendingData.put("type", "task_pending_steps");
+                webSocketHandler.broadcastToolOutput(pendingData);
             }
         }
         
@@ -194,10 +198,12 @@ public class TaskMemoryService {
         // Broadcast checkpoint creation via WebSocket
         if (webSocketHandler != null) {
             Map<String, Object> checkpointData = new HashMap<>();
+            checkpointData.put("sessionId", sessionId);
             checkpointData.put("id", checkpoint.getId());
             checkpointData.put("description", checkpoint.getDescription());
             checkpointData.put("timestamp", checkpoint.getTimestamp().toString());
-            webSocketHandler.broadcastToolOutput("task_checkpoint_created", checkpointData.toString());
+            checkpointData.put("type", "task_checkpoint_created");
+            webSocketHandler.broadcastToolOutput(checkpointData);
         }
         
         return checkpoint;
