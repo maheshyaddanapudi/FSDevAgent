@@ -646,12 +646,26 @@ public class EnhancedChatService {
     private void processToolUseAndContinue(String sessionId, ChatContext context, AgentState agentState, 
                                          List<ToolUseBlock> toolUseBlocks, Sinks.Many<ChatResponse> sink) {
         
+        // Update agent state to ensure continuation
+        agentState.setShouldContinue(true);
+        
         // Process each tool use block sequentially
         Flux.fromIterable(toolUseBlocks)
-            .concatMap(toolUseBlock -> processToolUseBlock(sessionId, context, agentState, toolUseBlock))
+            .concatMap(toolUseBlock -> {
+                // Update last action for context in next iteration
+                if (toolUseBlock.getName().equals("planning_tool")) {
+                    agentState.setLastAction("Completed planning phase");
+                    log.info("Planning phase completed for session {}, will continue to implementation", sessionId);
+                } else {
+                    agentState.setLastAction("Executed tool: " + toolUseBlock.getName());
+                }
+                
+                return processToolUseBlock(sessionId, context, agentState, toolUseBlock);
+            })
             .doOnComplete(() -> {
                 // Continue agent loop if in autonomous mode
                 if (agentState.getMode() == ConversationMode.AUTONOMOUS && agentState.isShouldContinue()) {
+                    log.info("Continuing autonomous execution for session {} after tool execution", sessionId);
                     executeAgentIteration(sessionId, context, agentState, sink);
                 }
             })

@@ -24,11 +24,11 @@ export const useWebSocket = () => {
     if (host.includes('manusvm.computer')) {
       // For proxied domains, use the 8080 subdomain for backend
       const baseHost = host.split('-').slice(1).join('-'); // Remove port prefix
-      return `${protocol}//8080-${baseHost}/ws/tools`;
+      return `${protocol}//8080-${baseHost}/ws/tool-output`;
     } else {
       // Default behavior for local development
       const port = process.env.REACT_APP_WS_PORT || '8080';
-      return `${protocol}//${host}:${port}/ws/tools`;
+      return `${protocol}//${host}:${port}/ws/tool-output`;
     }
   }, []);
 

@@ -209,8 +209,14 @@ public class AgentPromptService {
             Based on your continuous operation directive:
             1. Assess what still needs to be done
             2. Identify the next highest-priority task
-            3. Execute it using appropriate tools
+            3. Execute it using appropriate tools by explicitly using <tool_use> blocks
             4. Continue iterating until objectives are met
+            
+            IMPORTANT: You MUST continue the autonomous execution by using appropriate tools.
+            If you just completed planning, proceed to the first implementation phase.
+            If you completed one phase, move to the next phase automatically.
+            
+            Always use <tool_use> blocks to execute the next action. Do not wait for user input.
             
             Remember: Do not stop unless the entire task is complete and production-ready.
             </continuation_context>
