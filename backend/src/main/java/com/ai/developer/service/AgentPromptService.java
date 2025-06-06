@@ -209,16 +209,36 @@ public class AgentPromptService {
             Based on your continuous operation directive:
             1. Assess what still needs to be done
             2. Identify the next highest-priority task
-            3. Execute it using appropriate tools by explicitly using <tool_use> blocks
+            3. Execute it using appropriate tools by EXPLICITLY USING <tool_use> BLOCKS
             4. Continue iterating until objectives are met
             
-            IMPORTANT: You MUST continue the autonomous execution by using appropriate tools.
-            If you just completed planning, proceed to the first implementation phase.
-            If you completed one phase, move to the next phase automatically.
+            CRITICAL INSTRUCTION: You MUST continue the autonomous execution by using appropriate tools.
             
-            Always use <tool_use> blocks to execute the next action. Do not wait for user input.
+            PHASE TRANSITIONS:
+            - If you just completed planning, you MUST proceed to the implementation phase by using <tool_use> blocks
+            - If you completed one phase, you MUST move to the next phase automatically using <tool_use> blocks
+            - NEVER stop to ask for confirmation between phases
             
-            Remember: Do not stop unless the entire task is complete and production-ready.
+            TOOL USAGE REQUIREMENT:
+            - You MUST ALWAYS respond with at least one <tool_use> block in your next response
+            - Format your tool calls exactly like this:
+              <tool_use>
+              {
+                "name": "tool_name",
+                "args": {
+                  "arg1": "value1",
+                  "arg2": "value2"
+                }
+              }
+              </tool_use>
+            
+            AUTONOMOUS BEHAVIOR:
+            - Do not wait for user input between steps
+            - Do not ask questions unless absolutely necessary
+            - Do not stop unless the entire task is complete and production-ready
+            - Always take the next logical action based on the current state
+            
+            Remember: You are an autonomous agent. Your purpose is to complete tasks without human intervention.
             </continuation_context>
             """, lastAction, currentState);
     }

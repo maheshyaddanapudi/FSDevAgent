@@ -519,6 +519,11 @@ public class EnhancedChatService {
         Sinks.Many<ChatResponse> sink = sessionSinks.computeIfAbsent(sessionId, 
             k -> Sinks.many().multicast().onBackpressureBuffer());
         
+        log.info("[AGENT_LOOP] Starting autonomous agent loop for session {} with objective: {}", 
+                sessionId, agentState.getCurrentObjective());
+        log.info("[AGENT_LOOP] Current mode: {}, shouldContinue: {}, iteration: {}", 
+                agentState.getMode(), agentState.isShouldContinue(), agentState.getIterationCount());
+        
         // Start the agent loop in a separate thread to allow streaming
         executeAgentIteration(sessionId, context, agentState, sink);
         
@@ -532,12 +537,14 @@ public class EnhancedChatService {
                                       Sinks.Many<ChatResponse> sink) {
         
         agentState.setIterationCount(agentState.getIterationCount() + 1);
-        log.info("Agent iteration {} for session {} in {} mode", 
+        log.info("[AGENT_LOOP] Starting agent iteration {} for session {} in {} mode", 
                 agentState.getIterationCount(), sessionId, agentState.getMode());
+        log.info("[AGENT_LOOP] Current phase: {}, shouldContinue: {}, lastAction: {}", 
+                agentState.getCurrentPhase(), agentState.isShouldContinue(), agentState.getLastAction());
         
         // Check iteration limit
         if (agentState.getIterationCount() > 50) {
-            log.warn("Agent reached maximum iteration limit for session {}", sessionId);
+            log.warn("[AGENT_LOOP] Agent reached maximum iteration limit for session {}", sessionId);
             sink.tryEmitNext(ChatResponse.builder()
                     .sessionId(sessionId)
                     .role("assistant")
@@ -552,8 +559,10 @@ public class EnhancedChatService {
         if (agentState.getIterationCount() > 1 && !agentState.isWaitingForUserInput()) {
             String continuationPrompt = agentPromptService.generateContinuationPrompt(
                     agentState.getLastAction(), 
-                    "Iteration " + agentState.getIterationCount()
+                    "Phase: " + agentState.getCurrentPhase() + ", Iteration: " + agentState.getIterationCount()
             );
+            
+            log.info("[AGENT_LOOP] Adding continuation prompt for session {}: {}", sessionId, continuationPrompt);
             
             context.getMessages().add(Message.builder()
                     .role("system")
@@ -608,9 +617,11 @@ public class EnhancedChatService {
                 List<ToolUseBlock> toolUseBlocks = extractToolUseBlocks(completeResponse);
                 
                 if (!toolUseBlocks.isEmpty()) {
+                    log.info("[AGENT_LOOP] Found {} tool use blocks in response for session {}", toolUseBlocks.size(), sessionId);
                     processToolUseAndContinue(sessionId, context, agentState, toolUseBlocks, sink);
                 } else if (isTaskComplete(completeResponse)) {
                     // Task complete
+                    log.info("[AGENT_LOOP] Task completion detected for session {}", sessionId);
                     agentState.setShouldContinue(false);
                     sink.tryEmitNext(ChatResponse.builder()
                             .sessionId(sessionId)
@@ -623,18 +634,62 @@ public class EnhancedChatService {
                             .timestamp(Instant.now())
                             .build());
                     // Don't complete the sink - keep it open for conversation
-                } else if (agentState.isShouldContinue() && !agentState.isWaitingForUserInput()) {
-                    // Continue to next iteration
-                    agentState.setLastAction(extractActionSummary(completeResponse));
+                } else {
+                    // No tool use blocks found - this is a critical issue for autonomous execution
+                    log.warn("[AGENT_LOOP] No tool use blocks found in response for session {} during autonomous execution", sessionId);
+                    log.warn("[AGENT_LOOP] Response without tool use blocks: {}", completeResponse.substring(0, Math.min(500, completeResponse.length())));
                     
-                    // Small delay between iterations
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+                    if (agentState.getMode() == ConversationMode.AUTONOMOUS && agentState.isShouldContinue()) {
+                        // Force continuation with a stronger prompt
+                        log.info("[AGENT_LOOP] Forcing continuation with stronger prompt for session {}", sessionId);
+                        
+                        // Add a special system message to force tool use
+                        String forceToolUsePrompt = """
+                            <system_override>
+                            CRITICAL: You MUST use tools to continue execution. Your previous response did not contain any tool use blocks.
+                            
+                            You are in AUTONOMOUS mode and must continue execution without waiting for user input.
+                            
+                            REQUIRED ACTION: Respond with at least one <tool_use> block to execute the next logical step.
+                            
+                            Current phase: %s
+                            Last action: %s
+                            
+                            DO NOT explain or discuss. ONLY respond with tool use blocks.
+                            </system_override>
+                            """.formatted(agentState.getCurrentPhase(), agentState.getLastAction());
+                        
+                        context.getMessages().add(Message.builder()
+                                .role("system")
+                                .content(forceToolUsePrompt)
+                                .timestamp(Instant.now())
+                                .build());
+                        
+                        // Continue to next iteration with the override prompt
+                        agentState.setShouldContinue(true);
+                        
+                        // Small delay before retry
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        
+                        executeAgentIteration(sessionId, context, agentState, sink);
+                    } else if (agentState.isShouldContinue() && !agentState.isWaitingForUserInput()) {
+                        // Continue to next iteration
+                        log.info("[AGENT_LOOP] Continuing to next iteration despite no tool use blocks for session {}", sessionId);
+                        agentState.setLastAction(extractActionSummary(completeResponse));
+                        
+                        // Small delay between iterations
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                        
+                        executeAgentIteration(sessionId, context, agentState, sink);
                     }
-                    
-                    executeAgentIteration(sessionId, context, agentState, sink);
                 }
             })
             .subscribe();
@@ -648,6 +703,7 @@ public class EnhancedChatService {
         
         // Update agent state to ensure continuation
         agentState.setShouldContinue(true);
+        log.info("[AGENT_LOOP] Processing {} tool use blocks for session {}", toolUseBlocks.size(), sessionId);
         
         // Process each tool use block sequentially
         Flux.fromIterable(toolUseBlocks)
@@ -655,18 +711,43 @@ public class EnhancedChatService {
                 // Update last action for context in next iteration
                 if (toolUseBlock.getName().equals("planning_tool")) {
                     agentState.setLastAction("Completed planning phase");
-                    log.info("Planning phase completed for session {}, will continue to implementation", sessionId);
+                    agentState.setCurrentPhase(DevelopmentPhase.IMPLEMENTATION);
+                    log.info("[AGENT_LOOP] Planning phase completed for session {}, transitioning to IMPLEMENTATION phase", sessionId);
+                    
+                    // Force shouldContinue to true after planning to ensure continuation
+                    agentState.setShouldContinue(true);
+                } else if (toolUseBlock.getName().contains("implementation") || toolUseBlock.getName().contains("code")) {
+                    agentState.setLastAction("Implemented code: " + toolUseBlock.getName());
+                    log.info("[AGENT_LOOP] Implementation action completed for session {}", sessionId);
+                } else if (toolUseBlock.getName().contains("test")) {
+                    agentState.setLastAction("Executed tests: " + toolUseBlock.getName());
+                    log.info("[AGENT_LOOP] Testing action completed for session {}", sessionId);
                 } else {
                     agentState.setLastAction("Executed tool: " + toolUseBlock.getName());
+                    log.info("[AGENT_LOOP] Tool execution completed: {} for session {}", toolUseBlock.getName(), sessionId);
                 }
                 
                 return processToolUseBlock(sessionId, context, agentState, toolUseBlock);
             })
             .doOnComplete(() -> {
+                // Force shouldContinue to true to ensure autonomous continuation
+                agentState.setShouldContinue(true);
+                
                 // Continue agent loop if in autonomous mode
-                if (agentState.getMode() == ConversationMode.AUTONOMOUS && agentState.isShouldContinue()) {
-                    log.info("Continuing autonomous execution for session {} after tool execution", sessionId);
+                if (agentState.getMode() == ConversationMode.AUTONOMOUS) {
+                    log.info("[AGENT_LOOP] Continuing autonomous execution for session {} after tool execution", sessionId);
+                    log.info("[AGENT_LOOP] Current phase: {}, shouldContinue: {}", agentState.getCurrentPhase(), agentState.isShouldContinue());
+                    
+                    // Small delay to ensure proper state propagation
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    
                     executeAgentIteration(sessionId, context, agentState, sink);
+                } else {
+                    log.warn("[AGENT_LOOP] Not continuing autonomous execution because mode is {}", agentState.getMode());
                 }
             })
             .subscribe();

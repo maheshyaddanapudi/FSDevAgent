@@ -1,31 +1,23 @@
-# FSDevAgent Project Tasks
+# FSDevAgent Development Tasks
 
-## Setup and Code Fixes
-- [x] Clone repository and checkout test branch
-- [x] Update ClaudeLLMProvider.java with schema and max_tokens annotations
-- [x] Investigate frontend chat service communication method
-- [x] Fix frontend to use REST API for chat and WebSocket for emulator
-- [x] Fix frontend chat duplication issue in state management
-- [x] Rebuild and restart backend and frontend services
+## Autonomous Agent Functionality
+- [x] Review current agent code and logs
+- [x] Identify points of failure in autonomous execution
+- [x] Analyze LLM response after planning
+- [x] Add instrumentation and logging to agent loop
+- [x] Refine continuation prompt in AgentPromptService
+- [x] Improve state propagation in EnhancedChatService
+- [x] Test autonomous execution with multi-step prompt
+- [x] Monitor logs and UI for correct agent behavior
+- [x] Validate multi-tool and multi-phase execution
+- [x] Document findings and fixes
+- [ ] Commit and push all code changes
+- [ ] Review and update documentation if needed
+- [ ] Provide recommendations for further improvements
 
-## Testing
-- [x] Verify backend and frontend logs for proper flow
-- [ ] Run terminal tool test prompt and capture behavior
-- [ ] Run git tool test prompt and capture behavior
-- [ ] Validate dynamic visualization and header behavior
-- [ ] Check for regressions and known issues
-- [ ] Take browser screenshots of full stack tests
-
-## Finalization
-- [ ] Review all logs and test results
-- [ ] Commit and push code changes to GitHub
-- [ ] Notify user with results and attachments
-- [ ] Run git tool test prompt and capture behavior
-- [ ] Validate dynamic visualization and header behavior
-- [ ] Check for regressions and known issues
-- [ ] Take browser screenshots of full stack tests
-
-## Finalization
-- [ ] Review all logs and test results
-- [ ] Commit and push code changes to GitHub
-- [ ] Notify user with results and attachments
+## Integration Issues (Fixed)
+- [x] Fix WebSocket connection issue (endpoint mismatch)
+- [x] Fix Claude API authentication issue
+- [x] Ensure consistent port usage (frontend: 3001, backend: 8080)
+- [x] Add @Component annotation to ToolOutputWebSocketHandler
+- [x] Create comprehensive port and WebSocket configuration documentation
