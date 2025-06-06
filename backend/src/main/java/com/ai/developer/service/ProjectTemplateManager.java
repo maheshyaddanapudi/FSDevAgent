@@ -33,6 +33,11 @@ public class ProjectTemplateManager {
     private final Map<String, ProjectTemplate> availableTemplates = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
     
+    {
+        // Register JavaTimeModule for Java 8 date/time serialization
+        objectMapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+    }
+    
     @Autowired
     private EnhancedToolOutputWebSocketHandler webSocketHandler;
     

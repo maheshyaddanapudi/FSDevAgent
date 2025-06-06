@@ -21,14 +21,8 @@ public class ChatController {
     
     private final ChatService chatService;
     
-    @PostMapping("/sessions")
-    public Mono<SessionResponseDTO> createSession() {
-        log.info("Creating new session");
-        return chatService.createSession()
-            .map(SessionResponseDTO::fromSessionResponse)
-            .doOnSuccess(session -> log.info("Session created successfully: {}", session.getSessionId()))
-            .doOnError(error -> log.error("Error creating session", error));
-    }
+    // Session creation endpoint moved to SessionController to avoid mapping conflicts
+    // and to leverage enhanced session management capabilities
     
     @GetMapping("/sessions/{sessionId}/history")
     public Mono<List<ChatResponse>> getSessionHistory(@PathVariable String sessionId) {
