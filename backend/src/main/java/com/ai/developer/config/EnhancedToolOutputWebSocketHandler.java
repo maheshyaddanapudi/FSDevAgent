@@ -259,4 +259,52 @@ public class EnhancedToolOutputWebSocketHandler extends TextWebSocketHandler {
     public int getConnectionCount() {
         return sessions.size();
     }
+    
+    /**
+     * Broadcast agent state update
+     */
+    public void broadcastAgentStateUpdate(Map<String, Object> eventData) {
+        log.debug("Broadcasting agent state update: {}", eventData);
+        broadcast(eventData);
+    }
+    
+    /**
+     * Broadcast planning update
+     */
+    public void broadcastPlanningUpdate(Map<String, Object> eventData) {
+        log.debug("Broadcasting planning update: {}", eventData);
+        broadcast(eventData);
+    }
+    
+    /**
+     * Broadcast tool execution
+     */
+    public void broadcastToolExecution(Map<String, Object> eventData) {
+        log.debug("Broadcasting tool execution: {}", eventData);
+        broadcast(eventData);
+    }
+    
+    /**
+     * Broadcast tool result with map data
+     */
+    public void broadcastToolResult(Map<String, Object> eventData) {
+        log.debug("Broadcasting tool result: {}", eventData);
+        broadcast(eventData);
+    }
+    
+    /**
+     * Broadcast phase transition with map data
+     */
+    public void broadcastPhaseTransition(Map<String, Object> eventData) {
+        log.debug("Broadcasting phase transition: {}", eventData);
+        broadcast(eventData);
+    }
+    
+    /**
+     * Broadcast error event
+     */
+    public void broadcastErrorEvent(Map<String, Object> eventData) {
+        log.debug("Broadcasting error event: {}", eventData);
+        broadcast(eventData);
+    }
 }
