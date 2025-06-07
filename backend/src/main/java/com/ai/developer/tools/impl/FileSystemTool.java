@@ -11,7 +11,7 @@ import java.io.*;
 
 @Slf4j
 @Component
-public class FileSystemTool implements Tool {
+public class FileSystemTool extends AbstractTool {
     
     // Default workspace path for tools
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
@@ -62,19 +62,13 @@ public class FileSystemTool implements Tool {
     }
     
     @Override
-    public Flux<ToolOutput> execute(Map<String, Object> arguments) {
+    protected Flux<ToolOutput> executeWithWorkspace(Map<String, Object> arguments, WorkspaceContext workspaceContext) {
         // Log the raw arguments for debugging
-        log.info("FileSystemTool executing with arguments: {}", arguments);
-        
-        // Fix for NullPointerException: Add null check for arguments
-        if (arguments == null) {
-            log.error("Arguments map is null");
-            return Flux.error(new IllegalArgumentException("Arguments map is null"));
-        }
+        log.info("FileSystemTool executing with arguments: {} in workspace: {}", 
+                arguments, workspaceContext.getWorkspacePath());
         
         String operation = (String) arguments.get("operation");
         String path = (String) arguments.get("path");
-        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         
         // Fix for NullPointerException: Add null check for operation
         if (operation == null) {
@@ -89,10 +83,11 @@ public class FileSystemTool implements Tool {
         }
         
         // Log the specific operation being attempted
-        log.info("FileSystemTool executing operation: {} on path: {} for session: {}", operation, path, sessionId);
+        log.info("FileSystemTool executing operation: {} on path: {} in workspace: {}", 
+                operation, path, workspaceContext.getWorkspacePath());
         
-        // Resolve path within session workspace if it's not absolute
-        String resolvedPath = resolvePath(path, sessionId);
+        // Resolve path within workspace if it's not absolute
+        String resolvedPath = workspaceContext.resolvePath(path);
         
         return switch (operation.toLowerCase()) {
             case "read" -> readFile(resolvedPath);
@@ -127,7 +122,43 @@ public class FileSystemTool implements Tool {
      * If the path is absolute, return it as is
      * If the path is relative, resolve it within the session workspace
      */
-    private String resolvePath(String path, String sessionId) {
+    /**
+     * Resolve path with explicit workspace path
+     */
+    private String resolvePathWithWorkspace(String path, String workspacePath) {
+        if (path.startsWith("/")) {
+            log.info("[WORKSPACE_PATH] Using absolute path: {}", path);
+            return path; // Absolute path, use as is
+        }
+        
+        log.debug("[WORKSPACE_PATH] Resolving path '{}' with explicit workspace '{}'", path, workspacePath);
+        
+        // Create workspace directory if it doesn't exist
+        try {
+            Path dirPath = Path.of(workspacePath);
+            Files.createDirectories(dirPath);
+            log.info("[WORKSPACE_PATH] Created/verified explicit workspace directory: {}", workspacePath);
+            
+            // Verify directory was actually created
+            if (Files.exists(dirPath) && Files.isDirectory(dirPath)) {
+                log.info("[WORKSPACE_PATH] Confirmed explicit workspace directory exists: {}", workspacePath);
+            } else {
+                log.error("[WORKSPACE_PATH] Failed to create explicit workspace directory: {}", workspacePath);
+            }
+        } catch (IOException e) {
+            log.error("[WORKSPACE_PATH] Error creating explicit workspace directory: {}", workspacePath, e);
+        }
+        
+        // Resolve relative path within workspace
+        String resolvedPath = workspacePath + "/" + path;
+        log.info("[WORKSPACE_PATH] Resolved relative path '{}' to absolute path: '{}'", path, resolvedPath);
+        return resolvedPath;
+    }
+    
+    /**
+     * Resolve path with sessionId (legacy method)
+     */
+    private String resolvePathWithSessionId(String path, String sessionId) {
         if (path.startsWith("/")) {
             log.info("[WORKSPACE_PATH] Using absolute path: {}", path);
             return path; // Absolute path, use as is
