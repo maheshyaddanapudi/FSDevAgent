@@ -63,6 +63,15 @@ public class FileSystemTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
+        // Log the raw arguments for debugging
+        log.info("FileSystemTool executing with arguments: {}", arguments);
+        
+        // Fix for NullPointerException: Add null check for arguments
+        if (arguments == null) {
+            log.error("Arguments map is null");
+            return Flux.error(new IllegalArgumentException("Arguments map is null"));
+        }
+        
         String operation = (String) arguments.get("operation");
         String path = (String) arguments.get("path");
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
@@ -79,17 +88,37 @@ public class FileSystemTool implements Tool {
             return Flux.error(new IllegalArgumentException("Path parameter is required"));
         }
         
+        // Log the specific operation being attempted
+        log.info("FileSystemTool executing operation: {} on path: {} for session: {}", operation, path, sessionId);
+        
         // Resolve path within session workspace if it's not absolute
         String resolvedPath = resolvePath(path, sessionId);
         
         return switch (operation.toLowerCase()) {
             case "read" -> readFile(resolvedPath);
-            case "write" -> writeFile(resolvedPath, (String) arguments.get("content"));
-            case "append" -> appendFile(resolvedPath, (String) arguments.get("content"));
+            case "write" -> {
+                String content = (String) arguments.get("content");
+                if (content == null) {
+                    log.error("Content cannot be null for write operation");
+                    yield Flux.error(new IllegalArgumentException("Content parameter is required for write operation"));
+                }
+                yield writeFile(resolvedPath, content);
+            }
+            case "append" -> {
+                String content = (String) arguments.get("content");
+                if (content == null) {
+                    log.error("Content cannot be null for append operation");
+                    yield Flux.error(new IllegalArgumentException("Content parameter is required for append operation"));
+                }
+                yield appendFile(resolvedPath, content);
+            }
             case "list" -> listDirectory(resolvedPath);
             case "delete" -> deleteFile(resolvedPath);
             case "mkdir" -> createDirectory(resolvedPath);
-            default -> Flux.error(new IllegalArgumentException("Unknown operation: " + operation));
+            default -> {
+                log.error("Unknown operation: {}", operation);
+                yield Flux.error(new IllegalArgumentException("Unknown operation: " + operation));
+            }
         };
     }
     
@@ -118,7 +147,9 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> readFile(String path) {
         return Mono.fromCallable(() -> {
             try {
+                log.info("Reading file: {}", path);
                 String content = Files.readString(Path.of(path));
+                log.info("File read successfully: {} (size: {})", path, content.length());
                 return ToolOutput.builder()
                         .type("file_content")
                         .content(content)
@@ -141,7 +172,9 @@ public class FileSystemTool implements Tool {
                 Path filePath = Path.of(path);
                 Files.createDirectories(filePath.getParent());
                 
+                log.info("Writing file: {} (content size: {})", path, content.length());
                 Files.writeString(filePath, content);
+                log.info("File written successfully: {}", path);
                 return ToolOutput.builder()
                         .type("file_written")
                         .content("File written successfully")
@@ -164,7 +197,9 @@ public class FileSystemTool implements Tool {
                 Path filePath = Path.of(path);
                 Files.createDirectories(filePath.getParent());
                 
+                log.info("Appending to file: {} (content size: {})", path, content.length());
                 Files.writeString(filePath, content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                log.info("Content appended successfully to file: {}", path);
                 return ToolOutput.builder()
                         .type("file_appended")
                         .content("Content appended successfully")
@@ -187,6 +222,7 @@ public class FileSystemTool implements Tool {
                 Path dirPath = Path.of(path);
                 Files.createDirectories(dirPath);
                 
+                log.info("Listing directory: {}", path);
                 List<Map<String, Object>> entries = new ArrayList<>();
                 try (DirectoryStream<Path> stream = Files.newDirectoryStream(dirPath)) {
                     for (Path entry : stream) {
@@ -201,6 +237,7 @@ public class FileSystemTool implements Tool {
                     }
                 }
                 
+                log.info("Directory listed successfully: {} (entries: {})", path, entries.size());
                 return ToolOutput.builder()
                         .type("directory_listing")
                         .content("Directory listed successfully")
@@ -219,7 +256,9 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> deleteFile(String path) {
         return Mono.fromCallable(() -> {
             try {
+                log.info("Deleting file: {}", path);
                 boolean deleted = Files.deleteIfExists(Path.of(path));
+                log.info("File deletion result for {}: {}", path, deleted ? "deleted" : "not found");
                 return ToolOutput.builder()
                         .type("file_deleted")
                         .content(deleted ? "File deleted successfully" : "File does not exist")
@@ -238,7 +277,9 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> createDirectory(String path) {
         return Mono.fromCallable(() -> {
             try {
+                log.info("Creating directory: {}", path);
                 Files.createDirectories(Path.of(path));
+                log.info("Directory created successfully: {}", path);
                 return ToolOutput.builder()
                         .type("directory_created")
                         .content("Directory created successfully")

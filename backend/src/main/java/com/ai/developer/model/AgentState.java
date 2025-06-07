@@ -28,6 +28,9 @@ public class AgentState {
     private List<String> pendingTasks = new ArrayList<>();
     private List<String> conversationHistory = new ArrayList<>();
     private Map<String, Object> memory = new HashMap<>();
+    private String sessionId;
+    private String workspacePath;
+    private boolean running = false;
     
     /**
      * Convert to TaskMemory for prompt generation
@@ -41,5 +44,33 @@ public class AgentState {
         memory.setProgressPercentage(progress);
         memory.setLastAction(lastAction);
         return memory;
+    }
+    
+    /**
+     * Check if agent is running
+     */
+    public boolean isRunning() {
+        return running;
+    }
+    
+    /**
+     * Set agent running state
+     */
+    public void setRunning(boolean running) {
+        this.running = running;
+    }
+    
+    /**
+     * Explicit getter for shouldContinue to ensure compatibility
+     */
+    public boolean getShouldContinue() {
+        return shouldContinue;
+    }
+    
+    /**
+     * Explicit setter for shouldContinue to ensure compatibility
+     */
+    public void setShouldContinue(boolean shouldContinue) {
+        this.shouldContinue = shouldContinue;
     }
 }

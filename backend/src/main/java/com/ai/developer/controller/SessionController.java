@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * REST controller for session management operations
@@ -31,12 +32,10 @@ public class SessionController {
     @PostMapping
     public Mono<SessionResponseDTO> createSession() {
         log.info("REST request to create new session");
-        return chatService.createSession()
+        return enhancedChatService.createSession()
             .map(SessionResponseDTO::fromSessionResponse)
             .doOnSuccess(session -> {
                 log.info("Session created successfully: {}", session.getSessionId());
-                // Ensure the session is also registered with EnhancedChatService
-                enhancedChatService.registerExistingSession(session.getSessionId());
             })
             .doOnError(error -> log.error("Error creating session", error));
     }
@@ -45,19 +44,20 @@ public class SessionController {
      * Get all active sessions
      */
     @GetMapping
-    public List<String> getAllSessions() {
+    public Mono<List<SessionResponseDTO>> getAllSessions() {
         log.info("REST request to get all sessions");
-        return enhancedChatService.getSessions();
+        return enhancedChatService.getSessions()
+            .map(sessions -> sessions.stream()
+                .map(SessionResponseDTO::fromSessionResponse)
+                .collect(Collectors.toList()));
     }
 
     /**
      * Delete a session
      */
     @DeleteMapping("/{sessionId}")
-    public boolean deleteSession(@PathVariable String sessionId) {
+    public Mono<Void> deleteSession(@PathVariable String sessionId) {
         log.info("REST request to delete session: {}", sessionId);
-        boolean enhancedResult = enhancedChatService.deleteSession(sessionId);
-        boolean chatResult = chatService.deleteSession(sessionId);
-        return enhancedResult || chatResult;
+        return enhancedChatService.deleteSession(sessionId);
     }
 }

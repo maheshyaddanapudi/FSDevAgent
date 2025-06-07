@@ -57,27 +57,14 @@ public class ChatController {
     }
     
     @PostMapping(value = "/tools/{toolName}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Mono<ToolCallResponse> executeTool(
+    public Flux<ToolCallResponse> executeTool(
             @PathVariable String toolName,
             @RequestParam String sessionId,
             @RequestBody Map<String, Object> arguments) {
         log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
         return chatService.executeTool(sessionId, toolName, arguments)
-            .map(toolOutput -> convertToToolCallResponse(toolName, sessionId, arguments, toolOutput))
-            .doOnNext(output -> log.info("Tool {} execution output for session {}: {}", toolName, sessionId, output))
-            .doOnSuccess(output -> log.info("Completed tool {} execution for session {}", toolName, sessionId))
+            .doOnNext(response -> log.info("Tool {} execution output for session {}: {}", toolName, sessionId, response.getResult()))
+            .doOnComplete(() -> log.info("Completed tool {} execution for session {}", toolName, sessionId))
             .doOnError(error -> log.error("Error executing tool {} for session {}", toolName, sessionId, error));
-    }
-    
-    /**
-     * Convert ToolOutput to ToolCallResponse for API compatibility
-     */
-    private ToolCallResponse convertToToolCallResponse(String toolName, String sessionId, Map<String, Object> arguments, ToolOutput toolOutput) {
-        return ToolCallResponse.builder()
-                .name(toolName)
-                .arguments(arguments)
-                .result(toolOutput.getContent())
-                .sessionId(sessionId)
-                .build();
     }
 }

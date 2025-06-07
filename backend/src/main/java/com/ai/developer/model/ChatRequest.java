@@ -8,4 +8,12 @@ import lombok.Data;
 public class ChatRequest {
     private String sessionId;
     private String message;
+    private boolean autonomous;
+    
+    /**
+     * Check if request is for autonomous execution
+     */
+    public boolean isAutonomous() {
+        return autonomous;
+    }
 }
