@@ -133,11 +133,27 @@ public class FileSystemTool implements Tool {
             return path; // Absolute path, use as is
         }
         
+        // CRITICAL FIX: Add null/empty check for sessionId
+        if (sessionId == null || sessionId.trim().isEmpty()) {
+            log.error("[WORKSPACE_PATH] SessionId is null or empty, using fallback session ID");
+            sessionId = "default-session-" + UUID.randomUUID().toString();
+        }
+        
+        log.debug("[WORKSPACE_PATH] Resolving path '{}' for session '{}'", path, sessionId);
+        
         // Create session workspace directory if it doesn't exist
         String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
         try {
-            Files.createDirectories(Path.of(workspacePath));
+            Path dirPath = Path.of(workspacePath);
+            Files.createDirectories(dirPath);
             log.info("[WORKSPACE_PATH] Created/verified session workspace directory: {}", workspacePath);
+            
+            // Verify directory was actually created
+            if (Files.exists(dirPath) && Files.isDirectory(dirPath)) {
+                log.info("[WORKSPACE_PATH] Confirmed workspace directory exists: {}", workspacePath);
+            } else {
+                log.error("[WORKSPACE_PATH] Failed to create workspace directory: {}", workspacePath);
+            }
         } catch (IOException e) {
             log.error("[WORKSPACE_PATH] Error creating workspace directory: {}", workspacePath, e);
         }

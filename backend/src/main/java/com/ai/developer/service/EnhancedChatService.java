@@ -264,7 +264,27 @@ public class EnhancedChatService {
         // CRITICAL FIX: Always ensure sessionId is present in arguments
         // This ensures consistent workspace context across all tool executions
         arguments.put("sessionId", sessionId);
-        log.info("[BREAKPOINT_EXECUTE_2] Ensured sessionId {} is in arguments. Final arguments: {}", sessionId, arguments);
+        
+        // CRITICAL FIX: Verify workspace directory exists before tool execution
+        String workspacePath = "/tmp/ai-developer-agent/" + sessionId;
+        try {
+            Path dirPath = Path.of(workspacePath);
+            if (!Files.exists(dirPath)) {
+                log.info("[WORKSPACE_INIT] Creating workspace directory for session {}: {}", sessionId, workspacePath);
+                Files.createDirectories(dirPath);
+                
+                // Create a marker file to indicate workspace is initialized
+                Path markerPath = Path.of(workspacePath + "/.initialized");
+                Files.createFile(markerPath);
+                log.info("[WORKSPACE_INIT] Created workspace marker file: {}", markerPath);
+            } else {
+                log.info("[WORKSPACE_INIT] Workspace directory already exists for session {}: {}", sessionId, workspacePath);
+            }
+        } catch (IOException e) {
+            log.error("[WORKSPACE_INIT] Error creating workspace directory for session {}: {}", sessionId, e.getMessage(), e);
+        }
+        
+        log.info("[BREAKPOINT_EXECUTE_2] Ensured sessionId {} is in arguments and workspace exists. Final arguments: {}", sessionId, arguments);
         
         try {
             // Get tool from registry
