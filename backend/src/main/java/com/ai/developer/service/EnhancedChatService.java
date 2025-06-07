@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class EnhancedChatService {
     private static final int MAX_AUTONOMOUS_ITERATIONS = 10;
+    private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
     
     private final Map<String, AgentState> agentStates = new ConcurrentHashMap<>();
     private final Map<String, List<ChatMessage>> chatHistories = new ConcurrentHashMap<>();
@@ -51,6 +52,9 @@ public class EnhancedChatService {
         
         // Ensure session exists
         ensureSessionExists(sessionId);
+        
+        // Initialize workspace directory for this session
+        initializeWorkspace(sessionId);
         
         // Add user message to history
         chatHistories.get(sessionId).add(ChatMessage.builder()
@@ -78,6 +82,42 @@ public class EnhancedChatService {
     }
     
     /**
+     * Initialize workspace directory for a session
+     * This ensures the workspace exists before any tool execution
+     */
+    private void initializeWorkspace(String sessionId) {
+        if (sessionId == null || sessionId.trim().isEmpty()) {
+            log.error("[WORKSPACE_INIT] SessionId is null or empty, cannot initialize workspace");
+            return;
+        }
+        
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        log.info("[WORKSPACE_INIT] Initializing workspace for session {}: {}", sessionId, workspacePath);
+        
+        try {
+            // Create workspace directory if it doesn't exist
+            Path dirPath = Path.of(workspacePath);
+            Files.createDirectories(dirPath);
+            
+            // Create marker file to indicate initialization
+            Path markerPath = dirPath.resolve(".initialized");
+            if (!Files.exists(markerPath)) {
+                Files.createFile(markerPath);
+                log.info("[WORKSPACE_INIT] Created workspace marker file: {}", markerPath);
+            }
+            
+            // Verify directory was actually created
+            if (Files.exists(dirPath) && Files.isDirectory(dirPath)) {
+                log.info("[WORKSPACE_INIT] Successfully initialized workspace directory: {}", workspacePath);
+            } else {
+                log.error("[WORKSPACE_INIT] Failed to create workspace directory: {}", workspacePath);
+            }
+        } catch (IOException e) {
+            log.error("[WORKSPACE_INIT] Error creating workspace directory: {}", workspacePath, e);
+        }
+    }
+    
+    /**
      * Create a chat context from chat history
      */
     private com.ai.developer.llm.ChatContext createChatContext(List<ChatMessage> chatHistory) {
@@ -101,7 +141,52 @@ public class EnhancedChatService {
         log.debug("[BREAKPOINT_CHUNK] Raw response chunk for session {}: {}", sessionId, chunk);
         
         try {
-            // CRITICAL FIX: Pre-process any tool calls to inject sessionId before extraction
+            // CRITICAL FIX: Ensure workspace is initialized before processing tool calls
+            initializeWorkspace(sessionId);
+            
+            // Extract tool calls from the response chunk
+            List<ToolCall> toolCalls = toolCallExtractor.extractToolCalls(chunk);
+            
+            // If no tool calls found, return the chunk as is
+            if (toolCalls.isEmpty()) {
+                return ChatResponse.builder()
+                        .content(chunk)
+                        .build();
+            }
+            
+            // Process each tool call
+            StringBuilder responseBuilder = new StringBuilder();
+            for (ToolCall toolCall : toolCalls) {
+                // CRITICAL FIX: Ensure sessionId is included in tool arguments
+                if (!toolCall.getArguments().containsKey("sessionId")) {
+                    toolCall.getArguments().put("sessionId", sessionId);
+                }
+                
+                // CRITICAL FIX: Add workspace path to tool arguments
+                String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+                toolCall.getArguments().put("workspacePath", workspacePath);
+                
+                log.info("[TOOL_EXECUTION] Executing tool {} with sessionId {} and workspace {}", 
+                        toolCall.getName(), sessionId, workspacePath);
+                
+                // Execute the tool and get the result
+                String toolResult = executeToolCall(toolCall, sessionId, agentState);
+                
+                // Append the tool result to the response
+                responseBuilder.append(toolResult);
+            }
+            
+            // Return the combined response
+            return ChatResponse.builder()
+                    .content(responseBuilder.toString())
+                    .build();
+        } catch (Exception e) {
+            log.error("[TOOL_EXECUTION_ERROR] Error processing response chunk: {}", e.getMessage(), e);
+            return ChatResponse.builder()
+                    .content("Error processing response: " + e.getMessage())
+                    .build();
+        }
+    }
             // This ensures sessionId is present in logs and throughout the entire execution chain
             if (chunk.contains("\"name\":") && chunk.contains("\"arguments\":")) {
                 log.info("[SESSIONID_FIX] Pre-processing chunk to inject sessionId for session {}", sessionId);
