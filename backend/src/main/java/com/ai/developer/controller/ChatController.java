@@ -36,7 +36,7 @@ public class ChatController {
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ChatResponse> chat(@RequestBody ChatRequest request) {
         log.info("Received chat request for session {}: {}", request.getSessionId(), request.getMessage());
-        return chatService.processMessage(request)
+        return Flux.from(chatService.processMessage(request))
             .doOnNext(response -> log.info("Sending chat response chunk for session {}", request.getSessionId()))
             .doOnComplete(() -> log.info("Completed sending chat response for session {}", request.getSessionId()))
             .doOnError(error -> log.error("Error processing message for session {}", request.getSessionId(), error));
@@ -50,7 +50,7 @@ public class ChatController {
             .message(message)
             .build();
             
-        return chatService.processMessage(request)
+        return Flux.from(chatService.processMessage(request))
             .doOnNext(response -> log.info("Sending chat response chunk for session {}", sessionId))
             .doOnComplete(() -> log.info("Completed sending chat response for session {}", sessionId))
             .doOnError(error -> log.error("Error processing message for session {}", sessionId, error));

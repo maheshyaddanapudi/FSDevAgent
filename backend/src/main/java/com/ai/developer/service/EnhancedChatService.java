@@ -1,7 +1,6 @@
 package com.ai.developer.service;
 
 import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
-import com.ai.developer.config.ToolOutputWebSocketHandler;
 import com.ai.developer.llm.LLMProvider;
 import com.ai.developer.llm.ToolCall;
 import com.ai.developer.model.*;
@@ -15,13 +14,10 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -31,41 +27,26 @@ import java.util.stream.Collectors;
 public class EnhancedChatService {
     private static final int MAX_AUTONOMOUS_ITERATIONS = 10;
     
-    // Updated regex pattern to properly capture the complete tool call structure
-    private static final Pattern TOOL_USE_PATTERN = Pattern.compile(
-        "<function_calls>\\s*" +
-        "<invoke\\s+name=\"([^\"]+)\">\\s*" +
-        "(?:<parameter\\s+name=\"([^\"]+)\">([^<]+)</parameter>\\s*)*" +
-        "</invoke>\\s*" +
-        "</function_calls>",
-        Pattern.DOTALL
-    );
-    
-    // Pattern to extract individual parameters from a tool call
-    private static final Pattern PARAMETER_PATTERN = Pattern.compile(
-        "<parameter\\s+name=\"([^\"]+)\">([^<]+)</parameter>",
-        Pattern.DOTALL
-    );
-    
     private final Map<String, AgentState> agentStates = new ConcurrentHashMap<>();
     private final Map<String, List<ChatMessage>> chatHistories = new ConcurrentHashMap<>();
-    private final Map<String, String> sessionWorkspaces = new ConcurrentHashMap<>();
+    private final Map<String, List<SessionResponse>> sessions = new ConcurrentHashMap<>();
     
     private final LLMProvider llmProvider;
     private final ToolRegistry toolRegistry;
-    private final ObjectMapper objectMapper;
     private final EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private final ObjectMapper objectMapper;
+    private final ToolCallExtractor toolCallExtractor;
     
     /**
-     * Process a chat message and return a response
+     * Process a message and return a response
      */
-    public Flux<ChatResponse> processMessage(ChatRequest request) {
+    public Mono<ChatResponse> processMessage(ChatRequest request) {
         String sessionId = request.getSessionId();
         String message = request.getMessage();
         
         log.info("Processing message for session {}: {}", sessionId, message);
         
-        // Always ensure session exists before proceeding
+        // Ensure session exists
         ensureSessionExists(sessionId);
         
         // Add user message to history
@@ -75,29 +56,22 @@ public class EnhancedChatService {
                 .timestamp(Instant.now().toString())
                 .build());
         
-        // Get agent state or create new one
-        AgentState agentState = agentStates.computeIfAbsent(sessionId, id -> new AgentState());
-        
-        // Create response flux
+        // Generate LLM response
         return llmProvider.streamResponse(message, createChatContext(chatHistories.get(sessionId)))
-                .map(chunk -> {
-                    // Process chunk for tool calls
-                    return processResponseChunk(chunk, sessionId, agentState);
+                .last()
+                .map(response -> {
+                    // Add assistant message to history
+                    chatHistories.get(sessionId).add(ChatMessage.builder()
+                            .role("assistant")
+                            .content(response)
+                            .timestamp(Instant.now().toString())
+                            .build());
+                    
+                    // Return response
+                    return ChatResponse.builder()
+                            .content(response)
+                            .build();
                 });
-    }
-    
-    /**
-     * Ensure a session exists, creating it if necessary
-     */
-    private void ensureSessionExists(String sessionId) {
-        if (sessionId == null || sessionId.isEmpty()) {
-            throw new IllegalArgumentException("Session ID cannot be null or empty");
-        }
-        
-        if (!chatHistories.containsKey(sessionId)) {
-            log.info("Creating new session on demand: {}", sessionId);
-            createSession(sessionId);
-        }
     }
     
     /**
@@ -120,94 +94,30 @@ public class EnhancedChatService {
      */
     private ChatResponse processResponseChunk(String chunk, String sessionId, AgentState agentState) {
         // Log the raw response chunk for debugging
-        log.debug("Raw response chunk for session {}: {}", sessionId, chunk);
+        log.debug("[BREAKPOINT_CHUNK] Raw response chunk for session {}: {}", sessionId, chunk);
         
-        // Check for tool use blocks in the chunk
-        if (chunk.contains("<function_calls>") && chunk.contains("</function_calls>")) {
-            log.info("Found tool use block in response for session {}", sessionId);
+        try {
+            // Use the unified ToolCallExtractor to extract tool calls from any format
+            List<ToolCall> toolCalls = toolCallExtractor.extractToolCalls(chunk);
             
-            // Log the entire chunk containing tool calls for debugging
-            log.debug("Tool use block detected in chunk: {}", chunk);
-            
-            try {
-                // Extract and process tool calls
-                return processAutonomousResponse(chunk, sessionId, agentState);
-            } catch (Exception e) {
-                log.error("Error processing tool call for session {}: {}", sessionId, e.getMessage(), e);
-                return ChatResponse.builder()
-                        .content("Error processing tool call: " + e.getMessage())
-                        .build();
-            }
-        }
-        
-        // Regular response chunk
-        return ChatResponse.builder()
-                .content(chunk)
-                .build();
-    }
-    
-    /**
-     * Process a response containing tool calls
-     */
-    private ChatResponse processAutonomousResponse(String response, String sessionId, AgentState agentState) {
-        // Ensure session exists
-        ensureSessionExists(sessionId);
-        
-        // Log the entire response containing tool calls for debugging
-        log.info("Processing autonomous response for session {}", sessionId);
-        log.debug("Full response with tool calls: {}", response);
-        
-        // Extract tool calls using regex
-        Matcher matcher = TOOL_USE_PATTERN.matcher(response);
-        
-        if (matcher.find()) {
-            // Extract the entire tool call block for logging
-            String fullToolCallBlock = matcher.group(0);
-            log.info("Extracted tool call block for session {}: {}", sessionId, fullToolCallBlock);
-            
-            try {
-                // Extract tool name
-                String toolName = matcher.group(1);
-                log.info("Extracted tool name for session {}: {}", sessionId, toolName);
+            if (!toolCalls.isEmpty()) {
+                // Found at least one tool call, execute the first one
+                ToolCall toolCall = toolCalls.get(0);
+                log.info("[BREAKPOINT_FOUND_TOOL] Found tool call in chunk for session {}: {} with arguments: {}", 
+                        sessionId, toolCall.getName(), toolCall.getArguments());
                 
-                // Extract parameters using separate pattern
-                Map<String, Object> arguments = new HashMap<>();
-                Matcher paramMatcher = PARAMETER_PATTERN.matcher(fullToolCallBlock);
-                
-                while (paramMatcher.find()) {
-                    String paramName = paramMatcher.group(1);
-                    String paramValue = paramMatcher.group(2);
-                    log.debug("Extracted parameter for session {}: {} = {}", sessionId, paramName, paramValue);
-                    arguments.put(paramName, paramValue);
-                }
-                
-                // Log the extracted arguments for debugging
-                log.info("Extracted arguments for tool {} in session {}: {}", toolName, sessionId, arguments);
-                
-                // Check if arguments map is empty
-                if (arguments.isEmpty()) {
-                    log.warn("No arguments extracted for tool {} in session {}", toolName, sessionId);
-                }
-                
-                // Create tool call object
-                ToolCall toolCall = ToolCall.builder()
-                        .name(toolName)
-                        .arguments(arguments)
-                        .build();
-                
-                // Execute tool
+                // Execute the tool call
                 return executeToolCall(toolCall, sessionId, agentState);
-                
-            } catch (Exception e) {
-                log.error("Error parsing tool call for session {}: {}", sessionId, e.getMessage(), e);
-                return ChatResponse.builder()
-                        .content("Error parsing tool call: " + e.getMessage())
-                        .build();
             }
-        } else {
-            log.warn("No tool call found in response for session {} despite function_calls tags", sessionId);
+            
+            // No tool calls found, return the chunk as is
             return ChatResponse.builder()
-                    .content(response)
+                    .content(chunk)
+                    .build();
+        } catch (Exception e) {
+            log.error("[BREAKPOINT_ERROR] Error processing response chunk for session {}: {}", sessionId, e.getMessage(), e);
+            return ChatResponse.builder()
+                    .content("Error processing response: " + e.getMessage())
                     .build();
         }
     }
@@ -222,12 +132,12 @@ public class EnhancedChatService {
         String toolName = toolCall.getName();
         Map<String, Object> arguments = toolCall.getArguments();
         
-        // Log the tool execution attempt
-        log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
+        // Log the tool execution attempt with breakpoint
+        log.info("[BREAKPOINT_EXECUTE_1] Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
         
         // Add null check for arguments
         if (arguments == null) {
-            log.error("Tool arguments are null for tool {} in session {}", toolName, sessionId);
+            log.error("[BREAKPOINT_EXECUTE_ERROR] Tool arguments are null for tool {} in session {}", toolName, sessionId);
             return ChatResponse.builder()
                     .content("Error executing tool: Arguments are null")
                     .build();
@@ -236,13 +146,14 @@ public class EnhancedChatService {
         // Add session ID to arguments if not present
         if (!arguments.containsKey("sessionId")) {
             arguments.put("sessionId", sessionId);
+            log.info("[BREAKPOINT_EXECUTE_2] Added sessionId {} to arguments", sessionId);
         }
         
         try {
             // Get tool from registry
             Tool tool = toolRegistry.getTool(toolName);
             if (tool == null) {
-                log.error("Tool not found: {} for session {}", toolName, sessionId);
+                log.error("[BREAKPOINT_EXECUTE_ERROR] Tool not found: {} for session {}", toolName, sessionId);
                 return ChatResponse.builder()
                         .content("Error: Tool not found: " + toolName)
                         .build();
@@ -259,17 +170,17 @@ public class EnhancedChatService {
                         resultBuilder.append(output.getContent()).append("\n");
                         
                         // Log tool output
-                        log.info("Tool {} output for session {}: {}", toolName, sessionId, output.getContent());
+                        log.info("[BREAKPOINT_EXECUTE_3] Tool {} output for session {}: {}", toolName, sessionId, output.getContent());
                     })
                     .doOnError(error -> {
-                        log.error("Error executing tool {} for session {}: {}", toolName, sessionId, error.getMessage(), error);
+                        log.error("[BREAKPOINT_EXECUTE_ERROR] Error executing tool {} for session {}: {}", toolName, sessionId, error.getMessage(), error);
                         resultBuilder.append("Error: ").append(error.getMessage());
                         
                         // Explicitly ensure the agent continues after tool execution error
                         agentState.setShouldContinue(true);
                     })
                     .doOnComplete(() -> {
-                        log.info("Tool execution complete for session {}", sessionId);
+                        log.info("[BREAKPOINT_EXECUTE_4] Tool execution complete for session {}", sessionId);
                         
                         // Explicitly ensure the agent continues after tool execution
                         agentState.setShouldContinue(true);
@@ -291,7 +202,7 @@ public class EnhancedChatService {
                     .build();
             
         } catch (Exception e) {
-            log.error("Error executing tool {} for session {}: {}", toolName, sessionId, e.getMessage(), e);
+            log.error("[BREAKPOINT_EXECUTE_ERROR] Error executing tool {} for session {}: {}", toolName, sessionId, e.getMessage(), e);
             return ChatResponse.builder()
                     .content("Error executing tool: " + e.getMessage())
                     .build();
@@ -310,6 +221,16 @@ public class EnhancedChatService {
         // Ensure session exists
         ensureSessionExists(sessionId);
         
+        // Create agent state if not exists
+        if (!agentStates.containsKey(sessionId)) {
+            agentStates.put(sessionId, new AgentState());
+        }
+        
+        // Reset agent state
+        AgentState agentState = agentStates.get(sessionId);
+        agentState.setShouldContinue(true);
+        agentState.setIterationCount(0);
+        
         // Add user message to history
         chatHistories.get(sessionId).add(ChatMessage.builder()
                 .role("user")
@@ -317,109 +238,90 @@ public class EnhancedChatService {
                 .timestamp(Instant.now().toString())
                 .build());
         
-        // Create agent state
-        AgentState agentState = new AgentState();
-        agentState.setRunning(true);
-        agentState.setShouldContinue(true);
-        agentState.setIterationCount(0);
-        agentStates.put(sessionId, agentState);
-        
-        // Create response sink
-        Sinks.Many<ChatResponse> sink = Sinks.many().multicast().onBackpressureBuffer();
-        
-        // Start autonomous loop in separate thread
-        Thread autonomousThread = new Thread(() -> {
-            try {
-                // Loop until completion or max iterations
-                while (agentState.isRunning() && agentState.getShouldContinue() && 
-                       agentState.getIterationCount() < MAX_AUTONOMOUS_ITERATIONS) {
-                    
-                    // Reset continuation flag
-                    agentState.setShouldContinue(false);
-                    
-                    // Increment iteration count
-                    agentState.setIterationCount(agentState.getIterationCount() + 1);
-                    
-                    log.info("Autonomous iteration {} for session {}", agentState.getIterationCount(), sessionId);
-                    
-                    // Generate LLM response
-                    llmProvider.streamResponse(message, createChatContext(chatHistories.get(sessionId)))
-                            .doOnNext(chunk -> {
-                                // Process chunk
-                                ChatResponse response = processResponseChunk(chunk, sessionId, agentState);
-                                
-                                // Emit response
-                                sink.tryEmitNext(response);
-                            })
-                            .doOnComplete(() -> {
-                                log.info("LLM response complete for session {}", sessionId);
-                                
-                                // Continue loop if no tool calls were found
-                                if (!agentState.getShouldContinue()) {
-                                    log.info("No tool calls found, completing autonomous loop for session {}", sessionId);
-                                    agentState.setRunning(false);
-                                }
-                            })
-                            .doOnError(error -> {
-                                log.error("Error in autonomous loop for session {}: {}", sessionId, error.getMessage(), error);
-                                agentState.setRunning(false);
-                                sink.tryEmitError(error);
-                            })
-                            .blockLast();
-                    
-                    // Check if max iterations reached
-                    if (agentState.getIterationCount() >= MAX_AUTONOMOUS_ITERATIONS) {
-                        log.warn("Max iterations reached for session {}", sessionId);
-                        agentState.setRunning(false);
-                        sink.tryEmitNext(ChatResponse.builder()
-                                .content("Max iterations reached, stopping autonomous execution")
-                                .build());
-                    }
-                }
-                
-                // Complete sink when done
-                log.info("Autonomous loop complete for session {}", sessionId);
-                sink.tryEmitComplete();
-                
-            } catch (Exception e) {
-                log.error("Error in autonomous thread for session {}: {}", sessionId, e.getMessage(), e);
-                sink.tryEmitError(e);
-            }
+        // Create a flux for the autonomous loop
+        return Flux.create(sink -> {
+            // Start the autonomous loop
+            executeAutonomousStep(sessionId, message, agentState, sink);
         });
-        
-        // Start thread
-        autonomousThread.start();
-        
-        // Return flux from sink
-        return sink.asFlux();
     }
     
     /**
-     * Create a new session with provided ID
+     * Execute a single step in the autonomous loop
      */
-    public void createSession(String sessionId) {
-        log.info("Created new session: {}", sessionId);
-        chatHistories.put(sessionId, new ArrayList<>());
-        
-        // Create workspace directory
-        String workspacePath = "/tmp/ai-developer-agent/" + sessionId;
-        sessionWorkspaces.put(sessionId, workspacePath);
-        
-        try {
-            java.nio.file.Files.createDirectories(java.nio.file.Path.of(workspacePath));
-            log.info("Created workspace directory for session {}: {}", workspacePath, sessionId);
-        } catch (Exception e) {
-            log.error("Error creating workspace directory for session {}: {}", sessionId, e.getMessage(), e);
+    private void executeAutonomousStep(String sessionId, String message, AgentState agentState, reactor.core.publisher.FluxSink<ChatResponse> sink) {
+        // Check if we should continue
+        if (!agentState.getShouldContinue() || agentState.getIterationCount() >= MAX_AUTONOMOUS_ITERATIONS) {
+            log.info("Autonomous execution complete for session {}", sessionId);
+            sink.complete();
+            return;
         }
+        
+        // Increment iteration count
+        agentState.setIterationCount(agentState.getIterationCount() + 1);
+        
+        // Generate LLM response
+        llmProvider.streamResponse(message, createChatContext(chatHistories.get(sessionId)))
+                .subscribe(
+                        chunk -> {
+                            // Process the chunk
+                            ChatResponse response = processResponseChunk(chunk, sessionId, agentState);
+                            
+                            // Send the response to the client
+                            sink.next(response);
+                            
+                            // Add assistant message to history if not a tool call
+                            if (response.getToolName() == null) {
+                                chatHistories.get(sessionId).add(ChatMessage.builder()
+                                        .role("assistant")
+                                        .content(response.getContent())
+                                        .timestamp(Instant.now().toString())
+                                        .build());
+                            }
+                        },
+                        error -> {
+                            log.error("Error in autonomous execution for session {}: {}", sessionId, error.getMessage(), error);
+                            sink.error(error);
+                        },
+                        () -> {
+                            // Continue the autonomous loop if needed
+                            if (agentState.getShouldContinue()) {
+                                // Get the last message from the chat history
+                                ChatMessage lastMessage = chatHistories.get(sessionId).get(chatHistories.get(sessionId).size() - 1);
+                                
+                                // Continue the autonomous loop with the last message
+                                executeAutonomousStep(sessionId, lastMessage.getContent(), agentState, sink);
+                            } else {
+                                log.info("Autonomous execution complete for session {}", sessionId);
+                                sink.complete();
+                            }
+                        }
+                );
     }
     
     /**
-     * Create a new session with generated ID
+     * Create a new session
      */
     public Mono<SessionResponse> createSession() {
+        // Generate a random session ID
         String sessionId = UUID.randomUUID().toString();
-        createSession(sessionId);
         
+        log.info("Creating new session: {}", sessionId);
+        
+        // Initialize chat history
+        chatHistories.put(sessionId, new ArrayList<>());
+        
+        // Initialize sessions map if not exists
+        if (!sessions.containsKey("all")) {
+            sessions.put("all", new ArrayList<>());
+        }
+        
+        // Add session to list
+        sessions.get("all").add(SessionResponse.builder()
+                .sessionId(sessionId)
+                .created(Instant.now())
+                .build());
+        
+        // Return session
         return Mono.just(SessionResponse.builder()
                 .sessionId(sessionId)
                 .created(Instant.now())
@@ -430,16 +332,13 @@ public class EnhancedChatService {
      * Get all sessions
      */
     public Mono<List<SessionResponse>> getSessions() {
-        List<SessionResponse> sessions = new ArrayList<>();
-        
-        for (String sessionId : chatHistories.keySet()) {
-            sessions.add(SessionResponse.builder()
-                    .sessionId(sessionId)
-                    .created(Instant.now()) // Using current time as placeholder
-                    .build());
+        // Initialize sessions map if not exists
+        if (!sessions.containsKey("all")) {
+            sessions.put("all", new ArrayList<>());
         }
         
-        return Mono.just(sessions);
+        // Return all sessions
+        return Mono.just(sessions.get("all"));
     }
     
     /**
@@ -447,72 +346,56 @@ public class EnhancedChatService {
      */
     public Mono<Void> deleteSession(String sessionId) {
         log.info("Deleting session: {}", sessionId);
-        chatHistories.remove(sessionId);
-        agentStates.remove(sessionId);
-        sessionWorkspaces.remove(sessionId);
         
+        // Remove chat history
+        chatHistories.remove(sessionId);
+        
+        // Remove agent state
+        agentStates.remove(sessionId);
+        
+        // Remove session from list
+        if (sessions.containsKey("all")) {
+            sessions.get("all").removeIf(s -> s.getSessionId().equals(sessionId));
+        }
+        
+        // Return empty mono
         return Mono.empty();
     }
     
     /**
-     * Register an existing session
-     */
-    public void registerSession(String sessionId, List<ChatMessage> history) {
-        log.info("Registering existing session: {}", sessionId);
-        chatHistories.put(sessionId, history);
-        
-        // Create workspace directory if it doesn't exist
-        String workspacePath = "/tmp/ai-developer-agent/" + sessionId;
-        sessionWorkspaces.put(sessionId, workspacePath);
-        
-        try {
-            java.nio.file.Files.createDirectories(java.nio.file.Path.of(workspacePath));
-            log.info("Created workspace directory for session {}: {}", workspacePath, sessionId);
-        } catch (Exception e) {
-            log.error("Error creating workspace directory for session {}: {}", sessionId, e.getMessage(), e);
-        }
-    }
-    
-    /**
-     * Get chat history for a session
-     */
-    public List<ChatMessage> getChatHistory(String sessionId) {
-        ensureSessionExists(sessionId);
-        return chatHistories.getOrDefault(sessionId, new ArrayList<>());
-    }
-    
-    /**
-     * Get session history as ChatResponse list
+     * Get session history
+     * This method was restored to maintain API compatibility with ChatController
      */
     public Mono<List<ChatResponse>> getSessionHistory(String sessionId) {
-        ensureSessionExists(sessionId);
-        List<ChatMessage> history = getChatHistory(sessionId);
-        List<ChatResponse> responses = history.stream()
-                .map(msg -> ChatResponse.builder()
-                        .content(msg.getContent())
-                        .role(msg.getRole())
-                        .timestamp(Instant.now()) // Using current time as placeholder
-                        .sessionId(sessionId)
-                        .build())
-                .collect(Collectors.toList());
-        
-        return Mono.just(responses);
-    }
-    
-    /**
-     * Execute a tool directly
-     */
-    public Flux<ToolCallResponse> executeTool(String sessionId, String toolName, Map<String, Object> arguments) {
-        log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
+        log.info("[API] Getting history for session: {}", sessionId);
         
         // Ensure session exists
         ensureSessionExists(sessionId);
         
-        // Add null check for arguments
-        if (arguments == null) {
-            log.error("Tool arguments are null for tool {} in session {}", toolName, sessionId);
-            return Flux.error(new IllegalArgumentException("Arguments cannot be null"));
+        // Convert chat history to chat responses
+        List<ChatResponse> history = new ArrayList<>();
+        
+        for (ChatMessage msg : chatHistories.get(sessionId)) {
+            ChatResponse response = ChatResponse.builder()
+                    .content(msg.getContent())
+                    .role(msg.getRole())
+                    // Skip timestamp to avoid type conversion issues
+                    .build();
+            history.add(response);
         }
+        
+        return Mono.just(history);
+    }
+    
+    /**
+     * Execute a specific tool
+     * This method was restored to maintain API compatibility with ChatController
+     */
+    public Flux<ToolCallResponse> executeTool(String sessionId, String toolName, Map<String, Object> arguments) {
+        log.info("[API] Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
+        
+        // Ensure session exists
+        ensureSessionExists(sessionId);
         
         // Add session ID to arguments if not present
         if (!arguments.containsKey("sessionId")) {
@@ -523,8 +406,8 @@ public class EnhancedChatService {
             // Get tool from registry
             Tool tool = toolRegistry.getTool(toolName);
             if (tool == null) {
-                log.error("Tool not found: {} for session {}", toolName, sessionId);
-                return Flux.error(new IllegalArgumentException("Tool not found: " + toolName));
+                log.error("[API] Tool not found: {} for session {}", toolName, sessionId);
+                return Flux.error(new RuntimeException("Tool not found: " + toolName));
             }
             
             // Execute tool and map results to ToolCallResponse
@@ -534,27 +417,48 @@ public class EnhancedChatService {
                         webSocketHandler.sendToolOutput(sessionId, output);
                         
                         // Log tool output
-                        log.info("Tool {} output for session {}: {}", toolName, sessionId, output.getContent());
+                        log.info("[API] Tool {} output for session {}: {}", toolName, sessionId, output.getContent());
                         
-                        // Map to ToolCallResponse
+                        // Return tool call response
                         return ToolCallResponse.builder()
                                 .toolName(toolName)
                                 .result(output.getContent())
                                 .metadata(output.getMetadata())
                                 .build();
+                    })
+                    .doOnError(error -> {
+                        log.error("[API] Error executing tool {} for session {}: {}", toolName, sessionId, error.getMessage(), error);
                     });
             
         } catch (Exception e) {
-            log.error("Error executing tool {} for session {}: {}", toolName, sessionId, e.getMessage(), e);
+            log.error("[API] Error executing tool {} for session {}: {}", toolName, sessionId, e.getMessage(), e);
             return Flux.error(e);
         }
     }
     
     /**
-     * Get workspace path for a session
+     * Ensure a session exists
      */
-    public String getSessionWorkspace(String sessionId) {
-        ensureSessionExists(sessionId);
-        return sessionWorkspaces.getOrDefault(sessionId, "/tmp/ai-developer-agent/" + sessionId);
+    private void ensureSessionExists(String sessionId) {
+        // Initialize chat history if not exists
+        if (!chatHistories.containsKey(sessionId)) {
+            chatHistories.put(sessionId, new ArrayList<>());
+        }
+        
+        // Initialize sessions map if not exists
+        if (!sessions.containsKey("all")) {
+            sessions.put("all", new ArrayList<>());
+        }
+        
+        // Add session to list if not exists
+        boolean sessionExists = sessions.get("all").stream()
+                .anyMatch(s -> s.getSessionId().equals(sessionId));
+        
+        if (!sessionExists) {
+            sessions.get("all").add(SessionResponse.builder()
+                    .sessionId(sessionId)
+                    .created(Instant.now())
+                    .build());
+        }
     }
 }
