@@ -92,8 +92,16 @@ public class TaskExecutorService {
                 "path", targetDir
             )));
             
+            // Convert context map to string-only variables for template
+            Map<String, String> stringTemplateVariables = new HashMap<>();
+            for (Map.Entry<String, Object> entry : templateVariables.entrySet()) {
+                if (entry.getValue() != null) {
+                    stringTemplateVariables.put(entry.getKey(), entry.getValue().toString());
+                }
+            }
+            
             // Apply template via ProjectTemplateManager
-            projectTemplateManager.applyTemplate(sessionId, templateId, targetDir, templateVariables);
+            projectTemplateManager.applyTemplate(sessionId, templateId, targetDir, stringTemplateVariables);
             
         } catch (Exception e) {
             log.warn("Failed to apply template '{}', falling back to manual setup: {}", templateId, e.getMessage());
