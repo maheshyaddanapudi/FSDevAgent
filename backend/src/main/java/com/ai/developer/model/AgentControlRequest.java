@@ -5,11 +5,15 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Request model for agent control operations
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ChatRequest {
-    private String sessionId;
-    private String message;
+public class AgentControlRequest {
+    private String objective;
+    private String mode;
+    private Integer maxIterations;
 }

@@ -1,117 +1,90 @@
 package com.ai.developer.controller;
 
+import com.ai.developer.model.AgentControlRequest;
+import com.ai.developer.model.AgentState;
 import com.ai.developer.model.TaskMemory;
 import com.ai.developer.service.AgentControlService;
+import com.ai.developer.service.autonomous.AutonomousAgentService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
 
 /**
- * REST controller for agent control operations
- * Provides endpoints for pausing, resuming, and stepping through agent execution
+ * Controller for agent control operations
+ * Provides endpoints for pausing, resuming, and monitoring autonomous agent execution
  */
 @RestController
-@RequestMapping("/api/agent/control")
+@RequestMapping("/api/agent")
+@CrossOrigin(origins = "*")
 @Slf4j
 public class AgentControlController {
 
     private final AgentControlService agentControlService;
+    private final AutonomousAgentService autonomousAgentService;
 
-    public AgentControlController(AgentControlService agentControlService) {
+    public AgentControlController(AgentControlService agentControlService,
+                                AutonomousAgentService autonomousAgentService) {
         this.agentControlService = agentControlService;
+        this.autonomousAgentService = autonomousAgentService;
         log.info("AgentControlController initialized");
+    }
+
+    /**
+     * Start autonomous execution for a session
+     */
+    @PostMapping("/start/{sessionId}")
+    public Flux<Map<String, Object>> startAutonomousExecution(
+            @PathVariable String sessionId,
+            @RequestBody AgentControlRequest request) {
+        log.info("Starting autonomous execution for session {} with objective: {}", 
+                sessionId, request.getObjective());
+        return autonomousAgentService.startAutonomousExecution(sessionId, request.getObjective());
     }
 
     /**
      * Pause agent execution
      */
-    @PostMapping("/{sessionId}/pause")
-    public Mono<ResponseEntity<Map<String, Object>>> pauseExecution(@PathVariable String sessionId) {
-        log.info("REST request to pause execution for session: {}", sessionId);
-        
+    @PostMapping("/pause/{sessionId}")
+    public Mono<ResponseEntity<Boolean>> pauseExecution(@PathVariable String sessionId) {
+        log.info("Pausing execution for session: {}", sessionId);
         return agentControlService.pauseExecution(sessionId)
-                .map(success -> {
-                    if (success) {
-                        return ResponseEntity.ok(Map.of(
-                            "success", true,
-                            "message", "Execution paused",
-                            "sessionId", sessionId
-                        ));
-                    } else {
-                        return ResponseEntity.badRequest().body(Map.of(
-                            "success", false,
-                            "message", "Failed to pause execution",
-                            "sessionId", sessionId
-                        ));
-                    }
-                });
+                .map(result -> ResponseEntity.ok(result));
     }
 
     /**
      * Resume agent execution
      */
-    @PostMapping("/{sessionId}/resume")
-    public Mono<ResponseEntity<Map<String, Object>>> resumeExecution(@PathVariable String sessionId) {
-        log.info("REST request to resume execution for session: {}", sessionId);
-        
+    @PostMapping("/resume/{sessionId}")
+    public Mono<ResponseEntity<Boolean>> resumeExecution(@PathVariable String sessionId) {
+        log.info("Resuming execution for session: {}", sessionId);
         return agentControlService.resumeExecution(sessionId)
-                .map(success -> {
-                    if (success) {
-                        return ResponseEntity.ok(Map.of(
-                            "success", true,
-                            "message", "Execution resumed",
-                            "sessionId", sessionId
-                        ));
-                    } else {
-                        return ResponseEntity.badRequest().body(Map.of(
-                            "success", false,
-                            "message", "Failed to resume execution",
-                            "sessionId", sessionId
-                        ));
-                    }
-                });
+                .map(result -> ResponseEntity.ok(result));
     }
 
     /**
      * Step through agent execution
      */
-    @PostMapping("/{sessionId}/step")
-    public Mono<ResponseEntity<Map<String, Object>>> stepExecution(@PathVariable String sessionId) {
-        log.info("REST request to step execution for session: {}", sessionId);
-        
+    @PostMapping("/step/{sessionId}")
+    public Mono<ResponseEntity<Boolean>> stepExecution(@PathVariable String sessionId) {
+        log.info("Stepping execution for session: {}", sessionId);
         return agentControlService.stepExecution(sessionId)
-                .map(success -> {
-                    if (success) {
-                        return ResponseEntity.ok(Map.of(
-                            "success", true,
-                            "message", "Execution stepped",
-                            "sessionId", sessionId
-                        ));
-                    } else {
-                        return ResponseEntity.badRequest().body(Map.of(
-                            "success", false,
-                            "message", "Failed to step execution",
-                            "sessionId", sessionId
-                        ));
-                    }
-                });
+                .map(result -> ResponseEntity.ok(result));
     }
 
     /**
      * Get agent state
      */
-    @GetMapping("/{sessionId}/state")
+    @GetMapping("/state/{sessionId}")
     public ResponseEntity<TaskMemory> getAgentState(@PathVariable String sessionId) {
-        log.info("REST request to get agent state for session: {}", sessionId);
-        
+        log.info("Getting agent state for session: {}", sessionId);
         TaskMemory state = agentControlService.getAgentState(sessionId);
-        if (state != null) {
-            return ResponseEntity.ok(state);
-        } else {
+        if (state == null) {
             return ResponseEntity.notFound().build();
         }
+        return ResponseEntity.ok(state);
     }
 }
