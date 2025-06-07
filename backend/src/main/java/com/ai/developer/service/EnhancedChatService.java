@@ -143,11 +143,10 @@ public class EnhancedChatService {
                     .build();
         }
         
-        // Add session ID to arguments if not present
-        if (!arguments.containsKey("sessionId")) {
-            arguments.put("sessionId", sessionId);
-            log.info("[BREAKPOINT_EXECUTE_2] Added sessionId {} to arguments", sessionId);
-        }
+        // CRITICAL FIX: Always ensure sessionId is present in arguments
+        // This ensures consistent workspace context across all tool executions
+        arguments.put("sessionId", sessionId);
+        log.info("[BREAKPOINT_EXECUTE_2] Ensured sessionId {} is in arguments. Final arguments: {}", sessionId, arguments);
         
         try {
             // Get tool from registry
@@ -258,9 +257,20 @@ public class EnhancedChatService {
         
         // Increment iteration count
         agentState.setIterationCount(agentState.getIterationCount() + 1);
+        log.info("[AUTONOMOUS_LOOP] Starting iteration {} for session {}", agentState.getIterationCount(), sessionId);
+        
+        // Add explicit continuation prompt if this is not the first iteration
+        String promptMessage = message;
+        if (agentState.getIterationCount() > 1) {
+            // Add explicit continuation prompt to encourage the agent to continue
+            promptMessage = "Continue with the task. If you executed a tool in the previous step, " +
+                    "use the tool result to make progress. If you need to execute another tool, do so. " +
+                    "If the task is complete, summarize what you've done.\n\n" + message;
+            log.info("[AUTONOMOUS_LOOP] Added continuation prompt for session {}", sessionId);
+        }
         
         // Generate LLM response
-        llmProvider.streamResponse(message, createChatContext(chatHistories.get(sessionId)))
+        llmProvider.streamResponse(promptMessage, createChatContext(chatHistories.get(sessionId)))
                 .subscribe(
                         chunk -> {
                             // Process the chunk
@@ -277,21 +287,42 @@ public class EnhancedChatService {
                                         .timestamp(Instant.now().toString())
                                         .build());
                             }
+                            
+                            // CRITICAL FIX: If this was a tool call response, explicitly set shouldContinue to true
+                            // to ensure the autonomous loop continues after tool execution
+                            if (response.getToolName() != null) {
+                                log.info("[AUTONOMOUS_LOOP] Tool {} executed, explicitly setting shouldContinue=true for session {}", 
+                                        response.getToolName(), sessionId);
+                                agentState.setShouldContinue(true);
+                            }
                         },
                         error -> {
                             log.error("Error in autonomous execution for session {}: {}", sessionId, error.getMessage(), error);
                             sink.error(error);
                         },
                         () -> {
+                            // CRITICAL FIX: Add a small delay before continuing to ensure all processing is complete
+                            try {
+                                Thread.sleep(500);
+                            } catch (InterruptedException e) {
+                                log.warn("Sleep interrupted in autonomous loop for session {}", sessionId);
+                            }
+                            
                             // Continue the autonomous loop if needed
                             if (agentState.getShouldContinue()) {
+                                log.info("[AUTONOMOUS_LOOP] Continuing autonomous loop for session {}, iteration {}", 
+                                        sessionId, agentState.getIterationCount() + 1);
+                                
                                 // Get the last message from the chat history
                                 ChatMessage lastMessage = chatHistories.get(sessionId).get(chatHistories.get(sessionId).size() - 1);
                                 
+                                // Add tool result to the message if the last response was a tool call
+                                String nextMessage = lastMessage.getContent();
+                                
                                 // Continue the autonomous loop with the last message
-                                executeAutonomousStep(sessionId, lastMessage.getContent(), agentState, sink);
+                                executeAutonomousStep(sessionId, nextMessage, agentState, sink);
                             } else {
-                                log.info("Autonomous execution complete for session {}", sessionId);
+                                log.info("[AUTONOMOUS_LOOP] Autonomous execution complete for session {}", sessionId);
                                 sink.complete();
                             }
                         }

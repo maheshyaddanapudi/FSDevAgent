@@ -1278,9 +1278,13 @@ public class PlanningTool implements Tool {
     
     /**
      * Get the next autonomous action based on current plan state
+     * CRITICAL FIX: Enhanced with implementation guidance and continuation prompts
      */
     private ToolOutput getNextAutonomousAction(Map<String, Object> arguments) {
         String planId = (String) arguments.getOrDefault("planId", currentPlanId);
+        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        
+        log.info("[PLANNING_TOOL] Getting next autonomous action for plan: {}, session: {}", planId, sessionId);
         
         if (planId == null || !activePlans.containsKey(planId)) {
             return createErrorOutput("No active plan found");
@@ -1288,6 +1292,12 @@ public class PlanningTool implements Tool {
         
         Plan plan = activePlans.get(planId);
         PlanningContext context = planningContexts.get(planId);
+        
+        // Ensure context has sessionId
+        if (context.getSessionId() == null || context.getSessionId().isEmpty()) {
+            context.setSessionId(sessionId);
+            log.info("[PLANNING_TOOL] Updated context with sessionId: {}", sessionId);
+        }
         
         // Find next actionable task
         Task nextTask = findNextActionableTask(plan);
@@ -1311,7 +1321,26 @@ public class PlanningTool implements Tool {
         String actionType = determineActionType(nextTask);
         String actionDescription = generateActionDescription(nextTask, actionType);
         
-        // Generate report
+        // CRITICAL FIX: Generate implementation guidance based on task type
+        String implementationGuidance = "### Implementation Steps\n" +
+                "1. Review the task description carefully\n" +
+                "2. Use appropriate tools for implementation\n" +
+                "3. Test your implementation\n" +
+                "4. Update the task status when complete\n\n" +
+                "### Workspace Information\n" +
+                "- Working directory: " + context.getWorkspacePath() + "\n" +
+                "- Session ID: " + context.getSessionId() + "\n\n" +
+                "### Important Notes\n" +
+                "- Always include sessionId in tool arguments\n" +
+                "- Use absolute paths when working with files\n" +
+                "- Report progress after completing significant steps";
+        
+        // CRITICAL FIX: Add explicit continuation prompt
+        String continuationPrompt = "Continue with the implementation of this task. " +
+                "Use the appropriate tools to execute the necessary actions. " +
+                "After completing this task, check the plan for the next task.";
+        
+        // Generate enhanced report with implementation guidance
         StringBuilder report = new StringBuilder();
         report.append("# Next Recommended Action\n\n");
         
@@ -1324,8 +1353,19 @@ public class PlanningTool implements Tool {
         report.append("- **Action Type**: ").append(actionType).append("\n");
         report.append("- **Action**: ").append(actionDescription).append("\n\n");
         
+        // CRITICAL FIX: Add implementation guidance section
+        report.append("## Implementation Guidance\n\n");
+        report.append(implementationGuidance).append("\n\n");
+        
         report.append("## Workspace Information\n\n");
         report.append("- **Workspace Path**: ").append(context.getWorkspacePath()).append("\n");
+        report.append("- **Session ID**: ").append(context.getSessionId()).append("\n\n");
+        
+        // CRITICAL FIX: Add continuation prompt section
+        report.append("## Next Steps\n\n");
+        report.append(continuationPrompt).append("\n");
+        
+        log.info("[PLANNING_TOOL] Generated enhanced next action with implementation guidance for task: {}", nextTask.getTitle());
         
         return ToolOutput.builder()
                 .type("next_action")
@@ -1333,7 +1373,9 @@ public class PlanningTool implements Tool {
                 .metadata(Map.of(
                         "taskId", nextTask.getId(),
                         "actionType", actionType,
-                        "workspacePath", context.getWorkspacePath()
+                        "workspacePath", context.getWorkspacePath(),
+                        "sessionId", context.getSessionId(),
+                        "shouldContinue", true  // Explicit flag to ensure autonomous continuation
                 ))
                 .build();
     }
