@@ -28,12 +28,18 @@ public class TaskExecutorService {
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
     private final ToolOutputWebSocketHandler webSocketHandler;
+    private final CodeGenerationService codeGenerationService;
+    private final ProjectTemplateManager projectTemplateManager;
     
     public TaskExecutorService(ToolRegistry toolRegistry, ObjectMapper objectMapper, 
-                             ToolOutputWebSocketHandler webSocketHandler) {
+                             ToolOutputWebSocketHandler webSocketHandler,
+                             CodeGenerationService codeGenerationService,
+                             ProjectTemplateManager projectTemplateManager) {
         this.toolRegistry = toolRegistry;
         this.objectMapper = objectMapper;
         this.webSocketHandler = webSocketHandler;
+        this.codeGenerationService = codeGenerationService;
+        this.projectTemplateManager = projectTemplateManager;
     }
     
     /**
@@ -63,51 +69,78 @@ public class TaskExecutorService {
         String projectName = (String) context.getOrDefault("projectName", "myapp");
         String projectType = (String) context.getOrDefault("projectType", "fullstack");
         String workspacePath = (String) context.get("workspacePath");
+        String templateId = (String) context.getOrDefault("templateId", projectType);
         
         List<ToolInvocation> toolSequence = new ArrayList<>();
         
-        // Create project structure
-        toolSequence.add(new ToolInvocation("file_system", Map.of(
-            "operation", "mkdir",
-            "path", projectName
-        )));
-        
-        // Create subdirectories based on project type
-        if ("fullstack".equals(projectType) || "backend".equals(projectType)) {
+        // Use ProjectTemplateManager to apply template if available
+        try {
+            Map<String, Object> templateVariables = new HashMap<>();
+            templateVariables.put("projectName", projectName);
+            templateVariables.put("projectType", projectType);
+            templateVariables.putAll(context);
+            
+            // Apply template using ProjectTemplateManager
+            String sessionId = (String) context.get("sessionId");
+            String targetDir = workspacePath + "/" + projectName;
+            
+            log.info("Applying project template '{}' to directory: {}", templateId, targetDir);
+            
+            // Ensure target directory exists
             toolSequence.add(new ToolInvocation("file_system", Map.of(
                 "operation", "mkdir",
-                "path", projectName + "/backend"
+                "path", targetDir
             )));
+            
+            // Apply template via ProjectTemplateManager
+            projectTemplateManager.applyTemplate(sessionId, templateId, targetDir, templateVariables);
+            
+        } catch (Exception e) {
+            log.warn("Failed to apply template '{}', falling back to manual setup: {}", templateId, e.getMessage());
+            
+            // Fallback to manual project structure creation
             toolSequence.add(new ToolInvocation("file_system", Map.of(
                 "operation", "mkdir",
-                "path", projectName + "/backend/src"
+                "path", projectName
+            )));
+            
+            // Create subdirectories based on project type
+            if ("fullstack".equals(projectType) || "backend".equals(projectType)) {
+                toolSequence.add(new ToolInvocation("file_system", Map.of(
+                    "operation", "mkdir",
+                    "path", projectName + "/backend"
+                )));
+                toolSequence.add(new ToolInvocation("file_system", Map.of(
+                    "operation", "mkdir",
+                    "path", projectName + "/backend/src"
+                )));
+            }
+            
+            if ("fullstack".equals(projectType) || "frontend".equals(projectType)) {
+                toolSequence.add(new ToolInvocation("file_system", Map.of(
+                    "operation", "mkdir",
+                    "path", projectName + "/frontend"
+                )));
+                toolSequence.add(new ToolInvocation("file_system", Map.of(
+                    "operation", "mkdir",
+                    "path", projectName + "/frontend/src"
+                )));
+            }
+            
+            // Initialize git repository
+            toolSequence.add(new ToolInvocation("git_operations", Map.of(
+                "operation", "init",
+                "path", projectName
+            )));
+            
+            // Create README
+            String readmeContent = generateReadme(projectName, projectType);
+            toolSequence.add(new ToolInvocation("file_system", Map.of(
+                "operation", "write",
+                "path", projectName + "/README.md",
+                "content", readmeContent
             )));
         }
-        
-        if ("fullstack".equals(projectType) || "frontend".equals(projectType)) {
-            toolSequence.add(new ToolInvocation("file_system", Map.of(
-                "operation", "mkdir",
-                "path", projectName + "/frontend"
-            )));
-            toolSequence.add(new ToolInvocation("file_system", Map.of(
-                "operation", "mkdir",
-                "path", projectName + "/frontend/src"
-            )));
-        }
-        
-        // Initialize git repository
-        toolSequence.add(new ToolInvocation("git_operations", Map.of(
-            "operation", "init",
-            "path", projectName
-        )));
-        
-        // Create README
-        String readmeContent = generateReadme(projectName, projectType);
-        toolSequence.add(new ToolInvocation("file_system", Map.of(
-            "operation", "write",
-            "path", projectName + "/README.md",
-            "content", readmeContent
-        )));
         
         return executeToolSequence(toolSequence, context);
     }
@@ -289,24 +322,29 @@ public class TaskExecutorService {
         
         List<ToolInvocation> toolSequence = new ArrayList<>();
         
-        // Generate component
-        String component = generateReactComponent(componentName, componentType, context);
+        // Use CodeGenerationService to generate component
+        Map<String, Object> codeContext = new HashMap<>();
+        codeContext.put("name", componentName);
+        codeContext.put("type", componentType);
+        codeContext.putAll(context);
+        
+        String component = codeGenerationService.generateCode("react-component", codeContext);
         toolSequence.add(new ToolInvocation("file_system", Map.of(
             "operation", "write",
             "path", projectPath + "/frontend/src/components/" + componentName + ".tsx",
             "content", component
         )));
         
-        // Generate component styles
-        String styles = generateComponentStyles(componentName);
+        // Generate component styles using CodeGenerationService
+        String styles = codeGenerationService.generateCode("react-styles", codeContext);
         toolSequence.add(new ToolInvocation("file_system", Map.of(
             "operation", "write",
             "path", projectPath + "/frontend/src/components/" + componentName + ".css",
             "content", styles
         )));
         
-        // Generate component test
-        String test = generateComponentTest(componentName);
+        // Generate component test using CodeGenerationService
+        String test = codeGenerationService.generateCode("react-test", codeContext);
         toolSequence.add(new ToolInvocation("file_system", Map.of(
             "operation", "write",
             "path", projectPath + "/frontend/src/components/" + componentName + ".test.tsx",

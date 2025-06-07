@@ -11,6 +11,7 @@ import com.ai.developer.model.TaskMemory;
 import com.ai.developer.service.AgentControlService;
 import com.ai.developer.service.AgentPromptService;
 import com.ai.developer.service.EnhancedChatService;
+import com.ai.developer.service.TaskExecutorService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ public class AutonomousAgentService {
     private final EnhancedChatService enhancedChatService;
     private final AgentPromptService agentPromptService;
     private final AgentControlService agentControlService;
+    private final TaskExecutorService taskExecutorService;
     private final EnhancedToolOutputWebSocketHandler webSocketHandler;
     private final ConcurrentHashMap<String, AgentState> agentStates;
     
@@ -51,11 +53,13 @@ public class AutonomousAgentService {
     public AutonomousAgentService(EnhancedChatService enhancedChatService,
                                  AgentPromptService agentPromptService,
                                  AgentControlService agentControlService,
+                                 TaskExecutorService taskExecutorService,
                                  EnhancedToolOutputWebSocketHandler webSocketHandler,
                                  ConcurrentHashMap<String, AgentState> agentStates) {
         this.enhancedChatService = enhancedChatService;
         this.agentPromptService = agentPromptService;
         this.agentControlService = agentControlService;
+        this.taskExecutorService = taskExecutorService;
         this.webSocketHandler = webSocketHandler;
         this.agentStates = agentStates;
         log.info("AutonomousAgentService initialized with max iterations: {}", maxIterations);
@@ -259,8 +263,79 @@ public class AutonomousAgentService {
                    "\n\nPlease use the planning_tool to create a hierarchical plan with tasks, dependencies, and estimated effort.";
         }
         
+        // For subsequent iterations, check if we have a task to execute
+        if (agentState.getPendingTasks() != null && !agentState.getPendingTasks().isEmpty()) {
+            String nextTask = agentState.getPendingTasks().get(0);
+            
+            // Execute the task using TaskExecutorService
+            try {
+                Map<String, Object> context = new HashMap<>();
+                context.put("sessionId", agentState.getSessionId());
+                context.put("objective", agentState.getCurrentObjective());
+                context.put("phase", agentState.getCurrentPhase().toString());
+                context.put("workspacePath", DEFAULT_WORKSPACE_PATH + "/" + agentState.getSessionId());
+                
+                // Determine task type and description
+                String taskType = extractTaskType(nextTask);
+                String taskDescription = nextTask;
+                
+                log.info("Executing task via TaskExecutorService: {} - {}", taskType, taskDescription);
+                
+                // Execute task asynchronously
+                taskExecutorService.executeTask(taskType, taskDescription, context)
+                    .subscribe(
+                        output -> {
+                            log.info("Task execution output: {}", output);
+                            // Update agent state with task progress
+                            updateAgentState(agentState.getSessionId(), "TASK_PROGRESS", output.toString());
+                        },
+                        error -> {
+                            log.error("Error executing task: {}", error.getMessage());
+                            // Update agent state with error
+                            updateAgentState(agentState.getSessionId(), "TASK_ERROR", error.getMessage());
+                        },
+                        () -> {
+                            log.info("Task execution completed");
+                            // Mark task as complete
+                            updateAgentState(agentState.getSessionId(), "TASK_COMPLETE", nextTask);
+                        }
+                    );
+            } catch (Exception e) {
+                log.error("Failed to execute task: {}", e.getMessage());
+            }
+        }
+        
         // For subsequent iterations, use the ReAct prompt
         return agentPromptService.generateReActPrompt(agentState);
+    }
+    
+    private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
+    
+    /**
+     * Extract task type from task description
+     */
+    private String extractTaskType(String taskDescription) {
+        // Simple heuristic to determine task type from description
+        taskDescription = taskDescription.toLowerCase();
+        
+        if (taskDescription.contains("setup") || taskDescription.contains("initialize")) {
+            return "setup_project";
+        } else if (taskDescription.contains("backend") || taskDescription.contains("api")) {
+            return "create_backend";
+        } else if (taskDescription.contains("frontend") || taskDescription.contains("ui")) {
+            return "create_frontend";
+        } else if (taskDescription.contains("database") || taskDescription.contains("db")) {
+            return "create_database";
+        } else if (taskDescription.contains("component") || taskDescription.contains("react")) {
+            return "create_component";
+        } else if (taskDescription.contains("test")) {
+            return "run_tests";
+        } else if (taskDescription.contains("deploy")) {
+            return "deploy";
+        }
+        
+        // Default to generic task
+        return "generic_task";
     }
     
     /**
