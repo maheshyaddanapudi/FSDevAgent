@@ -97,18 +97,38 @@ public class EnhancedChatService {
         try {
             // Create workspace directory if it doesn't exist
             Path dirPath = Path.of(workspacePath);
-            Files.createDirectories(dirPath);
+            boolean dirExists = Files.exists(dirPath);
+            log.info("[WORKSPACE_INIT] Directory exists before creation attempt: {}", dirExists);
+            
+            if (!dirExists) {
+                Files.createDirectories(dirPath);
+                log.info("[WORKSPACE_INIT] Directory creation attempted for: {}", workspacePath);
+            }
             
             // Create marker file to indicate initialization
             Path markerPath = dirPath.resolve(".initialized");
-            if (!Files.exists(markerPath)) {
+            boolean markerExists = Files.exists(markerPath);
+            log.info("[WORKSPACE_INIT] Marker file exists before creation attempt: {}", markerExists);
+            
+            if (!markerExists) {
                 Files.createFile(markerPath);
                 log.info("[WORKSPACE_INIT] Created workspace marker file: {}", markerPath);
             }
             
             // Verify directory was actually created
-            if (Files.exists(dirPath) && Files.isDirectory(dirPath)) {
+            boolean dirExistsAfter = Files.exists(dirPath);
+            boolean isDirAfter = Files.isDirectory(dirPath);
+            log.info("[WORKSPACE_INIT] Directory exists after creation: {}, isDirectory: {}", dirExistsAfter, isDirAfter);
+            
+            if (dirExistsAfter && isDirAfter) {
                 log.info("[WORKSPACE_INIT] Successfully initialized workspace directory: {}", workspacePath);
+                
+                // List directory contents for verification
+                try (var files = Files.list(dirPath)) {
+                    String fileList = files.map(p -> p.getFileName().toString())
+                            .collect(Collectors.joining(", "));
+                    log.info("[WORKSPACE_INIT] Directory contents: {}", fileList);
+                }
             } else {
                 log.error("[WORKSPACE_INIT] Failed to create workspace directory: {}", workspacePath);
             }
