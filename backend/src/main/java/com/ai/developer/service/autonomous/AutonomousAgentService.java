@@ -10,7 +10,7 @@ import com.ai.developer.model.DevelopmentPhase;
 import com.ai.developer.model.TaskMemory;
 import com.ai.developer.service.AgentControlService;
 import com.ai.developer.service.AgentPromptService;
-import com.ai.developer.service.ChatService;
+import com.ai.developer.service.EnhancedChatService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class AutonomousAgentService {
 
-    private final ChatService chatService;
+    private final EnhancedChatService enhancedChatService;
     private final AgentPromptService agentPromptService;
     private final AgentControlService agentControlService;
     private final EnhancedToolOutputWebSocketHandler webSocketHandler;
@@ -48,12 +48,12 @@ public class AutonomousAgentService {
     @Value("${agent.iteration.delay.ms:1000}")
     private int iterationDelayMs;
 
-    public AutonomousAgentService(ChatService chatService,
+    public AutonomousAgentService(EnhancedChatService enhancedChatService,
                                  AgentPromptService agentPromptService,
                                  AgentControlService agentControlService,
                                  EnhancedToolOutputWebSocketHandler webSocketHandler,
                                  ConcurrentHashMap<String, AgentState> agentStates) {
-        this.chatService = chatService;
+        this.enhancedChatService = enhancedChatService;
         this.agentPromptService = agentPromptService;
         this.agentControlService = agentControlService;
         this.webSocketHandler = webSocketHandler;
@@ -159,7 +159,7 @@ public class AutonomousAgentService {
                     .message(prompt)
                     .build();
                 
-                chatService.processMessage(chatRequest)
+                enhancedChatService.processMessage(chatRequest)
                     .collectList()
                     .block();
                 

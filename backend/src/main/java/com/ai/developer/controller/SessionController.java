@@ -2,7 +2,6 @@ package com.ai.developer.controller;
 
 import com.ai.developer.model.SessionResponse;
 import com.ai.developer.model.SessionResponseDTO;
-import com.ai.developer.service.ChatService;
 import com.ai.developer.service.EnhancedChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +21,6 @@ import java.util.List;
 @Slf4j
 public class SessionController {
 
-    private final ChatService chatService;
     private final EnhancedChatService enhancedChatService;
 
     /**
@@ -31,12 +29,10 @@ public class SessionController {
     @PostMapping
     public Mono<SessionResponseDTO> createSession() {
         log.info("REST request to create new session");
-        return chatService.createSession()
+        return enhancedChatService.createSession()
             .map(SessionResponseDTO::fromSessionResponse)
             .doOnSuccess(session -> {
                 log.info("Session created successfully: {}", session.getSessionId());
-                // Ensure the session is also registered with EnhancedChatService
-                enhancedChatService.registerExistingSession(session.getSessionId());
             })
             .doOnError(error -> log.error("Error creating session", error));
     }
@@ -56,8 +52,6 @@ public class SessionController {
     @DeleteMapping("/{sessionId}")
     public boolean deleteSession(@PathVariable String sessionId) {
         log.info("REST request to delete session: {}", sessionId);
-        boolean enhancedResult = enhancedChatService.deleteSession(sessionId);
-        boolean chatResult = chatService.deleteSession(sessionId);
-        return enhancedResult || chatResult;
+        return enhancedChatService.deleteSession(sessionId);
     }
 }
