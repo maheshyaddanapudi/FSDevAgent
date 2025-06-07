@@ -412,24 +412,27 @@ public class ClaudeLLMProvider implements LLMProvider {
             }
         }
         
-        // CRITICAL FIX: Only add the prompt as a user message if it's not already included in the context
+        // CRITICAL FIX: Enhanced duplicate message detection and handling
         // This prevents duplicate prompts which can confuse the LLM
         boolean promptAlreadyInContext = false;
         if (context != null && context.getMessages() != null) {
             for (Message msg : context.getMessages()) {
-                if ("user".equals(msg.getRole()) && prompt.equals(msg.getContent())) {
+                if ("user".equals(msg.getRole()) && prompt != null && prompt.equals(msg.getContent())) {
                     promptAlreadyInContext = true;
-                    log.info("Prompt already exists in context, skipping duplicate addition");
+                    log.info("[DUPLICATE_FIX] Prompt already exists in context, skipping duplicate addition");
                     break;
                 }
             }
         }
         
         if (prompt != null && !prompt.isEmpty() && !promptAlreadyInContext) {
-            log.info("Adding prompt to messages as it's not in context: {}", prompt.substring(0, Math.min(50, prompt.length())) + "...");
+            log.info("[DUPLICATE_FIX] Adding prompt to messages as it's not in context: {}", 
+                    prompt.substring(0, Math.min(50, prompt.length())) + "...");
             List<ClaudeContent> promptContent = new ArrayList<>();
             promptContent.add(new ClaudeContent("text", prompt));
             messages.add(new ClaudeMessage("user", promptContent));
+        } else if (prompt == null || prompt.isEmpty()) {
+            log.warn("[DUPLICATE_FIX] Skipping empty or null prompt");
         }
         
         // Build the tools list

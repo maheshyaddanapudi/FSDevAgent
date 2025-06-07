@@ -129,6 +129,7 @@ public class FileSystemTool implements Tool {
      */
     private String resolvePath(String path, String sessionId) {
         if (path.startsWith("/")) {
+            log.info("[WORKSPACE_PATH] Using absolute path: {}", path);
             return path; // Absolute path, use as is
         }
         
@@ -136,12 +137,15 @@ public class FileSystemTool implements Tool {
         String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
         try {
             Files.createDirectories(Path.of(workspacePath));
+            log.info("[WORKSPACE_PATH] Created/verified session workspace directory: {}", workspacePath);
         } catch (IOException e) {
-            log.error("Error creating workspace directory: {}", workspacePath, e);
+            log.error("[WORKSPACE_PATH] Error creating workspace directory: {}", workspacePath, e);
         }
         
         // Resolve relative path within workspace
-        return workspacePath + "/" + path;
+        String resolvedPath = workspacePath + "/" + path;
+        log.info("[WORKSPACE_PATH] Resolved relative path '{}' to absolute path: '{}'", path, resolvedPath);
+        return resolvedPath;
     }
     
     private Flux<ToolOutput> readFile(String path) {

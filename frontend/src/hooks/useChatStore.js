@@ -132,6 +132,7 @@ const useChatStore = create((set, get) => ({
       
       const encodedMessage = encodeURIComponent(message.trim());
       const eventSource = new EventSource(`${API_BASE_URL}/chat?sessionId=${sessionId}&message=${encodedMessage}`);
+    
       
       let assistantMessage = '';
       let messageComplete = false;

@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 
 /**
  * Utility class to extract tool calls from LLM responses in different formats
+ * Enhanced with improved logging and error handling
  */
 @Slf4j
 @Component
