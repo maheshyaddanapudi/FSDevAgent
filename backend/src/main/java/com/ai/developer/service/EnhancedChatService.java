@@ -877,8 +877,55 @@ public class EnhancedChatService {
         // Process each tool call
         for (String toolCall : toolCalls) {
             try {
+                // Strip EVENT:toolCall: prefix if present before parsing
+                String cleanToolCall = toolCall;
+                if (cleanToolCall.startsWith("EVENT:toolCall:")) {
+                    cleanToolCall = cleanToolCall.substring("EVENT:toolCall:".length());
+                    log.info("Stripped EVENT:toolCall: prefix from tool call");
+                }
+                
                 // Parse tool call
-                ToolCall parsedToolCall = objectMapper.readValue(toolCall, ToolCall.class);
+                ToolCall parsedToolCall = objectMapper.readValue(cleanToolCall, ToolCall.class);
+                
+                // Extract and map 'args' to 'arguments' if needed
+                try {
+                    // Re-parse the raw tool call to check for 'args' field
+                    Map<String, Object> rawToolCall = objectMapper.readValue(cleanToolCall, Map.class);
+                    
+                    // Check if there's an 'args' field but no 'arguments' field
+                    if (parsedToolCall.getArguments() == null && rawToolCall.containsKey("args")) {
+                        log.info("Found 'args' field instead of 'arguments' in tool call for {}, mapping it", parsedToolCall.getName());
+                        Object args = rawToolCall.get("args");
+                        
+                        // Handle different formats of args
+                        if (args instanceof Map) {
+                            // Direct mapping if args is already a Map
+                            parsedToolCall.setArguments((Map<String, Object>) args);
+                        } else if (args instanceof String) {
+                            // Parse args if it's a JSON string
+                            try {
+                                Map<String, Object> argsMap = objectMapper.readValue((String) args, Map.class);
+                                parsedToolCall.setArguments(argsMap);
+                            } catch (Exception e) {
+                                log.warn("Failed to parse 'args' as JSON, using as single argument", e);
+                                Map<String, Object> argsMap = new HashMap<>();
+                                argsMap.put("input", args);
+                                parsedToolCall.setArguments(argsMap);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Error while trying to extract 'args' field: {}", e.getMessage());
+                }
+                
+                // Validate arguments are present (after potential args mapping)
+                if (parsedToolCall.getArguments() == null) {
+                    log.warn("Tool call has null arguments, initializing empty map for tool: {}", parsedToolCall.getName());
+                    parsedToolCall.setArguments(new HashMap<>());
+                }
+                
+                // Log the final arguments for debugging
+                log.info("Final arguments for tool {}: {}", parsedToolCall.getName(), parsedToolCall.getArguments());
                 
                 // Add assistant message with tool call to context
                 context.getMessages().add(Message.builder()
@@ -895,26 +942,76 @@ public class EnhancedChatService {
                 // Execute tool
                 Tool tool = toolRegistry.getTool(parsedToolCall.getName());
                 if (tool == null) {
-                    throw new IllegalArgumentException("Tool not found: " + parsedToolCall.getName());
-                }
-                
-                // CRITICAL FIX 1: Capture ALL tool outputs instead of just the first
-                List<ToolOutput> toolOutputs = tool.execute(parsedToolCall.getArguments())
-                    .collectList()
-                    .block();
-                
-                // CRITICAL FIX 2: Combine all tool outputs into comprehensive result
-                StringBuilder toolResult = new StringBuilder();
-                for (ToolOutput output : toolOutputs) {
-                    toolResult.append(output.getContent()).append("\n");
+                    String errorMsg = "Tool not found: " + parsedToolCall.getName();
+                    log.error("Error processing tool call for session {}: {}", sessionId, errorMsg);
                     
-                    // Emit each tool output to user for real-time feedback
+                    // Emit error to user
                     sink.tryEmitNext(ChatResponse.builder()
                             .sessionId(sessionId)
-                            .role("assistant")
-                            .message("Tool " + parsedToolCall.getName() + " output: " + output.getContent())
+                            .role("system")
+                            .message("Error: " + errorMsg)
                             .timestamp(Instant.now())
                             .build());
+                            
+                    throw new IllegalArgumentException(errorMsg);
+                }
+                
+                // Define toolResult outside try block to maintain scope
+                StringBuilder toolResult = new StringBuilder();
+                
+                try {
+                    // CRITICAL FIX 1: Capture ALL tool outputs instead of just the first
+                    List<ToolOutput> toolOutputs = tool.execute(parsedToolCall.getArguments())
+                        .collectList()
+                        .block();
+                    
+                    if (toolOutputs == null || toolOutputs.isEmpty()) {
+                        throw new RuntimeException("Tool execution returned no outputs");
+                    }
+                    
+                    // CRITICAL FIX 2: Combine all tool outputs into comprehensive result
+                    for (ToolOutput output : toolOutputs) {
+                        if (output == null || output.getContent() == null) {
+                            log.warn("Null tool output received from {}", parsedToolCall.getName());
+                            continue;
+                        }
+                        
+                        toolResult.append(output.getContent()).append("\n");
+                        
+                        // Emit each tool output to user for real-time feedback
+                        sink.tryEmitNext(ChatResponse.builder()
+                                .sessionId(sessionId)
+                                .role("assistant")
+                                .message("Tool " + parsedToolCall.getName() + " output: " + output.getContent())
+                                .timestamp(Instant.now())
+                                .build());
+                    }
+                    
+                    // Validate tool execution result
+                    if (toolResult.length() == 0) {
+                        throw new RuntimeException("Tool execution produced empty result");
+                    }
+                } catch (Exception e) {
+                    String errorMsg = "Error executing tool " + parsedToolCall.getName() + ": " + e.getMessage();
+                    log.error("Tool execution error for session {}: {}", sessionId, errorMsg, e);
+                    
+                    // Emit error to user
+                    sink.tryEmitNext(ChatResponse.builder()
+                            .sessionId(sessionId)
+                            .role("system")
+                            .message(errorMsg)
+                            .timestamp(Instant.now())
+                            .build());
+                    
+                    // Add error message to context for agent to handle
+                    context.getMessages().add(Message.builder()
+                            .role("system")
+                            .content("Tool execution failed: " + errorMsg)
+                            .timestamp(Instant.now())
+                            .build());
+                            
+                    // Continue with next tool call rather than failing the entire process
+                    continue;
                 }
                 
                 // Add tool result to context for Claude API

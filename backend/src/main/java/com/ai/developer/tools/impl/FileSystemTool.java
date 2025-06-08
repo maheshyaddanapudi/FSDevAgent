@@ -63,20 +63,47 @@ public class FileSystemTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
+        // Enhanced logging for debugging argument structure
+        log.info("FileSystemTool executing with arguments: {}", arguments);
+        
         String operation = (String) arguments.get("operation");
         String path = (String) arguments.get("path");
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         
-        // Fix for NullPointerException: Add null check for operation
+        // Fix for NullPointerException: Add null check for operation with enhanced logging
         if (operation == null) {
-            log.error("Operation cannot be null");
-            return Flux.error(new IllegalArgumentException("Operation parameter is required"));
+            // Check for alternative keys that might contain operation
+            if (arguments.containsKey("op")) {
+                operation = (String) arguments.get("op");
+                log.warn("Using 'op' instead of 'operation' for FileSystemTool");
+            } else if (arguments.containsKey("action")) {
+                operation = (String) arguments.get("action");
+                log.warn("Using 'action' instead of 'operation' for FileSystemTool");
+            } else if (arguments.containsKey("command")) {
+                operation = (String) arguments.get("command");
+                log.warn("Using 'command' instead of 'operation' for FileSystemTool");
+            } else {
+                log.error("Operation cannot be null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Operation parameter is required"));
+            }
         }
         
-        // Fix for NullPointerException: Add null check for path
+        // Fix for NullPointerException: Add null check for path with enhanced logging
         if (path == null) {
-            log.error("Path cannot be null");
-            return Flux.error(new IllegalArgumentException("Path parameter is required"));
+            // Check for alternative keys that might contain path
+            if (arguments.containsKey("file")) {
+                path = (String) arguments.get("file");
+                log.warn("Using 'file' instead of 'path' for FileSystemTool");
+            } else if (arguments.containsKey("filePath")) {
+                path = (String) arguments.get("filePath");
+                log.warn("Using 'filePath' instead of 'path' for FileSystemTool");
+            } else if (arguments.containsKey("directory")) {
+                path = (String) arguments.get("directory");
+                log.warn("Using 'directory' instead of 'path' for FileSystemTool");
+            } else {
+                log.error("Path cannot be null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Path parameter is required"));
+            }
         }
         
         // Resolve path within session workspace if it's not absolute
