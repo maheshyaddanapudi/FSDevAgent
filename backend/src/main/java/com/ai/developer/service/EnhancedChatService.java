@@ -898,35 +898,65 @@ public class EnhancedChatService {
                     throw new IllegalArgumentException("Tool not found: " + parsedToolCall.getName());
                 }
                 
-                // Execute the tool - handle reactively for compatibility
-                // Convert Flux<ToolOutput> to ToolOutput by blocking on the first element
-                ToolOutput toolOutput = tool.execute(parsedToolCall.getArguments())
-                    .blockFirst(); // Block and get the first result from the Flux
+                // CRITICAL FIX 1: Capture ALL tool outputs instead of just the first
+                List<ToolOutput> toolOutputs = tool.execute(parsedToolCall.getArguments())
+                    .collectList()
+                    .block();
                 
-                // Add tool message to context
+                // CRITICAL FIX 2: Combine all tool outputs into comprehensive result
+                StringBuilder toolResult = new StringBuilder();
+                for (ToolOutput output : toolOutputs) {
+                    toolResult.append(output.getContent()).append("\n");
+                    
+                    // Emit each tool output to user for real-time feedback
+                    sink.tryEmitNext(ChatResponse.builder()
+                            .sessionId(sessionId)
+                            .role("assistant")
+                            .message("Tool " + parsedToolCall.getName() + " output: " + output.getContent())
+                            .timestamp(Instant.now())
+                            .build());
+                }
+                
+                // Add tool result to context for Claude API
                 context.getMessages().add(Message.builder()
                         .role("tool")
+                        .content(toolResult.toString())
                         .toolCallId(parsedToolCall.getId())
-                        .content(toolOutput.toString())
                         .timestamp(Instant.now())
                         .build());
                 
-                // Track conversation in agent state memory
-                conversationHistory.add("Tool: " + toolOutput.toString());
+                // Track tool execution in agent state
+                agentState.setLastAction("Tool: " + parsedToolCall.getName() + " executed successfully");
+                conversationHistory.add("Tool Result: " + toolResult.toString());
                 
-                // Emit tool output to user
-                sink.tryEmitNext(ChatResponse.builder()
-                        .sessionId(sessionId)
-                        .role("tool")
-                        .message(toolOutput.toString())
+                // CRITICAL FIX 3: Generate continuation prompt after tool execution
+                String continuationPrompt = agentPromptService.generateToolResultPrompt(
+                    parsedToolCall.getName(), 
+                    toolResult.toString(), 
+                    "success"
+                );
+                
+                // Add continuation prompt to trigger next action
+                context.getMessages().add(Message.builder()
+                        .role("user")
+                        .content(continuationPrompt)
                         .timestamp(Instant.now())
                         .build());
                 
-                // Explicitly ensure the agent continues after tool execution
-                // by setting the shouldContinue flag to true
+                // CRITICAL FIX 4: Ensure the agent continues after tool execution
+                // Set flag to continue execution
                 agentState.setShouldContinue(true);
                 
-                // Log that we're ensuring continuation after tool execution
+                // Log successful tool execution
+                log.info("Tool {} executed successfully for session {}", parsedToolCall.getName(), sessionId);
+                
+                // Emit continuation message to user
+                sink.tryEmitNext(ChatResponse.builder()
+                        .sessionId(sessionId)
+                        .role("assistant")
+                        .message("Continuing with next steps based on tool results...")
+                        .timestamp(Instant.now())
+                        .build());
                 log.info("Tool execution complete for session {}. Ensuring agent continues execution.", sessionId);
                 
             } catch (Exception e) {
