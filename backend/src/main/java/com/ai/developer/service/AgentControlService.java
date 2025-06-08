@@ -250,6 +250,36 @@ public class AgentControlService {
     }
     
     /**
+     * Broadcast execution complete event
+     * This method is called when all tasks are completed and the autonomous execution loop should terminate
+     */
+    public void broadcastExecutionComplete(String sessionId, String message, boolean success) {
+        log.info("Broadcasting execution complete for session {}: {}", sessionId, message);
+        
+        Map<String, Object> eventData = new HashMap<>();
+        eventData.put("sessionId", sessionId);
+        eventData.put("type", "execution_complete");
+        eventData.put("message", message);
+        eventData.put("success", success);
+        eventData.put("timestamp", Instant.now().toString());
+        
+        // Release resources
+        pauseFlags.remove(sessionId);
+        stepFlags.remove(sessionId);
+        
+        // Update agent state
+        AgentState agentState = agentStates.get(sessionId);
+        if (agentState != null) {
+            agentState.setShouldContinue(false);
+            agentState.setMode(ConversationMode.CONVERSATIONAL);
+            agentState.setProgress(100);
+            eventData.put("state", agentState.toTaskMemory());
+        }
+        
+        webSocketHandler.broadcastAgentStateUpdate(eventData);
+    }
+    
+    /**
      * Get current agent state as TaskMemory
      */
     public TaskMemory getAgentState(String sessionId) {

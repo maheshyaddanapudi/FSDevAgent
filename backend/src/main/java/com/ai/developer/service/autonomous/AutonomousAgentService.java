@@ -12,6 +12,7 @@ import com.ai.developer.service.AgentControlService;
 import com.ai.developer.service.AgentPromptService;
 import com.ai.developer.service.EnhancedChatService;
 import com.ai.developer.service.TaskExecutorService;
+import com.ai.developer.service.ProjectTemplateManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,9 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.SynchronousSink;
 import reactor.core.scheduler.Schedulers;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -28,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Service for managing autonomous agent execution with multi-step planning
@@ -43,6 +48,10 @@ public class AutonomousAgentService {
     private final TaskExecutorService taskExecutorService;
     private final EnhancedToolOutputWebSocketHandler webSocketHandler;
     private final ConcurrentHashMap<String, AgentState> agentStates;
+    private final ProjectTemplateManager projectTemplateManager;
+    
+    // Track sessions with completed execution to prevent redundant processing
+    private final ConcurrentHashMap<String, AtomicBoolean> completedSessions = new ConcurrentHashMap<>();
     
     @Value("${agent.max.iterations:50}")
     private int maxIterations;
@@ -55,13 +64,15 @@ public class AutonomousAgentService {
                                  AgentControlService agentControlService,
                                  TaskExecutorService taskExecutorService,
                                  EnhancedToolOutputWebSocketHandler webSocketHandler,
-                                 ConcurrentHashMap<String, AgentState> agentStates) {
+                                 ConcurrentHashMap<String, AgentState> agentStates,
+                                 ProjectTemplateManager projectTemplateManager) {
         this.enhancedChatService = enhancedChatService;
         this.agentPromptService = agentPromptService;
         this.agentControlService = agentControlService;
         this.taskExecutorService = taskExecutorService;
         this.webSocketHandler = webSocketHandler;
         this.agentStates = agentStates;
+        this.projectTemplateManager = projectTemplateManager;
         log.info("AutonomousAgentService initialized with max iterations: {}", maxIterations);
     }
 
@@ -70,6 +81,9 @@ public class AutonomousAgentService {
      */
     public Flux<Map<String, Object>> startAutonomousExecution(String sessionId, String objective) {
         log.info("Starting autonomous execution for session {} with objective: {}", sessionId, objective);
+        
+        // Reset completion status for this session
+        completedSessions.remove(sessionId);
         
         // Initialize agent state if not exists
         AgentState agentState = agentStates.computeIfAbsent(sessionId, k -> {
@@ -117,10 +131,51 @@ public class AutonomousAgentService {
         return Flux.<Map<String, Object>>generate(sink -> {
             int iteration = iterationCounter.get();
             
+            // Check if session is already marked as completed
+            if (isSessionCompleted(sessionId)) {
+                log.info("Session {} already marked as completed. Terminating loop.", sessionId);
+                sink.complete();
+                return;
+            }
+            
             // Check if we should continue
             if (!agentState.isShouldContinue() || iteration >= maxIterations) {
                 log.info("Autonomous execution stopping for session {}: shouldContinue={}, iteration={}/{}",
                         sessionId, agentState.isShouldContinue(), iteration, maxIterations);
+                
+                // Mark session as completed to prevent redundant processing
+                markSessionAsCompleted(sessionId);
+                
+                sink.complete();
+                return;
+            }
+            
+            // Check if all tasks are complete
+            if (areAllTasksComplete(agentState)) {
+                log.info("All tasks completed for session {}. Terminating autonomous execution loop.", sessionId);
+                
+                // Update progress to 100%
+                updateAgentState(agentState.getSessionId(), "PROGRESS", "100");
+                
+                // Set shouldContinue to false to stop the loop
+                agentState.setShouldContinue(false);
+                
+                // Mark session as completed to prevent redundant processing
+                markSessionAsCompleted(sessionId);
+                
+                // Notify UI that execution is complete
+                agentControlService.broadcastExecutionComplete(
+                    agentState.getSessionId(), 
+                    "All tasks completed successfully", 
+                    true
+                );
+                
+                // Create completion event
+                Map<String, Object> completionEvent = new HashMap<>();
+                completionEvent.put("sessionId", sessionId);
+                completionEvent.put("status", "completed");
+                completionEvent.put("message", "All tasks completed successfully");
+                sink.next(completionEvent);
                 sink.complete();
                 return;
             }
@@ -249,8 +304,40 @@ public class AutonomousAgentService {
                     "completedTasks", agentState.getCompletedTasks().size()
                 )
             );
+            
+            // Clean up resources
+            cleanupResources(sessionId);
         })
         .subscribeOn(Schedulers.boundedElastic());
+    }
+    
+    /**
+     * Check if a session is marked as completed
+     */
+    private boolean isSessionCompleted(String sessionId) {
+        AtomicBoolean completionFlag = completedSessions.get(sessionId);
+        return completionFlag != null && completionFlag.get();
+    }
+    
+    /**
+     * Mark a session as completed
+     */
+    private void markSessionAsCompleted(String sessionId) {
+        completedSessions.computeIfAbsent(sessionId, k -> new AtomicBoolean(false)).set(true);
+        log.info("Session {} marked as completed", sessionId);
+    }
+    
+    /**
+     * Clean up resources for a completed session
+     */
+    private void cleanupResources(String sessionId) {
+        log.info("Cleaning up resources for completed session {}", sessionId);
+        
+        // Note: We don't remove the agent state as it might be needed for reference,
+        // but we do clean up any background tasks or temporary resources
+        
+        // Mark as completed to prevent redundant processing
+        markSessionAsCompleted(sessionId);
     }
     
     /**
@@ -298,6 +385,13 @@ public class AutonomousAgentService {
                             log.info("Task execution completed");
                             // Mark task as complete
                             updateAgentState(agentState.getSessionId(), "TASK_COMPLETE", nextTask);
+                            
+                            // Check if all tasks are complete after this update
+                            AgentState updatedState = agentStates.get(agentState.getSessionId());
+                            if (updatedState != null && areAllTasksComplete(updatedState)) {
+                                log.info("All tasks completed after task execution. Setting progress to 100%.");
+                                updateAgentState(updatedState.getSessionId(), "PROGRESS", "100");
+                            }
                         }
                     );
             } catch (Exception e) {
@@ -310,6 +404,25 @@ public class AutonomousAgentService {
     }
     
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
+    
+    /**
+     * Check if all tasks are complete for the given agent state
+     */
+    private boolean areAllTasksComplete(AgentState agentState) {
+        // If there are no pending tasks and we have at least one completed task, consider all tasks complete
+        boolean allComplete = agentState.getPendingTasks().isEmpty() && 
+                             !agentState.getCompletedTasks().isEmpty() &&
+                             agentState.getIterationCount() > 1; // Ensure we've done at least one iteration
+        
+        if (allComplete) {
+            log.info("All tasks are complete for session {}. Completed tasks: {}, Pending tasks: {}", 
+                    agentState.getSessionId(), 
+                    agentState.getCompletedTasks().size(),
+                    agentState.getPendingTasks().size());
+        }
+        
+        return allComplete;
+    }
     
     /**
      * Extract task type from task description
@@ -372,10 +485,22 @@ public class AutonomousAgentService {
             return;
         }
         
+        // Skip updates for completed sessions
+        if (isSessionCompleted(sessionId)) {
+            log.debug("Skipping state update for completed session: {}", sessionId);
+            return;
+        }
+        
         switch (eventType) {
             case "TASK_COMPLETE" -> {
                 agentState.getCompletedTasks().add(eventData);
                 agentState.getPendingTasks().remove(eventData);
+                
+                // Check if all tasks are complete after this update
+                if (areAllTasksComplete(agentState)) {
+                    log.info("All tasks completed after TASK_COMPLETE event. Setting progress to 100%.");
+                    agentState.setProgress(100);
+                }
             }
             case "TASK_PENDING" -> {
                 if (!agentState.getPendingTasks().contains(eventData)) {
