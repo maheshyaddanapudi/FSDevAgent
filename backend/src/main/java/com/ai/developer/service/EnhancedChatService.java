@@ -1044,6 +1044,15 @@ public class EnhancedChatService {
                 // Set flag to continue execution
                 agentState.setShouldContinue(true);
                 
+                // FIX FOR AUTONOMOUS EXECUTION FLOW: Ensure agent continues after planning tool execution
+                if (parsedToolCall.getName().equals("planning_tool")) {
+                    // Ensure autonomous execution continues after planning
+                    agentState.setWaitingForUserInput(false);
+                    agentState.setShouldContinue(true);
+                    agentState.setMode(ConversationMode.AUTONOMOUS);
+                    log.info("Planning tool execution complete, ensuring autonomous execution continues");
+                }
+                
                 // Log successful tool execution
                 log.info("Tool {} executed successfully for session {}", parsedToolCall.getName(), sessionId);
                 
