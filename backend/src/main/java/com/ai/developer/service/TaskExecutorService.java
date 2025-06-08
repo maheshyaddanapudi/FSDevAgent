@@ -545,6 +545,20 @@ public class TaskExecutorService {
         return structure;
     }
     
+    /**
+     * Helper method to safely create a Map for file content operations
+     * This ensures proper serialization of content with special characters
+     */
+    private Map<String, Object> createFileContentMap(String operation, String path, String content) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("operation", operation);
+        map.put("path", path);
+        if (content != null) {
+            map.put("content", content);
+        }
+        return map;
+    }
+    
     private String generateSpringBootPom(Map<String, Object> context) {
         String appName = (String) context.getOrDefault("appName", "myapp");
         return String.format("""
