@@ -32,6 +32,7 @@ public class AgentState {
     private Map<String, Object> memory = new HashMap<>();
     private Instant createdAt;
     private Instant updatedAt;
+    private String canonicalWorkspacePath;
     
     /**
      * Convert to TaskMemory for prompt generation
@@ -45,6 +46,28 @@ public class AgentState {
         memory.setProgressPercentage(progress);
         memory.setLastAction(lastAction);
         return memory;
+    }
+    
+    /**
+     * Set the canonical workspace path for this agent session
+     */
+    public void setCanonicalWorkspacePath(String path) {
+        this.canonicalWorkspacePath = path;
+    }
+    
+    /**
+     * Get the canonical workspace path for this agent session
+     */
+    public String getCanonicalWorkspacePath() {
+        return this.canonicalWorkspacePath;
+    }
+    
+    /**
+     * Update workspace state with directory structure information
+     */
+    public void updateWorkspaceState(String workspacePath, Map<String, Object> workspaceState) {
+        this.memory.put("workspaceState", workspaceState);
+        this.canonicalWorkspacePath = workspacePath;
     }
     
     // Explicit setters to ensure compatibility

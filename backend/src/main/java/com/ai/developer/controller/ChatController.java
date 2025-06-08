@@ -57,7 +57,7 @@ public class ChatController {
     }
     
     @PostMapping(value = "/tools/{toolName}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Mono<ToolCallResponse> executeTool(
+    public Flux<ToolCallResponse> executeTool(
             @PathVariable String toolName,
             @RequestParam String sessionId,
             @RequestBody Map<String, Object> arguments) {
@@ -65,7 +65,6 @@ public class ChatController {
         return chatService.executeTool(sessionId, toolName, arguments)
             .map(toolOutput -> convertToToolCallResponse(toolName, sessionId, arguments, toolOutput))
             .doOnNext(output -> log.info("Tool {} execution output for session {}: {}", toolName, sessionId, output))
-            .doOnSuccess(output -> log.info("Completed tool {} execution for session {}", toolName, sessionId))
             .doOnError(error -> log.error("Error executing tool {} for session {}", toolName, sessionId, error));
     }
     
