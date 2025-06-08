@@ -71,20 +71,81 @@ public class BuildTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
+        // Enhanced logging for debugging argument structure
+        log.info("BuildTool executing with arguments: {}", arguments);
+        
+        // Extract build tool with alternative key checking
         String tool = (String) arguments.get("tool");
+        if (tool == null) {
+            // Check for alternative keys that might contain tool
+            if (arguments.containsKey("buildTool")) {
+                tool = (String) arguments.get("buildTool");
+                log.warn("Using 'buildTool' instead of 'tool' for BuildTool");
+            } else if (arguments.containsKey("type")) {
+                tool = (String) arguments.get("type");
+                log.warn("Using 'type' instead of 'tool' for BuildTool");
+            } else if (arguments.containsKey("framework")) {
+                tool = (String) arguments.get("framework");
+                log.warn("Using 'framework' instead of 'tool' for BuildTool");
+            } else {
+                log.error("Tool parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Tool parameter is required"));
+            }
+        }
+        
+        // Extract project path with alternative key checking
         String projectPath = (String) arguments.get("projectPath");
+        if (projectPath == null) {
+            // Check for alternative keys that might contain project path
+            if (arguments.containsKey("path")) {
+                projectPath = (String) arguments.get("path");
+                log.warn("Using 'path' instead of 'projectPath' for BuildTool");
+            } else if (arguments.containsKey("directory")) {
+                projectPath = (String) arguments.get("directory");
+                log.warn("Using 'directory' instead of 'projectPath' for BuildTool");
+            } else if (arguments.containsKey("project")) {
+                projectPath = (String) arguments.get("project");
+                log.warn("Using 'project' instead of 'projectPath' for BuildTool");
+            } else {
+                log.error("ProjectPath parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("ProjectPath parameter is required"));
+            }
+        }
+        
+        // Extract goals with alternative key checking
         List<String> goals = (List<String>) arguments.get("goals");
+        if (goals == null) {
+            // Check for alternative keys that might contain goals
+            if (arguments.containsKey("tasks")) {
+                goals = (List<String>) arguments.get("tasks");
+                log.warn("Using 'tasks' instead of 'goals' for BuildTool");
+            } else if (arguments.containsKey("commands")) {
+                goals = (List<String>) arguments.get("commands");
+                log.warn("Using 'commands' instead of 'goals' for BuildTool");
+            } else if (arguments.containsKey("targets")) {
+                goals = (List<String>) arguments.get("targets");
+                log.warn("Using 'targets' instead of 'goals' for BuildTool");
+            } else {
+                log.warn("Goals parameter is null, using default empty list");
+                goals = new ArrayList<>();
+            }
+        }
+        
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         String taskDir = (String) arguments.getOrDefault("taskDir", "");
         
         // Resolve project path within session workspace
         String resolvedProjectPath = resolveProjectPath(projectPath, sessionId, taskDir);
         
+        // Log the final parameters being used
+        log.info("BuildTool executing with tool: {}, projectPath: {}, goals: {}", tool, resolvedProjectPath, goals);
+        
         if ("maven".equalsIgnoreCase(tool)) {
             return executeMaven(resolvedProjectPath, goals, sessionId, taskDir);
         } else if ("gradle".equalsIgnoreCase(tool)) {
             return executeGradle(resolvedProjectPath, goals, sessionId, taskDir);
         } else {
+            log.error("Unknown build tool: {}. Supported tools: maven, gradle", tool);
             return Flux.error(new IllegalArgumentException("Unknown build tool: " + tool));
         }
     }
@@ -118,23 +179,29 @@ public class BuildTool implements Tool {
     }
     
     private Flux<ToolOutput> executeMaven(String projectPath, List<String> goals, String sessionId, String taskDir) {
+        // Create final copies of variables for lambda
+        final String finalProjectPath = projectPath;
+        final List<String> finalGoals = goals;
+        final String finalSessionId = sessionId;
+        final String finalTaskDir = taskDir;
+        
         return Flux.create(sink -> {
             try {
                 // Ensure project directory exists
-                Files.createDirectories(Path.of(projectPath));
+                Files.createDirectories(Path.of(finalProjectPath));
                 
                 InvocationRequest request = new DefaultInvocationRequest();
-                request.setPomFile(new File(projectPath, "pom.xml"));
-                request.setGoals(goals);
+                request.setPomFile(new File(finalProjectPath, "pom.xml"));
+                request.setGoals(finalGoals);
                 request.setOutputHandler(line -> {
                     sink.next(ToolOutput.builder()
                             .type("build_output")
                             .content(line)
                             .metadata(Map.of(
                                 "tool", "maven",
-                                "sessionId", sessionId,
-                                "workspacePath", getWorkspacePath(sessionId, taskDir),
-                                "projectPath", projectPath
+                                "sessionId", finalSessionId,
+                                "workspacePath", getWorkspacePath(finalSessionId, finalTaskDir),
+                                "projectPath", finalProjectPath
                             ))
                             .build());
                 });
@@ -148,9 +215,9 @@ public class BuildTool implements Tool {
                             .content("Maven build completed successfully")
                             .metadata(Map.of(
                                 "exitCode", result.getExitCode(),
-                                "sessionId", sessionId,
-                                "workspacePath", getWorkspacePath(sessionId, taskDir),
-                                "projectPath", projectPath
+                                "sessionId", finalSessionId,
+                                "workspacePath", getWorkspacePath(finalSessionId, finalTaskDir),
+                                "projectPath", finalProjectPath
                             ))
                             .build());
                 } else {
@@ -159,9 +226,9 @@ public class BuildTool implements Tool {
                             .content("Maven build failed with exit code: " + result.getExitCode())
                             .metadata(Map.of(
                                 "exitCode", result.getExitCode(),
-                                "sessionId", sessionId,
-                                "workspacePath", getWorkspacePath(sessionId, taskDir),
-                                "projectPath", projectPath
+                                "sessionId", finalSessionId,
+                                "workspacePath", getWorkspacePath(finalSessionId, finalTaskDir),
+                                "projectPath", finalProjectPath
                             ))
                             .build());
                 }

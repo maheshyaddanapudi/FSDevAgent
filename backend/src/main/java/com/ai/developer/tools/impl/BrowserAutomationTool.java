@@ -105,7 +105,31 @@ public class BrowserAutomationTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
-        String action = (String) arguments.get("action");
+        // Enhanced logging for debugging argument structure
+        log.info("BrowserAutomationTool executing with arguments: {}", arguments);
+        
+        // Extract action with alternative key checking
+        String actionParam = (String) arguments.get("action");
+        if (actionParam == null) {
+            // Check for alternative keys that might contain action
+            if (arguments.containsKey("operation")) {
+                actionParam = (String) arguments.get("operation");
+                log.warn("Using 'operation' instead of 'action' for BrowserAutomationTool");
+            } else if (arguments.containsKey("command")) {
+                actionParam = (String) arguments.get("command");
+                log.warn("Using 'command' instead of 'action' for BrowserAutomationTool");
+            } else if (arguments.containsKey("task")) {
+                actionParam = (String) arguments.get("task");
+                log.warn("Using 'task' instead of 'action' for BrowserAutomationTool");
+            } else {
+                log.error("Action parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Action parameter is required"));
+            }
+        }
+        
+        // Create final copies of variables for use in lambda
+        final String action = actionParam;
+        
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         String taskDir = (String) arguments.getOrDefault("taskDir", "");
         String screenshotPath = (String) arguments.getOrDefault("screenshotPath", "screenshots");
@@ -113,23 +137,36 @@ public class BrowserAutomationTool implements Tool {
         // Resolve screenshot path within session workspace
         String resolvedScreenshotPath = resolveScreenshotPath(screenshotPath, sessionId, taskDir);
         
+        // Log the final parameters being used
+        log.info("BrowserAutomationTool executing with action: {}, screenshotPath: {}", action, resolvedScreenshotPath);
+        
+        // Create final copies of all variables used in lambda
+        final Map<String, Object> finalArguments = arguments;
+        final String finalSessionId = sessionId;
+        final String finalTaskDir = taskDir;
+        final String finalResolvedScreenshotPath = resolvedScreenshotPath;
+        
         return Mono.fromCallable(() -> {
             BrowserContext context = browser.newContext();
             Page page = context.newPage();
             
             try {
+                if (action == null) {
+                    throw new IllegalArgumentException("Action parameter is required");
+                }
+                
                 switch (action.toLowerCase()) {
                     case "navigate":
-                        return navigateTo(page, (String) arguments.get("url"), resolvedScreenshotPath, sessionId, taskDir);
+                        return navigateTo(page, (String) finalArguments.get("url"), finalResolvedScreenshotPath, finalSessionId, finalTaskDir);
                     case "screenshot":
-                        return captureScreenshot(page, resolvedScreenshotPath, sessionId, taskDir);
+                        return captureScreenshot(page, finalResolvedScreenshotPath, finalSessionId, finalTaskDir);
                     case "click":
-                        return clickElement(page, (String) arguments.get("selector"), resolvedScreenshotPath, sessionId, taskDir);
+                        return clickElement(page, (String) finalArguments.get("selector"), finalResolvedScreenshotPath, finalSessionId, finalTaskDir);
                     case "type":
-                        return typeText(page, (String) arguments.get("selector"), 
-                                        (String) arguments.get("text"), resolvedScreenshotPath, sessionId, taskDir);
+                        return typeText(page, (String) finalArguments.get("selector"), 
+                                        (String) finalArguments.get("text"), finalResolvedScreenshotPath, finalSessionId, finalTaskDir);
                     case "wait":
-                        return waitForElement(page, (String) arguments.get("selector"), resolvedScreenshotPath, sessionId, taskDir);
+                        return waitForElement(page, (String) finalArguments.get("selector"), finalResolvedScreenshotPath, finalSessionId, finalTaskDir);
                     default:
                         throw new IllegalArgumentException("Unknown action: " + action);
                 }

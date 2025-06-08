@@ -101,17 +101,67 @@ public class DataVisualizationTool implements Tool {
 
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> parameters) {
-        String type = (String) parameters.get("type");
-        Object data = parameters.get("data");
-        String title = (String) parameters.getOrDefault("title", "Data Visualization");
-        Map<String, Object> options = (Map<String, Object>) parameters.getOrDefault("options", new HashMap<>());
-        String sessionId = (String) parameters.getOrDefault("sessionId", UUID.randomUUID().toString());
-        String taskDir = (String) parameters.getOrDefault("taskDir", "");
-        String outputPath = (String) parameters.getOrDefault("outputPath", "visualizations");
+        // Enhanced logging for debugging argument structure
+        log.info("DataVisualizationTool executing with arguments: {}", parameters);
+        
+        // Extract visualization type with alternative key checking
+        String typeParam = (String) parameters.get("type");
+        if (typeParam == null) {
+            // Check for alternative keys that might contain type
+            if (parameters.containsKey("chartType")) {
+                typeParam = (String) parameters.get("chartType");
+                log.warn("Using 'chartType' instead of 'type' for DataVisualizationTool");
+            } else if (parameters.containsKey("visualizationType")) {
+                typeParam = (String) parameters.get("visualizationType");
+                log.warn("Using 'visualizationType' instead of 'type' for DataVisualizationTool");
+            } else if (parameters.containsKey("chart")) {
+                typeParam = (String) parameters.get("chart");
+                log.warn("Using 'chart' instead of 'type' for DataVisualizationTool");
+            } else {
+                log.error("Type parameter is null. Available keys: {}", parameters.keySet());
+                return Flux.error(new IllegalArgumentException("Type parameter is required"));
+            }
+        }
+        
+        // Extract data with alternative key checking
+        Object dataParam = parameters.get("data");
+        if (dataParam == null) {
+            // Check for alternative keys that might contain data
+            if (parameters.containsKey("dataset")) {
+                dataParam = parameters.get("dataset");
+                log.warn("Using 'dataset' instead of 'data' for DataVisualizationTool");
+            } else if (parameters.containsKey("values")) {
+                dataParam = parameters.get("values");
+                log.warn("Using 'values' instead of 'data' for DataVisualizationTool");
+            } else if (parameters.containsKey("dataPoints")) {
+                dataParam = parameters.get("dataPoints");
+                log.warn("Using 'dataPoints' instead of 'data' for DataVisualizationTool");
+            } else {
+                log.error("Data parameter is null. Available keys: {}", parameters.keySet());
+                return Flux.error(new IllegalArgumentException("Data parameter is required"));
+            }
+        }
+        
+        String titleParam = (String) parameters.getOrDefault("title", "Data Visualization");
+        Map<String, Object> optionsParam = (Map<String, Object>) parameters.getOrDefault("options", new HashMap<>());
+        String sessionIdParam = (String) parameters.getOrDefault("sessionId", UUID.randomUUID().toString());
+        String taskDirParam = (String) parameters.getOrDefault("taskDir", "");
+        String outputPathParam = (String) parameters.getOrDefault("outputPath", "visualizations");
+        
+        // Create final copies of all variables for lambda expressions
+        final String type = typeParam;
+        final Object data = dataParam;
+        final String title = titleParam;
+        final Map<String, Object> options = optionsParam;
+        final String sessionId = sessionIdParam;
+        final String taskDir = taskDirParam;
+        final String outputPath = outputPathParam;
+        final Map<String, Object> finalParameters = parameters;
         
         // Resolve output path within session workspace
         String resolvedOutputPath = resolveOutputPath(outputPath, sessionId, taskDir);
         
+        // Log the final parameters being used
         log.info("Creating {} visualization with title: {} in workspace: {}", 
                 type, title, getWorkspacePath(sessionId, taskDir));
         

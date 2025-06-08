@@ -114,10 +114,13 @@ public class PlanningTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
+        // Create final copies of variables for lambda
+        final Map<String, Object> finalArguments = arguments;
+        
         return Mono.fromCallable(() -> {
             try {
                 // Add null check and logging for arguments
-                if (arguments == null) {
+                if (finalArguments == null) {
                     log.error("Planning tool received null arguments");
                     return ToolOutput.builder()
                             .type("error")
@@ -125,16 +128,28 @@ public class PlanningTool implements Tool {
                             .build();
                 }
                 
-                log.info("Planning tool executing with arguments: {}", arguments);
+                log.info("Planning tool executing with arguments: {}", finalArguments);
                 
-                // Add null check and default for operation
-                String operation = (String) arguments.get("operation");
+                // Extract operation with alternative key checking
+                String operation = (String) finalArguments.get("operation");
                 if (operation == null) {
-                    log.error("Planning tool operation is null");
-                    return ToolOutput.builder()
-                            .type("error")
-                            .content("Error: Planning tool operation is required but was null")
-                            .build();
+                    // Check for alternative keys that might contain operation
+                    if (finalArguments.containsKey("op")) {
+                        operation = (String) finalArguments.get("op");
+                        log.warn("Using 'op' instead of 'operation' for PlanningTool");
+                    } else if (finalArguments.containsKey("action")) {
+                        operation = (String) finalArguments.get("action");
+                        log.warn("Using 'action' instead of 'operation' for PlanningTool");
+                    } else if (finalArguments.containsKey("command")) {
+                        operation = (String) finalArguments.get("command");
+                        log.warn("Using 'command' instead of 'operation' for PlanningTool");
+                    } else {
+                        log.error("Planning tool operation is null. Available keys: {}", finalArguments.keySet());
+                        return ToolOutput.builder()
+                                .type("error")
+                                .content("Error: Planning tool operation is required but was null")
+                                .build();
+                    }
                 }
                 
                 log.info("Planning tool executing operation: {}", operation);

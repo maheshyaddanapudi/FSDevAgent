@@ -78,14 +78,69 @@ public class CodeIntelligenceTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
-        String operation = (String) arguments.get("operation");
-        String path = (String) arguments.get("path");
-        String query = (String) arguments.getOrDefault("query", "");
-        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
-        String taskDir = (String) arguments.getOrDefault("taskDir", "");
+        // Enhanced logging for debugging argument structure
+        log.info("CodeIntelligenceTool executing with arguments: {}", arguments);
+        
+        // Extract operation with alternative key checking
+        String operationParam = (String) arguments.get("operation");
+        if (operationParam == null) {
+            // Check for alternative keys that might contain operation
+            if (arguments.containsKey("op")) {
+                operationParam = (String) arguments.get("op");
+                log.warn("Using 'op' instead of 'operation' for CodeIntelligenceTool");
+            } else if (arguments.containsKey("action")) {
+                operationParam = (String) arguments.get("action");
+                log.warn("Using 'action' instead of 'operation' for CodeIntelligenceTool");
+            } else if (arguments.containsKey("command")) {
+                operationParam = (String) arguments.get("command");
+                log.warn("Using 'command' instead of 'operation' for CodeIntelligenceTool");
+            } else {
+                log.error("Operation parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Operation parameter is required"));
+            }
+        }
+        
+        // Extract path with alternative key checking
+        String pathParam = (String) arguments.get("path");
+        if (pathParam == null) {
+            // Check for alternative keys that might contain path
+            if (arguments.containsKey("filePath")) {
+                pathParam = (String) arguments.get("filePath");
+                log.warn("Using 'filePath' instead of 'path' for CodeIntelligenceTool");
+            } else if (arguments.containsKey("file")) {
+                pathParam = (String) arguments.get("file");
+                log.warn("Using 'file' instead of 'path' for CodeIntelligenceTool");
+            } else if (arguments.containsKey("directory")) {
+                pathParam = (String) arguments.get("directory");
+                log.warn("Using 'directory' instead of 'path' for CodeIntelligenceTool");
+            } else {
+                log.error("Path parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Path parameter is required"));
+            }
+        }
+        
+        String queryParam = (String) arguments.getOrDefault("query", "");
+        String sessionIdParam = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        String taskDirParam = (String) arguments.getOrDefault("taskDir", "");
+        
+        // Create final copies of all variables for lambda expressions
+        final String operation = operationParam;
+        final String path = pathParam;
+        final String query = queryParam;
+        final String sessionId = sessionIdParam;
+        final String taskDir = taskDirParam;
         
         // Resolve path within session workspace
-        String resolvedPath = resolvePath(path, sessionId, taskDir);
+        String resolvedPathParam = resolvePath(path, sessionId, taskDir);
+        final String resolvedPath = resolvedPathParam;
+        
+        // Log the final parameters being used
+        log.info("CodeIntelligenceTool executing with operation: {}, path: {}, query: {}", operation, resolvedPath, query);
+        
+        if (operation == null) {
+            log.error("Operation parameter is null after alternative key checking");
+            return Flux.error(new IllegalArgumentException("Operation parameter is required"));
+        }
         
         return switch (operation.toLowerCase()) {
             case "analyze" -> analyzeCode(resolvedPath, sessionId, taskDir);

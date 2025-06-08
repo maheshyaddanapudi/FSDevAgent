@@ -83,29 +83,84 @@ public class GitTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
-        String operation = (String) arguments.get("operation");
-        String path = (String) arguments.get("path");
-        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        // Enhanced logging for debugging argument structure
+        log.info("GitTool executing with arguments: {}", arguments);
+        
+        // Extract operation with alternative key checking
+        String operationParam = (String) arguments.get("operation");
+        if (operationParam == null) {
+            // Check for alternative keys that might contain operation
+            if (arguments.containsKey("op")) {
+                operationParam = (String) arguments.get("op");
+                log.warn("Using 'op' instead of 'operation' for GitTool");
+            } else if (arguments.containsKey("action")) {
+                operationParam = (String) arguments.get("action");
+                log.warn("Using 'action' instead of 'operation' for GitTool");
+            } else if (arguments.containsKey("command")) {
+                operationParam = (String) arguments.get("command");
+                log.warn("Using 'command' instead of 'operation' for GitTool");
+            } else {
+                log.error("Operation parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Operation parameter is required"));
+            }
+        }
+        
+        // Create final copy of operation for lambda
+        final String operation = operationParam;
+        
+        // Extract path with alternative key checking
+        String pathParam = (String) arguments.get("path");
+        if (pathParam == null) {
+            // Check for alternative keys that might contain path
+            if (arguments.containsKey("directory")) {
+                pathParam = (String) arguments.get("directory");
+                log.warn("Using 'directory' instead of 'path' for GitTool");
+            } else if (arguments.containsKey("repo")) {
+                pathParam = (String) arguments.get("repo");
+                log.warn("Using 'repo' instead of 'path' for GitTool");
+            } else if (arguments.containsKey("repoPath")) {
+                pathParam = (String) arguments.get("repoPath");
+                log.warn("Using 'repoPath' instead of 'path' for GitTool");
+            } else {
+                log.error("Path parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Path parameter is required"));
+            }
+        }
+        
+        // Create final copy of path for lambda
+        final String path = pathParam;
+        
+        String sessionIdParam = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        final String sessionId = sessionIdParam;
         
         // Resolve path within session workspace
-        String resolvedPath = resolvePath(path, sessionId);
+        String resolvedPathParam = resolvePath(path, sessionId);
+        final String resolvedPath = resolvedPathParam;
+        
+        // Create final copy of arguments for lambda
+        final Map<String, Object> finalArguments = arguments;
         
         return Mono.fromCallable(() -> {
+            // Validate operation
+            if (operation == null) {
+                throw new IllegalArgumentException("Operation parameter is required");
+            }
+            
             switch (operation.toLowerCase()) {
                 case "init":
                     return initRepository(resolvedPath, sessionId);
                 case "clone":
-                    return cloneRepository((String) arguments.get("url"), resolvedPath, sessionId);
+                    return cloneRepository((String) finalArguments.get("url"), resolvedPath, sessionId);
                 case "add":
                     return addFiles(resolvedPath, sessionId);
                 case "commit":
-                    return commitChanges(resolvedPath, (String) arguments.get("message"), sessionId);
+                    return commitChanges(resolvedPath, (String) finalArguments.get("message"), sessionId);
                 case "status":
                     return getStatus(resolvedPath, sessionId);
                 case "log":
                     return getLog(resolvedPath, sessionId);
                 case "branch":
-                    return manageBranch(resolvedPath, (String) arguments.get("branch"), sessionId);
+                    return manageBranch(resolvedPath, (String) finalArguments.get("branch"), sessionId);
                 default:
                     throw new IllegalArgumentException("Unknown operation: " + operation);
             }

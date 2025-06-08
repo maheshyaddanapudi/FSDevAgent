@@ -59,37 +59,74 @@ public class TerminalTool implements Tool {
     
     @Override
     public Flux<ToolOutput> execute(Map<String, Object> arguments) {
+        // Enhanced logging for debugging argument structure
+        log.info("TerminalTool executing with arguments: {}", arguments);
+        
+        // Extract command with alternative key checking
         String command = (String) arguments.get("command");
+        if (command == null) {
+            // Check for alternative keys that might contain command
+            if (arguments.containsKey("cmd")) {
+                command = (String) arguments.get("cmd");
+                log.warn("Using 'cmd' instead of 'command' for TerminalTool");
+            } else if (arguments.containsKey("script")) {
+                command = (String) arguments.get("script");
+                log.warn("Using 'script' instead of 'command' for TerminalTool");
+            } else if (arguments.containsKey("shellCommand")) {
+                command = (String) arguments.get("shellCommand");
+                log.warn("Using 'shellCommand' instead of 'command' for TerminalTool");
+            } else {
+                log.error("Command parameter is null. Available keys: {}", arguments.keySet());
+                return Flux.error(new IllegalArgumentException("Command parameter cannot be null"));
+            }
+        }
+        
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
-        String workingDir = (String) arguments.getOrDefault("workingDirectory", null);
+        
+        // Extract working directory with alternative key checking
+        String workingDir = (String) arguments.get("workingDirectory");
+        if (workingDir == null) {
+            // Check for alternative keys that might contain working directory
+            if (arguments.containsKey("workingDir")) {
+                workingDir = (String) arguments.get("workingDir");
+                log.warn("Using 'workingDir' instead of 'workingDirectory' for TerminalTool");
+            } else if (arguments.containsKey("cwd")) {
+                workingDir = (String) arguments.get("cwd");
+                log.warn("Using 'cwd' instead of 'workingDirectory' for TerminalTool");
+            } else if (arguments.containsKey("directory")) {
+                workingDir = (String) arguments.get("directory");
+                log.warn("Using 'directory' instead of 'workingDirectory' for TerminalTool");
+            }
+            // Working directory is optional, so no error if not found
+        }
         
         // Resolve working directory within session workspace
         String resolvedWorkingDir = resolveWorkingDirectory(workingDir, sessionId);
         
+        // Create final copies of all variables used in lambda
+        final String finalCommand = command;
+        final String finalResolvedWorkingDir = resolvedWorkingDir;
+        final String finalSessionId = sessionId;
+        
         return Flux.create(sink -> {
             try {
-                // Add null check for command parameter
-                if (command == null) {
-                    log.error("Command parameter is null");
-                    sink.error(new IllegalArgumentException("Command parameter cannot be null"));
-                    return;
-                }
+                // Command validation already done above with detailed logging
                 
                 // Ensure the working directory exists
                 try {
-                    Files.createDirectories(Path.of(resolvedWorkingDir));
+                    Files.createDirectories(Path.of(finalResolvedWorkingDir));
                 } catch (IOException e) {
-                    log.error("Error creating working directory: {}", resolvedWorkingDir, e);
+                    log.error("Error creating working directory: {}", finalResolvedWorkingDir, e);
                     sink.error(new IOException("Error creating working directory: " + e.getMessage()));
                     return;
                 }
                 
                 Map<String, String> env = new HashMap<>(System.getenv());
                 // Add session workspace to environment variables
-                env.put("WORKSPACE_PATH", DEFAULT_WORKSPACE_PATH + "/" + sessionId);
-                env.put("SESSION_ID", sessionId);
+                env.put("WORKSPACE_PATH", DEFAULT_WORKSPACE_PATH + "/" + finalSessionId);
+                env.put("SESSION_ID", finalSessionId);
                 
-                String[] cmd = command.split(" ");
+                String[] cmd = finalCommand.split(" ");
                 
                 PtyProcessBuilder builder = new PtyProcessBuilder()
                         .setCommand(cmd)
@@ -109,9 +146,9 @@ public class TerminalTool implements Tool {
                                     .type("stdout")
                                     .content(line)
                                     .metadata(Map.of(
-                                        "command", command,
-                                        "workingDirectory", resolvedWorkingDir,
-                                        "sessionId", sessionId
+                                        "command", finalCommand,
+                                        "workingDirectory", finalResolvedWorkingDir,
+                                        "sessionId", finalSessionId
                                     ))
                                     .build());
                         }
@@ -133,17 +170,17 @@ public class TerminalTool implements Tool {
                             .type("exit")
                             .content(String.valueOf(exitCode))
                             .metadata(Map.of(
-                                "command", command, 
+                                "command", finalCommand, 
                                 "exitCode", exitCode,
-                                "workingDirectory", resolvedWorkingDir,
-                                "sessionId", sessionId
+                                "workingDirectory", finalResolvedWorkingDir,
+                                "sessionId", finalSessionId
                             ))
                             .build());
                     sink.complete();
                 }
                 
             } catch (Exception e) {
-                log.error("Error executing command: {}", command, e);
+                log.error("Error executing command: {}", finalCommand, e);
                 sink.error(e);
             }
         });
