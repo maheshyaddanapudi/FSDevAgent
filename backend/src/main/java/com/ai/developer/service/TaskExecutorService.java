@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Service that maps high-level tasks to specific tool invocations.
@@ -473,7 +475,32 @@ public class TaskExecutorService {
                 Map<String, Object> args = new HashMap<>(invocation.getArgs());
                 args.putAll(context);
                 
-                return tool.execute(args);
+                // Extract JSON content from tool_use blocks if needed
+                Object rawArgsObj = invocation.getArgs();
+                
+                if (rawArgsObj instanceof String rawArgs && rawArgs.contains("<tool_use>")) {
+                    Pattern pattern = Pattern.compile("<tool_use>(.*?)</tool_use>", Pattern.DOTALL);
+                    Matcher matcher = pattern.matcher(rawArgs);
+                    if (matcher.find()) {
+                        String jsonContent = matcher.group(1);
+                        try {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> extractedArgs = objectMapper.readValue(jsonContent, Map.class);
+                            args = new HashMap<>(extractedArgs);
+                            args.putAll(context);
+                        } catch (Exception e) {
+                            log.error("Error parsing tool_use JSON content: {}", e.getMessage());
+                            return Flux.error(e);
+                        }
+                    } else {
+                        log.warn("No valid <tool_use>...</tool_use> block found in: {}", rawArgs);
+                    }
+                }
+                
+                // Ensure we're passing a non-null map with the correct parameter name
+                Map<String, Object> arguments = args;
+                
+                return tool.execute(arguments);
             });
     }
     
