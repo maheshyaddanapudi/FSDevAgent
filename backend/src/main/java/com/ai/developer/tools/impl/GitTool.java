@@ -22,6 +22,9 @@ public class GitTool implements Tool {
     // Default workspace path for tools
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
     
+    // Session workspace root folder parameter name for workspace management
+    private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
+    
     @Override
     public String getName() {
         return "git_operations";
@@ -74,7 +77,14 @@ public class GitTool implements Tool {
         params.put("sessionId", ParameterInfo.builder()
             .name("sessionId")
             .type("string")
-            .description("Chat session ID for workspace management")
+            .description("Chat session ID for Claude's internal tracking")
+            .required(false)
+            .build());
+            
+        params.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, ParameterInfo.builder()
+            .name(SESSION_WORKSPACE_ROOT_FOLDER_PARAM)
+            .type("string")
+            .description("Session workspace root folder for workspace management")
             .required(false)
             .build());
             
@@ -133,8 +143,12 @@ public class GitTool implements Tool {
         String sessionIdParam = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         final String sessionId = sessionIdParam;
         
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
+        String sessionWorkspaceRootFolderParam = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionId);
+        final String sessionWorkspaceRootFolder = sessionWorkspaceRootFolderParam;
+        
         // Resolve path within session workspace
-        String resolvedPathParam = resolvePath(path, sessionId);
+        String resolvedPathParam = resolvePath(path, sessionWorkspaceRootFolder);
         final String resolvedPath = resolvedPathParam;
         
         // Create final copy of arguments for lambda
@@ -172,13 +186,13 @@ public class GitTool implements Tool {
      * If the path is absolute, return it as is
      * If the path is relative, resolve it within the session workspace
      */
-    private String resolvePath(String path, String sessionId) {
+    private String resolvePath(String path, String sessionWorkspaceRootFolder) {
         if (path.startsWith("/")) {
             return path; // Absolute path, use as is
         }
         
         // Create session workspace directory if it doesn't exist
-        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         try {
             Files.createDirectories(Path.of(workspacePath));
         } catch (Exception e) {

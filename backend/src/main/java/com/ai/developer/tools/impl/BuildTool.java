@@ -17,6 +17,9 @@ public class BuildTool implements Tool {
     // Default workspace path for tools
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
     
+    // Session workspace root folder parameter name for workspace management
+    private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
+    
     @Override
     public String getName() {
         return "build_tool";
@@ -55,7 +58,14 @@ public class BuildTool implements Tool {
         params.put("sessionId", ParameterInfo.builder()
             .name("sessionId")
             .type("string")
-            .description("Chat session ID for workspace management")
+            .description("Chat session ID for Claude's internal tracking")
+            .required(false)
+            .build());
+            
+        params.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, ParameterInfo.builder()
+            .name(SESSION_WORKSPACE_ROOT_FOLDER_PARAM)
+            .type("string")
+            .description("Session workspace root folder for workspace management")
             .required(false)
             .build());
             
@@ -134,16 +144,19 @@ public class BuildTool implements Tool {
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         String taskDir = (String) arguments.getOrDefault("taskDir", "");
         
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
+        String sessionWorkspaceRootFolder = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionId);
+        
         // Resolve project path within session workspace
-        String resolvedProjectPath = resolveProjectPath(projectPath, sessionId, taskDir);
+        String resolvedProjectPath = resolveProjectPath(projectPath, sessionWorkspaceRootFolder, taskDir);
         
         // Log the final parameters being used
         log.info("BuildTool executing with tool: {}, projectPath: {}, goals: {}", tool, resolvedProjectPath, goals);
         
         if ("maven".equalsIgnoreCase(tool)) {
-            return executeMaven(resolvedProjectPath, goals, sessionId, taskDir);
+            return executeMaven(resolvedProjectPath, goals, sessionId, sessionWorkspaceRootFolder, taskDir);
         } else if ("gradle".equalsIgnoreCase(tool)) {
-            return executeGradle(resolvedProjectPath, goals, sessionId, taskDir);
+            return executeGradle(resolvedProjectPath, goals, sessionId, sessionWorkspaceRootFolder, taskDir);
         } else {
             log.error("Unknown build tool: {}. Supported tools: maven, gradle", tool);
             return Flux.error(new IllegalArgumentException("Unknown build tool: " + tool));
@@ -155,13 +168,13 @@ public class BuildTool implements Tool {
      * If the path is absolute, return it as is
      * If the path is relative, resolve it within the session workspace and task directory
      */
-    private String resolveProjectPath(String projectPath, String sessionId, String taskDir) {
+    private String resolveProjectPath(String projectPath, String sessionWorkspaceRootFolder, String taskDir) {
         if (projectPath.startsWith("/")) {
             return projectPath; // Absolute path, use as is
         }
         
         // Create session workspace directory
-        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         
         // If task directory is specified, include it in the path
         if (taskDir != null && !taskDir.isEmpty()) {
@@ -178,11 +191,12 @@ public class BuildTool implements Tool {
         return sessionWorkspace + "/" + projectPath;
     }
     
-    private Flux<ToolOutput> executeMaven(String projectPath, List<String> goals, String sessionId, String taskDir) {
+    private Flux<ToolOutput> executeMaven(String projectPath, List<String> goals, String sessionId, String sessionWorkspaceRootFolder, String taskDir) {
         // Create final copies of variables for lambda
         final String finalProjectPath = projectPath;
         final List<String> finalGoals = goals;
         final String finalSessionId = sessionId;
+        final String finalSessionWorkspaceRootFolder = sessionWorkspaceRootFolder;
         final String finalTaskDir = taskDir;
         
         return Flux.create(sink -> {
@@ -200,7 +214,7 @@ public class BuildTool implements Tool {
                             .metadata(Map.of(
                                 "tool", "maven",
                                 "sessionId", finalSessionId,
-                                "workspacePath", getWorkspacePath(finalSessionId, finalTaskDir),
+                                "workspacePath", getWorkspacePath(finalSessionWorkspaceRootFolder, finalTaskDir),
                                 "projectPath", finalProjectPath
                             ))
                             .build());
@@ -216,7 +230,7 @@ public class BuildTool implements Tool {
                             .metadata(Map.of(
                                 "exitCode", result.getExitCode(),
                                 "sessionId", finalSessionId,
-                                "workspacePath", getWorkspacePath(finalSessionId, finalTaskDir),
+                                "workspacePath", getWorkspacePath(finalSessionWorkspaceRootFolder, finalTaskDir),
                                 "projectPath", finalProjectPath
                             ))
                             .build());
@@ -227,7 +241,7 @@ public class BuildTool implements Tool {
                             .metadata(Map.of(
                                 "exitCode", result.getExitCode(),
                                 "sessionId", finalSessionId,
-                                "workspacePath", getWorkspacePath(finalSessionId, finalTaskDir),
+                                "workspacePath", getWorkspacePath(finalSessionWorkspaceRootFolder, finalTaskDir),
                                 "projectPath", finalProjectPath
                             ))
                             .build());
@@ -241,7 +255,7 @@ public class BuildTool implements Tool {
         });
     }
     
-    private Flux<ToolOutput> executeGradle(String projectPath, List<String> goals, String sessionId, String taskDir) {
+    private Flux<ToolOutput> executeGradle(String projectPath, List<String> goals, String sessionId, String sessionWorkspaceRootFolder, String taskDir) {
         return Flux.create(sink -> {
             try {
                 // Ensure project directory exists
@@ -265,7 +279,7 @@ public class BuildTool implements Tool {
                 
                 // Add workspace information to environment
                 Map<String, String> env = processBuilder.environment();
-                env.put("WORKSPACE_PATH", getWorkspacePath(sessionId, taskDir));
+                env.put("WORKSPACE_PATH", getWorkspacePath(sessionWorkspaceRootFolder, taskDir));
                 env.put("SESSION_ID", sessionId);
                 
                 Process process = processBuilder.start();
@@ -281,7 +295,7 @@ public class BuildTool implements Tool {
                                 .metadata(Map.of(
                                     "tool", "gradle",
                                     "sessionId", sessionId,
-                                    "workspacePath", getWorkspacePath(sessionId, taskDir),
+                                    "workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir),
                                     "projectPath", projectPath
                                 ))
                                 .build());
@@ -296,7 +310,7 @@ public class BuildTool implements Tool {
                             .metadata(Map.of(
                                 "exitCode", exitCode,
                                 "sessionId", sessionId,
-                                "workspacePath", getWorkspacePath(sessionId, taskDir),
+                                "workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir),
                                 "projectPath", projectPath
                             ))
                             .build());
@@ -307,7 +321,7 @@ public class BuildTool implements Tool {
                             .metadata(Map.of(
                                 "exitCode", exitCode,
                                 "sessionId", sessionId,
-                                "workspacePath", getWorkspacePath(sessionId, taskDir),
+                                "workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir),
                                 "projectPath", projectPath
                             ))
                             .build());
@@ -324,8 +338,8 @@ public class BuildTool implements Tool {
     /**
      * Get the full workspace path including session ID and optional task directory
      */
-    private String getWorkspacePath(String sessionId, String taskDir) {
-        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+    private String getWorkspacePath(String sessionWorkspaceRootFolder, String taskDir) {
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         if (taskDir != null && !taskDir.isEmpty()) {
             workspacePath = workspacePath + "/" + taskDir;
         }

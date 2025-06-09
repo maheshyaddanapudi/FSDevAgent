@@ -19,6 +19,9 @@ public class TerminalTool implements Tool {
     // Default workspace path for tools
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
     
+    // Session workspace root folder parameter name for workspace management
+    private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
+    
     @Override
     public String getName() {
         return "execute_command";
@@ -50,7 +53,14 @@ public class TerminalTool implements Tool {
         params.put("sessionId", ParameterInfo.builder()
             .name("sessionId")
             .type("string")
-            .description("Chat session ID for workspace management")
+            .description("Chat session ID for Claude's internal tracking")
+            .required(false)
+            .build());
+            
+        params.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, ParameterInfo.builder()
+            .name(SESSION_WORKSPACE_ROOT_FOLDER_PARAM)
+            .type("string")
+            .description("Session workspace root folder for workspace management")
             .required(false)
             .build());
             
@@ -83,6 +93,9 @@ public class TerminalTool implements Tool {
         
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
+        String sessionWorkspaceRootFolder = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionId);
+        
         // Extract working directory with alternative key checking
         String workingDir = (String) arguments.get("workingDirectory");
         if (workingDir == null) {
@@ -101,7 +114,7 @@ public class TerminalTool implements Tool {
         }
         
         // Resolve working directory within session workspace
-        String resolvedWorkingDir = resolveWorkingDirectory(workingDir, sessionId);
+        String resolvedWorkingDir = resolveWorkingDirectory(workingDir, sessionWorkspaceRootFolder);
         
         // Create final copies of all variables used in lambda
         final String finalCommand = command;
@@ -191,9 +204,9 @@ public class TerminalTool implements Tool {
      * If the path is absolute, return it as is
      * If the path is relative or null, resolve it within the session workspace
      */
-    private String resolveWorkingDirectory(String workingDir, String sessionId) {
+    private String resolveWorkingDirectory(String workingDir, String sessionWorkspaceRootFolder) {
         // Create session workspace directory
-        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         
         // If working directory is null or empty, use session workspace
         if (workingDir == null || workingDir.isEmpty()) {

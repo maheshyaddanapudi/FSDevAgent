@@ -25,6 +25,9 @@ public class DataVisualizationTool implements Tool {
 
     // Default workspace path for tools
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
+    
+    // Session workspace root folder parameter name for workspace management
+    private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
 
     private final ToolOutputWebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -78,7 +81,14 @@ public class DataVisualizationTool implements Tool {
         parameters.put("sessionId", ParameterInfo.builder()
                 .name("sessionId")
                 .type("string")
-                .description("Chat session ID for workspace management")
+                .description("Chat session ID for Claude's internal tracking")
+                .required(false)
+                .build());
+                
+        parameters.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, ParameterInfo.builder()
+                .name(SESSION_WORKSPACE_ROOT_FOLDER_PARAM)
+                .type("string")
+                .description("Session workspace root folder for workspace management")
                 .required(false)
                 .build());
                 
@@ -148,22 +158,26 @@ public class DataVisualizationTool implements Tool {
         String taskDirParam = (String) parameters.getOrDefault("taskDir", "");
         String outputPathParam = (String) parameters.getOrDefault("outputPath", "visualizations");
         
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
+        String sessionWorkspaceRootFolderParam = (String) parameters.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionIdParam);
+        
         // Create final copies of all variables for lambda expressions
         final String type = typeParam;
         final Object data = dataParam;
         final String title = titleParam;
         final Map<String, Object> options = optionsParam;
         final String sessionId = sessionIdParam;
+        final String sessionWorkspaceRootFolder = sessionWorkspaceRootFolderParam;
         final String taskDir = taskDirParam;
         final String outputPath = outputPathParam;
         final Map<String, Object> finalParameters = parameters;
         
         // Resolve output path within session workspace
-        String resolvedOutputPath = resolveOutputPath(outputPath, sessionId, taskDir);
+        String resolvedOutputPath = resolveOutputPath(outputPath, sessionWorkspaceRootFolder, taskDir);
         
         // Log the final parameters being used
         log.info("Creating {} visualization with title: {} in workspace: {}", 
-                type, title, getWorkspacePath(sessionId, taskDir));
+                type, title, getWorkspacePath(sessionWorkspaceRootFolder, taskDir));
         
         try {
             // Create visualization configuration
@@ -177,7 +191,7 @@ public class DataVisualizationTool implements Tool {
             
             // Add workspace information
             visualization.put("sessionId", sessionId);
-            visualization.put("workspacePath", getWorkspacePath(sessionId, taskDir));
+            visualization.put("workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir));
             visualization.put("outputPath", resolvedOutputPath);
             
             // Generate output filename
@@ -201,7 +215,7 @@ public class DataVisualizationTool implements Tool {
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("visualData", visualization);
             metadata.put("sessionId", sessionId);
-            metadata.put("workspacePath", getWorkspacePath(sessionId, taskDir));
+            metadata.put("workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir));
             metadata.put("outputPath", resolvedOutputPath);
             metadata.put("filename", filename);
             
@@ -218,7 +232,7 @@ public class DataVisualizationTool implements Tool {
                     .content("Error creating visualization: " + e.getMessage())
                     .metadata(Map.of(
                         "sessionId", sessionId,
-                        "workspacePath", getWorkspacePath(sessionId, taskDir)
+                        "workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir)
                     ))
                     .build());
         }
@@ -228,9 +242,9 @@ public class DataVisualizationTool implements Tool {
      * Resolve output path within session workspace
      * Creates necessary directories if they don't exist
      */
-    private String resolveOutputPath(String outputPath, String sessionId, String taskDir) {
+    private String resolveOutputPath(String outputPath, String sessionWorkspaceRootFolder, String taskDir) {
         // Create session workspace directory
-        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        String sessionWorkspace = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         
         // If task directory is specified, include it in the path
         if (taskDir != null && !taskDir.isEmpty()) {
@@ -250,10 +264,10 @@ public class DataVisualizationTool implements Tool {
     }
     
     /**
-     * Get the full workspace path including session ID and optional task directory
+     * Get the full workspace path including session workspace root folder and optional task directory
      */
-    private String getWorkspacePath(String sessionId, String taskDir) {
-        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+    private String getWorkspacePath(String sessionWorkspaceRootFolder, String taskDir) {
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         if (taskDir != null && !taskDir.isEmpty()) {
             workspacePath = workspacePath + "/" + taskDir;
         }
