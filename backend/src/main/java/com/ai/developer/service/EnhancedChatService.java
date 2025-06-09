@@ -51,6 +51,9 @@ public class EnhancedChatService {
     // Default workspace path for tools
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
     
+    // Session workspace root folder parameter name for workspace management
+    private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
+    
     // Patterns for parsing responses
     private static final Pattern TOOL_USE_PATTERN = Pattern.compile("<tool_use>(.*?)</tool_use>|\\{\"type\":\"content_block_start\".*?\"type\":\"tool_use\".*?\\}", Pattern.DOTALL);
     private static final Pattern COMPLETION_PATTERN = Pattern.compile("(?i)(task complete|objectives? (?:met|achieved|completed)|all (?:done|finished)|nothing (?:more|else) to do)");
@@ -78,11 +81,14 @@ public class EnhancedChatService {
         String sessionId = UUID.randomUUID().toString();
         log.info("Created new session: {}", sessionId);
         
+        // Use sessionId as sessionWorkspaceRootFolder for workspace management
+        String sessionWorkspaceRootFolder = sessionId;
+        
         // Create session workspace directory
-        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         try {
             Files.createDirectories(Path.of(workspacePath));
-            log.info("Created workspace directory for session {}: {}", workspacePath, sessionId);
+            log.info("Created workspace directory for session {}: {}", sessionId, workspacePath);
         } catch (Exception e) {
             log.error("Error creating workspace directory for session {}: {}", sessionId, e.getMessage(), e);
         }
@@ -96,9 +102,10 @@ public class EnhancedChatService {
         context.setSystemPrompt(systemPrompt);
         context.setMessages(new ArrayList<>());
         
-        // Add metadata with session ID and workspace path
+        // Add metadata with session ID, sessionWorkspaceRootFolder, and workspace path
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("sessionId", sessionId);
+        metadata.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionWorkspaceRootFolder);
         metadata.put("workspacePath", workspacePath);
         context.setMetadata(metadata);
         

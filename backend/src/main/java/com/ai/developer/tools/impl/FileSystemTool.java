@@ -16,6 +16,9 @@ public class FileSystemTool implements Tool {
     // Default workspace path for tools
     private static final String DEFAULT_WORKSPACE_PATH = "/tmp/ai-developer-agent";
     
+    // Session workspace root folder parameter name for workspace management
+    private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
+    
     @Override
     public String getName() {
         return "file_system";
@@ -54,7 +57,14 @@ public class FileSystemTool implements Tool {
         params.put("sessionId", ParameterInfo.builder()
             .name("sessionId")
             .type("string")
-            .description("Chat session ID for workspace management")
+            .description("Chat session ID for Claude's internal tracking")
+            .required(false)
+            .build());
+            
+        params.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, ParameterInfo.builder()
+            .name(SESSION_WORKSPACE_ROOT_FOLDER_PARAM)
+            .type("string")
+            .description("Session workspace root folder for workspace management")
             .required(false)
             .build());
             
@@ -69,6 +79,9 @@ public class FileSystemTool implements Tool {
         String operation = (String) arguments.get("operation");
         String path = (String) arguments.get("path");
         String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
+        String sessionWorkspaceRootFolder = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionId);
         
         // Fix for NullPointerException: Add null check for operation with enhanced logging
         if (operation == null) {
@@ -107,7 +120,7 @@ public class FileSystemTool implements Tool {
         }
         
         // Resolve path within session workspace if it's not absolute
-        String resolvedPath = resolvePath(path, sessionId);
+        String resolvedPath = resolvePath(path, sessionWorkspaceRootFolder);
         
         return switch (operation.toLowerCase()) {
             case "read" -> readFile(resolvedPath);
@@ -125,13 +138,13 @@ public class FileSystemTool implements Tool {
      * If the path is absolute, return it as is
      * If the path is relative, resolve it within the session workspace
      */
-    private String resolvePath(String path, String sessionId) {
+    private String resolvePath(String path, String sessionWorkspaceRootFolder) {
         if (path.startsWith("/")) {
             return path; // Absolute path, use as is
         }
         
         // Create session workspace directory if it doesn't exist
-        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         try {
             Files.createDirectories(Path.of(workspacePath));
         } catch (IOException e) {

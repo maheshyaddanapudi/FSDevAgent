@@ -27,6 +27,9 @@ import java.util.regex.Pattern;
 @Service
 public class TaskExecutorService {
     
+    // Session workspace root folder parameter name for workspace management
+    private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
+    
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
     private final ToolOutputWebSocketHandler webSocketHandler;
@@ -496,6 +499,19 @@ public class TaskExecutorService {
                         log.warn("No valid <tool_use>...</tool_use> block found in: {}", rawArgs);
                     }
                 }
+                
+                // Add sessionWorkspaceRootFolder parameter for workspace management
+                // Use sessionId as sessionWorkspaceRootFolder if not explicitly provided
+                String sessionId = (String) context.get("sessionId");
+                String sessionWorkspaceRootFolder = sessionId;
+                if (context.containsKey(SESSION_WORKSPACE_ROOT_FOLDER_PARAM)) {
+                    sessionWorkspaceRootFolder = (String) context.get(SESSION_WORKSPACE_ROOT_FOLDER_PARAM);
+                }
+                
+                // Ensure sessionId is preserved for Claude's internal tracking
+                args.put("sessionId", sessionId);
+                // Add sessionWorkspaceRootFolder for workspace management
+                args.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionWorkspaceRootFolder);
                 
                 // Ensure we're passing a non-null map with the correct parameter name
                 Map<String, Object> arguments = args;
