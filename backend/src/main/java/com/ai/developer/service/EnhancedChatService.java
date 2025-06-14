@@ -111,7 +111,7 @@ public class EnhancedChatService {
         
         // Create agent state
         AgentState agentState = new AgentState();
-        agentState.setSessionId(sessionId);
+        agentState.setAiDeveloperAgentSessionId(sessionId);
         agentState.setProjectContext(projectContext);
         agentState.setMode(ConversationMode.AUTONOMOUS); // Start in autonomous mode for true autonomy
         
@@ -323,7 +323,7 @@ public class EnhancedChatService {
         
         // Create agent state
         AgentState agentState = new AgentState();
-        agentState.setSessionId(sessionId);
+        agentState.setAiDeveloperAgentSessionId(sessionId);
         agentState.setProjectContext(projectContext);
         agentState.setMode(ConversationMode.AUTONOMOUS); // Start in autonomous mode for true autonomy
         
@@ -436,7 +436,7 @@ public class EnhancedChatService {
      * Process a user message with support for both autonomous and conversational modes
      */
     public Flux<ChatResponse> processMessage(ChatRequest request) {
-        String sessionId = request.getSessionId();
+        String sessionId = request.getAiDeveloperAgentSessionId();
         String message = request.getMessage();
         
         log.info("Processing message for session {}: {}", sessionId, message);

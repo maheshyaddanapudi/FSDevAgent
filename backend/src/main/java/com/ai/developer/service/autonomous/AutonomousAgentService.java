@@ -88,7 +88,7 @@ public class AutonomousAgentService {
         // Initialize agent state if not exists
         AgentState agentState = agentStates.computeIfAbsent(sessionId, k -> {
             AgentState newState = new AgentState();
-            newState.setSessionId(sessionId);
+            newState.setAiDeveloperAgentSessionId(sessionId);
             newState.setCurrentObjective(objective);
             newState.setCurrentPhase(DevelopmentPhase.ANALYSIS);
             newState.setMode(ConversationMode.AUTONOMOUS);
@@ -155,7 +155,7 @@ public class AutonomousAgentService {
                 log.info("All tasks completed for session {}. Terminating autonomous execution loop.", sessionId);
                 
                 // Update progress to 100%
-                updateAgentState(agentState.getSessionId(), "PROGRESS", "100");
+                updateAgentState(agentState.getAiDeveloperAgentSessionId(), "PROGRESS", "100");
                 
                 // Set shouldContinue to false to stop the loop
                 agentState.setShouldContinue(false);
@@ -165,7 +165,7 @@ public class AutonomousAgentService {
                 
                 // Notify UI that execution is complete
                 agentControlService.broadcastExecutionComplete(
-                    agentState.getSessionId(), 
+                    agentState.getAiDeveloperAgentSessionId(), 
                     "All tasks completed successfully", 
                     true
                 );
@@ -357,10 +357,10 @@ public class AutonomousAgentService {
             // Execute the task using TaskExecutorService
             try {
                 Map<String, Object> context = new HashMap<>();
-                context.put("sessionId", agentState.getSessionId());
+                context.put("sessionId", agentState.getAiDeveloperAgentSessionId());
                 context.put("objective", agentState.getCurrentObjective());
                 context.put("phase", agentState.getCurrentPhase().toString());
-                context.put("workspacePath", DEFAULT_WORKSPACE_PATH + "/" + agentState.getSessionId());
+                context.put("workspacePath", DEFAULT_WORKSPACE_PATH + "/" + agentState.getAiDeveloperAgentSessionId());
                 
                 // Determine task type and description
                 String taskType = extractTaskType(nextTask);
@@ -374,20 +374,20 @@ public class AutonomousAgentService {
                         output -> {
                             log.info("Task execution output: {}", output);
                             // Update agent state with task progress
-                            updateAgentState(agentState.getSessionId(), "TASK_PROGRESS", output.toString());
+                            updateAgentState(agentState.getAiDeveloperAgentSessionId(), "TASK_PROGRESS", output.toString());
                         },
                         error -> {
                             log.error("Error executing task: {}", error.getMessage());
                             // Update agent state with error
-                            updateAgentState(agentState.getSessionId(), "TASK_ERROR", error.getMessage());
+                            updateAgentState(agentState.getAiDeveloperAgentSessionId(), "TASK_ERROR", error.getMessage());
                         },
                         () -> {
                             log.info("Task execution completed");
                             // Mark task as complete
-                            updateAgentState(agentState.getSessionId(), "TASK_COMPLETE", nextTask);
+                            updateAgentState(agentState.getAiDeveloperAgentSessionId(), "TASK_COMPLETE", nextTask);
                             
                             // Check if all tasks are complete after this update
-                            AgentState updatedState = agentStates.get(agentState.getSessionId());
+                            AgentState updatedState = agentStates.get(agentState.getAiDeveloperAgentSessionId());
                             if (updatedState != null && areAllTasksComplete(updatedState)) {
                                 log.info("All tasks completed after task execution. Setting progress to 100%.");
                                 updateAgentState(updatedState.getSessionId(), "PROGRESS", "100");
@@ -416,7 +416,7 @@ public class AutonomousAgentService {
         
         if (allComplete) {
             log.info("All tasks are complete for session {}. Completed tasks: {}, Pending tasks: {}", 
-                    agentState.getSessionId(), 
+                    agentState.getAiDeveloperAgentSessionId(), 
                     agentState.getCompletedTasks().size(),
                     agentState.getPendingTasks().size());
         }
