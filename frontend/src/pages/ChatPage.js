@@ -1,4 +1,4 @@
-// Fixed ChatPage.js - Issue #5: Integration Challenges Fix
+// Enhanced ChatPage.js with Human-in-the-Loop Support
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import useChatStore from '../hooks/useChatStore';
@@ -30,7 +30,12 @@ const ChatPage = () => {
     error: storeError,
     clearError,
     initializeSession,
-    sendMessage: sendChatMessage
+    sendMessage: sendChatMessage,
+    // NEW: Human-in-the-loop state and actions
+    waitingForHumanInput,
+    humanInputRequest,
+    submitHumanInput,
+    cancelHumanInputRequest
   } = useChatStore();
   
   // Issue #5 Fix: Enhanced WebSocket connection with comprehensive status
@@ -200,18 +205,68 @@ const ChatPage = () => {
       setIsProcessing(false);
       setIsTyping(false);
     }
-  }, [message, isProcessing, aiDeveloperAgentSessionId, wsConnected, wsSendMessage, addMessage, sendChatMessage]);
+  }, [message, isProcessing, aiDeveloperAgentSessionId, sendChatMessage]);
+  
+  // NEW: Handle human input submission
+  const handleHumanInputSubmit = useCallback(async (e) => {
+    e.preventDefault();
+    
+    if (!message.trim()) {
+      console.warn('Cannot send empty response');
+      return;
+    }
+    
+    if (!aiDeveloperAgentSessionId) {
+      setError('No active session. Please refresh the page.');
+      return;
+    }
+    
+    const responseText = message.trim();
+    console.log('Submitting human input response:', responseText);
+    
+    // Clear input and errors
+    setMessage('');
+    setError(null);
+    setIsProcessing(true);
+    
+    try {
+      // Submit the human input response
+      const cleanup = await submitHumanInput(responseText);
+      
+      if (cleanup) {
+        // Store cleanup function for potential use
+        window._currentChatCleanup = cleanup;
+      }
+    } catch (error) {
+      console.error('Error submitting human input:', error);
+      setError(`Failed to submit response: ${error.message}`);
+      setIsProcessing(false);
+    }
+  }, [message, aiDeveloperAgentSessionId, submitHumanInput]);
+  
+  // NEW: Handle human input cancellation
+  const handleCancelHumanInput = useCallback(() => {
+    console.log('Canceling human input request');
+    cancelHumanInputRequest();
+  }, [cancelHumanInputRequest]);
   
   // Issue #5 Fix: Handle keyboard shortcuts
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      if (waitingForHumanInput) {
+        handleHumanInputSubmit(e);
+      } else {
+        handleSubmit(e);
+      }
     } else if (e.key === 'Escape') {
       setMessage('');
       setError(null);
+      if (waitingForHumanInput) {
+        handleCancelHumanInput();
+      }
     }
-  }, [handleSubmit]);
+  }, [handleSubmit, handleHumanInputSubmit, handleCancelHumanInput, waitingForHumanInput]);
   
   // Issue #5 Fix: Focus input on component mount
   useEffect(() => {
@@ -272,6 +327,37 @@ const ChatPage = () => {
     );
   };
   
+  // NEW: Render human input request UI
+  const renderHumanInputRequest = () => {
+    if (!waitingForHumanInput || !humanInputRequest) return null;
+    
+    return (
+      <div className="human-input-request">
+        <div className="human-input-header">
+          <h3>Input Required</h3>
+          <button onClick={handleCancelHumanInput} className="cancel-btn">
+            ✕
+          </button>
+        </div>
+        <p>{humanInputRequest.text}</p>
+        {humanInputRequest.attachments && humanInputRequest.attachments.length > 0 && (
+          <div className="human-input-attachments">
+            <h4>Attachments:</h4>
+            <ul>
+              {humanInputRequest.attachments.map((attachment, index) => (
+                <li key={index}>
+                  <a href={attachment} target="_blank" rel="noopener noreferrer">
+                    {attachment.split('/').pop()}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  };
+  
   // Issue #5 Fix: Loading state for session initialization
   if (!sessionInitialized && isLoading) {
     return (
@@ -307,6 +393,9 @@ const ChatPage = () => {
         {renderConnectionStatus()}
         {renderError()}
         
+        {/* Human Input Request */}
+        {renderHumanInputRequest()}
+        
         {/* Messages Area */}
         <div className="chat-messages">
           <MessageList messages={messages} />
@@ -326,7 +415,10 @@ const ChatPage = () => {
         </div>
         
         {/* Input Area */}
-        <form className="chat-input" onSubmit={handleSubmit}>
+        <form 
+          className={`chat-input ${waitingForHumanInput ? 'human-input-mode' : ''}`} 
+          onSubmit={waitingForHumanInput ? handleHumanInputSubmit : handleSubmit}
+        >
           <input
             ref={inputRef}
             type="text"
@@ -338,19 +430,24 @@ const ChatPage = () => {
                 ? "Initializing session..." 
                 : !wsConnected 
                   ? "Type your message (WebSocket disconnected)..."
-                  : "Type your message..."
+                  : waitingForHumanInput
+                    ? "Type your response..."
+                    : "Type your message..."
             }
-            disabled={isProcessing || !aiDeveloperAgentSessionId}
+            disabled={(!waitingForHumanInput && isProcessing) || !aiDeveloperAgentSessionId}
             maxLength={4000}
+            className={waitingForHumanInput ? 'human-input' : ''}
           />
           
           <button 
             type="submit" 
-            disabled={isProcessing || !aiDeveloperAgentSessionId || !message.trim()}
-            className={isProcessing ? 'processing' : ''}
+            disabled={(isProcessing && !waitingForHumanInput) || !aiDeveloperAgentSessionId || !message.trim()}
+            className={`${isProcessing && !waitingForHumanInput ? 'processing' : ''} ${waitingForHumanInput ? 'human-input-button' : ''}`}
           >
-            {isProcessing ? (
+            {isProcessing && !waitingForHumanInput ? (
               <span className="button-spinner">⟳</span>
+            ) : waitingForHumanInput ? (
+              'Submit Response'
             ) : (
               'Send'
             )}
