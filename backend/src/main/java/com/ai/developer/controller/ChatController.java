@@ -25,58 +25,58 @@ public class ChatController {
     // Session creation endpoint moved to SessionController to avoid mapping conflicts
     // and to leverage enhanced session management capabilities
     
-    @GetMapping("/sessions/{sessionId}/history")
-    public Mono<List<ChatResponse>> getSessionHistory(@PathVariable String sessionId) {
-        log.info("Getting history for session: {}", sessionId);
-        return chatService.getSessionHistory(sessionId)
-            .doOnSuccess(history -> log.info("Retrieved history for session {}: {} messages", sessionId, history.size()))
-            .doOnError(error -> log.error("Error retrieving history for session: {}", sessionId, error));
+    @GetMapping("/sessions/{aiDeveloperAgentSessionId}/history")
+    public Mono<List<ChatResponse>> getSessionHistory(@PathVariable String aiDeveloperAgentSessionId) {
+        log.info("Getting history for session: {}", aiDeveloperAgentSessionId);
+        return chatService.getSessionHistory(aiDeveloperAgentSessionId)
+            .doOnSuccess(history -> log.info("Retrieved history for session {}: {} messages", aiDeveloperAgentSessionId, history.size()))
+            .doOnError(error -> log.error("Error retrieving history for session: {}", aiDeveloperAgentSessionId, error));
     }
     
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ChatResponse> chat(@RequestBody ChatRequest request) {
-        log.info("Received chat request for session {}: {}", request.getSessionId(), request.getMessage());
+        log.info("Received chat request for session {}: {}", request.getAiDeveloperAgentSessionId(), request.getMessage());
         return chatService.processMessage(request)
-            .doOnNext(response -> log.info("Sending chat response chunk for session {}", request.getSessionId()))
-            .doOnComplete(() -> log.info("Completed sending chat response for session {}", request.getSessionId()))
-            .doOnError(error -> log.error("Error processing message for session {}", request.getSessionId(), error));
+            .doOnNext(response -> log.info("Sending chat response chunk for session {}", request.getAiDeveloperAgentSessionId()))
+            .doOnComplete(() -> log.info("Completed sending chat response for session {}", request.getAiDeveloperAgentSessionId()))
+            .doOnError(error -> log.error("Error processing message for session {}", request.getAiDeveloperAgentSessionId(), error));
     }
     
     @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ChatResponse> chatGet(@RequestParam String sessionId, @RequestParam String message) {
-        log.info("Received GET chat request for session {}: {}", sessionId, message);
+    public Flux<ChatResponse> chatGet(@RequestParam String aiDeveloperAgentSessionId, @RequestParam String message) {
+        log.info("Received GET chat request for session {}: {}", aiDeveloperAgentSessionId, message);
         ChatRequest request = ChatRequest.builder()
-            .sessionId(sessionId)
+            .aiDeveloperAgentSessionId(aiDeveloperAgentSessionId)
             .message(message)
             .build();
             
         return chatService.processMessage(request)
-            .doOnNext(response -> log.info("Sending chat response chunk for session {}", sessionId))
-            .doOnComplete(() -> log.info("Completed sending chat response for session {}", sessionId))
-            .doOnError(error -> log.error("Error processing message for session {}", sessionId, error));
+            .doOnNext(response -> log.info("Sending chat response chunk for session {}", aiDeveloperAgentSessionId))
+            .doOnComplete(() -> log.info("Completed sending chat response for session {}", aiDeveloperAgentSessionId))
+            .doOnError(error -> log.error("Error processing message for session {}", aiDeveloperAgentSessionId, error));
     }
     
     @PostMapping(value = "/tools/{toolName}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ToolCallResponse> executeTool(
             @PathVariable String toolName,
-            @RequestParam String sessionId,
+            @RequestParam String aiDeveloperAgentSessionId,
             @RequestBody Map<String, Object> arguments) {
-        log.info("Executing tool {} for session {} with arguments: {}", toolName, sessionId, arguments);
-        return chatService.executeTool(sessionId, toolName, arguments)
-            .map(toolOutput -> convertToToolCallResponse(toolName, sessionId, arguments, toolOutput))
-            .doOnNext(output -> log.info("Tool {} execution output for session {}: {}", toolName, sessionId, output))
-            .doOnError(error -> log.error("Error executing tool {} for session {}", toolName, sessionId, error));
+        log.info("Executing tool {} for session {} with arguments: {}", toolName, aiDeveloperAgentSessionId, arguments);
+        return chatService.executeTool(aiDeveloperAgentSessionId, toolName, arguments)
+            .map(toolOutput -> convertToToolCallResponse(toolName, aiDeveloperAgentSessionId, arguments, toolOutput))
+            .doOnNext(output -> log.info("Tool {} execution output for session {}: {}", toolName, aiDeveloperAgentSessionId, output))
+            .doOnError(error -> log.error("Error executing tool {} for session {}", toolName, aiDeveloperAgentSessionId, error));
     }
     
     /**
      * Convert ToolOutput to ToolCallResponse for API compatibility
      */
-    private ToolCallResponse convertToToolCallResponse(String toolName, String sessionId, Map<String, Object> arguments, ToolOutput toolOutput) {
+    private ToolCallResponse convertToToolCallResponse(String toolName, String aiDeveloperAgentSessionId, Map<String, Object> arguments, ToolOutput toolOutput) {
         return ToolCallResponse.builder()
                 .name(toolName)
                 .arguments(arguments)
                 .result(toolOutput.getContent())
-                .sessionId(sessionId)
+                .aiDeveloperAgentSessionId(aiDeveloperAgentSessionId)
                 .build();
     }
 }

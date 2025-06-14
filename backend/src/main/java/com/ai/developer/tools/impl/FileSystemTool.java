@@ -19,6 +19,9 @@ public class FileSystemTool implements Tool {
     // Session workspace root folder parameter name for workspace management
     private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
     
+    // Logging prefix for file operations to enable easy grepping
+    private static final String FILE_OP_LOG_PREFIX = "FILE_OPERATION";
+    
     @Override
     public String getName() {
         return "file_system";
@@ -68,6 +71,13 @@ public class FileSystemTool implements Tool {
             .required(false)
             .build());
             
+        params.put("aiDeveloperAgentSessionId", ParameterInfo.builder()
+            .name("aiDeveloperAgentSessionId")
+            .type("string")
+            .description("AI Developer Agent session ID for workspace management")
+            .required(false)
+            .build());
+            
         return params;
     }
     
@@ -78,10 +88,13 @@ public class FileSystemTool implements Tool {
         
         String operation = (String) arguments.get("operation");
         String path = (String) arguments.get("path");
-        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
         
-        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
-        String sessionWorkspaceRootFolder = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionId);
+        // Use aiDeveloperAgentSessionId if available, otherwise fall back to sessionId
+        String aiDeveloperAgentSessionId = (String) arguments.getOrDefault("aiDeveloperAgentSessionId", 
+                                                arguments.getOrDefault("sessionId", UUID.randomUUID().toString()));
+        
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to aiDeveloperAgentSessionId
+        String sessionWorkspaceRootFolder = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, aiDeveloperAgentSessionId);
         
         // Fix for NullPointerException: Add null check for operation with enhanced logging
         if (operation == null) {
@@ -147,8 +160,9 @@ public class FileSystemTool implements Tool {
         String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         try {
             Files.createDirectories(Path.of(workspacePath));
+            log.info("{}: [{}] Creating workspace directory at path: {}", FILE_OP_LOG_PREFIX, getName(), workspacePath);
         } catch (IOException e) {
-            log.error("Error creating workspace directory: {}", workspacePath, e);
+            log.error("{}: [{}] Error creating workspace directory: {}", FILE_OP_LOG_PREFIX, getName(), workspacePath, e);
         }
         
         // Resolve relative path within workspace
@@ -158,6 +172,7 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> readFile(String path) {
         return Mono.fromCallable(() -> {
             try {
+                log.info("{}: [{}] Reading file at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
                 String content = Files.readString(Path.of(path));
                 return ToolOutput.builder()
                         .type("file_content")
@@ -168,7 +183,7 @@ public class FileSystemTool implements Tool {
                         ))
                         .build();
             } catch (IOException e) {
-                log.error("Error reading file: {}", path, e);
+                log.error("{}: [{}] Error reading file: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
                 throw new RuntimeException("Error reading file: " + e.getMessage());
             }
         }).flux();
@@ -181,6 +196,7 @@ public class FileSystemTool implements Tool {
                 Path filePath = Path.of(path);
                 Files.createDirectories(filePath.getParent());
                 
+                log.info("{}: [{}] Writing file at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
                 Files.writeString(filePath, content);
                 return ToolOutput.builder()
                         .type("file_written")
@@ -191,7 +207,7 @@ public class FileSystemTool implements Tool {
                         ))
                         .build();
             } catch (IOException e) {
-                log.error("Error writing file: {}", path, e);
+                log.error("{}: [{}] Error writing file: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
                 throw new RuntimeException("Error writing file: " + e.getMessage());
             }
         }).flux();
@@ -204,6 +220,7 @@ public class FileSystemTool implements Tool {
                 Path filePath = Path.of(path);
                 Files.createDirectories(filePath.getParent());
                 
+                log.info("{}: [{}] Appending to file at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
                 Files.writeString(filePath, content, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                 return ToolOutput.builder()
                         .type("file_appended")
@@ -214,7 +231,7 @@ public class FileSystemTool implements Tool {
                         ))
                         .build();
             } catch (IOException e) {
-                log.error("Error appending to file: {}", path, e);
+                log.error("{}: [{}] Error appending to file: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
                 throw new RuntimeException("Error appending to file: " + e.getMessage());
             }
         }).flux();
@@ -227,6 +244,7 @@ public class FileSystemTool implements Tool {
                 Path dirPath = Path.of(path);
                 Files.createDirectories(dirPath);
                 
+                log.info("{}: [{}] Listing directory at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
                 List<Map<String, Object>> entries = new ArrayList<>();
                 try (DirectoryStream<Path> stream = Files.newDirectoryStream(dirPath)) {
                     for (Path entry : stream) {
@@ -250,7 +268,7 @@ public class FileSystemTool implements Tool {
                         ))
                         .build();
             } catch (IOException e) {
-                log.error("Error listing directory: {}", path, e);
+                log.error("{}: [{}] Error listing directory: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
                 throw new RuntimeException("Error listing directory: " + e.getMessage());
             }
         }).flux();
@@ -259,6 +277,7 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> deleteFile(String path) {
         return Mono.fromCallable(() -> {
             try {
+                log.info("{}: [{}] Deleting file at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
                 boolean deleted = Files.deleteIfExists(Path.of(path));
                 return ToolOutput.builder()
                         .type("file_deleted")
@@ -269,7 +288,7 @@ public class FileSystemTool implements Tool {
                         ))
                         .build();
             } catch (IOException e) {
-                log.error("Error deleting file: {}", path, e);
+                log.error("{}: [{}] Error deleting file: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
                 throw new RuntimeException("Error deleting file: " + e.getMessage());
             }
         }).flux();
@@ -278,6 +297,7 @@ public class FileSystemTool implements Tool {
     private Flux<ToolOutput> createDirectory(String path) {
         return Mono.fromCallable(() -> {
             try {
+                log.info("{}: [{}] Creating directory at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
                 Files.createDirectories(Path.of(path));
                 return ToolOutput.builder()
                         .type("directory_created")
@@ -287,7 +307,7 @@ public class FileSystemTool implements Tool {
                         ))
                         .build();
             } catch (IOException e) {
-                log.error("Error creating directory: {}", path, e);
+                log.error("{}: [{}] Error creating directory: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
                 throw new RuntimeException("Error creating directory: " + e.getMessage());
             }
         }).flux();

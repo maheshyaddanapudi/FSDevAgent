@@ -1,5 +1,6 @@
 package com.ai.developer.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ai.developer.llm.ProjectContext;
 import lombok.Data;
 
@@ -15,7 +16,8 @@ import java.util.Map;
  */
 @Data
 public class AgentState {
-    private String sessionId;
+    @JsonProperty("aiDeveloperAgentSessionId")
+    private String aiDeveloperAgentSessionId;
     private ProjectContext projectContext;
     private String currentObjective;
     private DevelopmentPhase currentPhase = DevelopmentPhase.ANALYSIS;
@@ -70,9 +72,22 @@ public class AgentState {
         this.canonicalWorkspacePath = workspacePath;
     }
     
-    // Explicit setters to ensure compatibility
+    /**
+     * @deprecated Use getAiDeveloperAgentSessionId() instead.
+     * This method is kept for backward compatibility during migration.
+     */
+    @Deprecated
+    public String getSessionId() {
+        return aiDeveloperAgentSessionId;
+    }
+    
+    /**
+     * @deprecated Use setAiDeveloperAgentSessionId(String) instead.
+     * This method is kept for backward compatibility during migration.
+     */
+    @Deprecated
     public void setSessionId(String sessionId) {
-        this.sessionId = sessionId;
+        this.aiDeveloperAgentSessionId = sessionId;
     }
     
     public void setCreatedAt(Instant createdAt) {

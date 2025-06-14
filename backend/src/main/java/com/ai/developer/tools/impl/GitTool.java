@@ -25,6 +25,9 @@ public class GitTool implements Tool {
     // Session workspace root folder parameter name for workspace management
     private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
     
+    // Logging prefix for file operations to enable easy grepping
+    private static final String FILE_OP_LOG_PREFIX = "FILE_OPERATION";
+    
     @Override
     public String getName() {
         return "git_operations";
@@ -88,6 +91,13 @@ public class GitTool implements Tool {
             .required(false)
             .build());
             
+        params.put("aiDeveloperAgentSessionId", ParameterInfo.builder()
+            .name("aiDeveloperAgentSessionId")
+            .type("string")
+            .description("AI Developer Agent session ID for workspace management")
+            .required(false)
+            .build());
+            
         return params;
     }
     
@@ -140,11 +150,13 @@ public class GitTool implements Tool {
         // Create final copy of path for lambda
         final String path = pathParam;
         
-        String sessionIdParam = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
-        final String sessionId = sessionIdParam;
+        // Use aiDeveloperAgentSessionId if available, otherwise fall back to sessionId
+        String aiDeveloperAgentSessionIdParam = (String) arguments.getOrDefault("aiDeveloperAgentSessionId", 
+                                                arguments.getOrDefault("sessionId", UUID.randomUUID().toString()));
+        final String aiDeveloperAgentSessionId = aiDeveloperAgentSessionIdParam;
         
-        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
-        String sessionWorkspaceRootFolderParam = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionId);
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to aiDeveloperAgentSessionId
+        String sessionWorkspaceRootFolderParam = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, aiDeveloperAgentSessionId);
         final String sessionWorkspaceRootFolder = sessionWorkspaceRootFolderParam;
         
         // Resolve path within session workspace
@@ -162,19 +174,19 @@ public class GitTool implements Tool {
             
             switch (operation.toLowerCase()) {
                 case "init":
-                    return initRepository(resolvedPath, sessionId);
+                    return initRepository(resolvedPath, aiDeveloperAgentSessionId);
                 case "clone":
-                    return cloneRepository((String) finalArguments.get("url"), resolvedPath, sessionId);
+                    return cloneRepository((String) finalArguments.get("url"), resolvedPath, aiDeveloperAgentSessionId);
                 case "add":
-                    return addFiles(resolvedPath, sessionId);
+                    return addFiles(resolvedPath, aiDeveloperAgentSessionId);
                 case "commit":
-                    return commitChanges(resolvedPath, (String) finalArguments.get("message"), sessionId);
+                    return commitChanges(resolvedPath, (String) finalArguments.get("message"), aiDeveloperAgentSessionId);
                 case "status":
-                    return getStatus(resolvedPath, sessionId);
+                    return getStatus(resolvedPath, aiDeveloperAgentSessionId);
                 case "log":
-                    return getLog(resolvedPath, sessionId);
+                    return getLog(resolvedPath, aiDeveloperAgentSessionId);
                 case "branch":
-                    return manageBranch(resolvedPath, (String) finalArguments.get("branch"), sessionId);
+                    return manageBranch(resolvedPath, (String) finalArguments.get("branch"), aiDeveloperAgentSessionId);
                 default:
                     throw new IllegalArgumentException("Unknown operation: " + operation);
             }
@@ -195,41 +207,46 @@ public class GitTool implements Tool {
         String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         try {
             Files.createDirectories(Path.of(workspacePath));
+            log.info("{}: [{}] Creating workspace directory at path: {}", FILE_OP_LOG_PREFIX, getName(), workspacePath);
         } catch (Exception e) {
-            log.error("Error creating workspace directory: {}", workspacePath, e);
+            log.error("{}: [{}] Error creating workspace directory: {}", FILE_OP_LOG_PREFIX, getName(), workspacePath, e);
         }
         
         // Resolve relative path within workspace
         return workspacePath + "/" + path;
     }
     
-    private ToolOutput initRepository(String path, String sessionId) throws GitAPIException {
+    private ToolOutput initRepository(String path, String aiDeveloperAgentSessionId) throws GitAPIException {
         // Ensure directory exists
         try {
             Files.createDirectories(Path.of(path));
+            log.info("{}: [{}] Creating directory for Git repository at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
         } catch (Exception e) {
-            log.error("Error creating directory: {}", path, e);
+            log.error("{}: [{}] Error creating directory: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
             throw new GitAPIException("Error creating directory: " + e.getMessage()) {};
         }
         
         Git.init().setDirectory(new File(path)).call();
+        log.info("{}: [{}] Initialized Git repository at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
+        
         return ToolOutput.builder()
                 .type("git_init")
                 .content("Initialized empty Git repository in " + path)
                 .metadata(Map.of(
                     "path", path,
-                    "sessionId", sessionId,
-                    "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId
+                    "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
+                    "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId
                 ))
                 .build();
     }
     
-    private ToolOutput cloneRepository(String url, String path, String sessionId) throws GitAPIException {
+    private ToolOutput cloneRepository(String url, String path, String aiDeveloperAgentSessionId) throws GitAPIException {
         // Ensure parent directory exists
         try {
             Files.createDirectories(Path.of(path).getParent());
+            log.info("{}: [{}] Creating parent directory for Git clone at path: {}", FILE_OP_LOG_PREFIX, getName(), Path.of(path).getParent());
         } catch (Exception e) {
-            log.error("Error creating parent directory for: {}", path, e);
+            log.error("{}: [{}] Error creating parent directory for: {}", FILE_OP_LOG_PREFIX, getName(), path, e);
             throw new GitAPIException("Error creating parent directory: " + e.getMessage()) {};
         }
         
@@ -238,38 +255,45 @@ public class GitTool implements Tool {
                 .setDirectory(new File(path))
                 .call();
         
+        log.info("{}: [{}] Cloned Git repository from {} to path: {}", FILE_OP_LOG_PREFIX, getName(), url, path);
+        
         return ToolOutput.builder()
                 .type("git_clone")
                 .content("Cloned repository from " + url)
                 .metadata(Map.of(
                     "url", url, 
                     "path", path,
-                    "sessionId", sessionId,
-                    "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId
+                    "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
+                    "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId
                 ))
                 .build();
     }
     
-    private ToolOutput addFiles(String path, String sessionId) throws Exception {
+    private ToolOutput addFiles(String path, String aiDeveloperAgentSessionId) throws Exception {
         try (Git git = Git.open(new File(path))) {
             git.add().addFilepattern(".").call();
+            log.info("{}: [{}] Added all files to Git staging area at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
+            
             return ToolOutput.builder()
                     .type("git_add")
                     .content("Added all files to staging area")
                     .metadata(Map.of(
                         "path", path,
-                        "sessionId", sessionId,
-                        "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId
+                        "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
+                        "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId
                     ))
                     .build();
         }
     }
     
-    private ToolOutput commitChanges(String path, String message, String sessionId) throws Exception {
+    private ToolOutput commitChanges(String path, String message, String aiDeveloperAgentSessionId) throws Exception {
         try (Git git = Git.open(new File(path))) {
             RevCommit commit = git.commit()
                     .setMessage(message != null ? message : "Auto-commit by AI Agent")
                     .call();
+            
+            log.info("{}: [{}] Committed changes in Git repository at path: {}, commit ID: {}", 
+                    FILE_OP_LOG_PREFIX, getName(), path, commit.getId().getName());
             
             return ToolOutput.builder()
                     .type("git_commit")
@@ -277,16 +301,18 @@ public class GitTool implements Tool {
                     .metadata(Map.of(
                         "commitId", commit.getId().getName(),
                         "message", commit.getFullMessage(),
-                        "sessionId", sessionId,
-                        "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId
+                        "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
+                        "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId
                     ))
                     .build();
         }
     }
     
-    private ToolOutput getStatus(String path, String sessionId) throws Exception {
+    private ToolOutput getStatus(String path, String aiDeveloperAgentSessionId) throws Exception {
         try (Git git = Git.open(new File(path))) {
             Status status = git.status().call();
+            
+            log.info("{}: [{}] Retrieved Git status for repository at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
             
             Map<String, Object> statusInfo = new HashMap<>();
             statusInfo.put("added", status.getAdded());
@@ -294,8 +320,8 @@ public class GitTool implements Tool {
             statusInfo.put("removed", status.getRemoved());
             statusInfo.put("untracked", status.getUntracked());
             statusInfo.put("modified", status.getModified());
-            statusInfo.put("sessionId", sessionId);
-            statusInfo.put("workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId);
+            statusInfo.put("aiDeveloperAgentSessionId", aiDeveloperAgentSessionId);
+            statusInfo.put("workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId);
             
             return ToolOutput.builder()
                     .type("git_status")
@@ -305,9 +331,11 @@ public class GitTool implements Tool {
         }
     }
     
-    private ToolOutput getLog(String path, String sessionId) throws Exception {
+    private ToolOutput getLog(String path, String aiDeveloperAgentSessionId) throws Exception {
         try (Git git = Git.open(new File(path))) {
             List<Map<String, String>> commits = new ArrayList<>();
+            
+            log.info("{}: [{}] Retrieving Git log for repository at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
             
             Iterable<RevCommit> log = git.log().setMaxCount(10).call();
             for (RevCommit commit : log) {
@@ -324,24 +352,27 @@ public class GitTool implements Tool {
                     .content("Recent commits retrieved")
                     .metadata(Map.of(
                         "commits", commits,
-                        "sessionId", sessionId,
-                        "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId
+                        "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
+                        "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId
                     ))
                     .build();
         }
     }
     
-    private ToolOutput manageBranch(String path, String branchName, String sessionId) throws Exception {
+    private ToolOutput manageBranch(String path, String branchName, String aiDeveloperAgentSessionId) throws Exception {
         try (Git git = Git.open(new File(path))) {
             if (branchName != null) {
                 git.checkout().setName(branchName).setCreateBranch(true).call();
+                log.info("{}: [{}] Created and switched to branch '{}' in repository at path: {}", 
+                        FILE_OP_LOG_PREFIX, getName(), branchName, path);
+                
                 return ToolOutput.builder()
                         .type("git_branch")
                         .content("Created and switched to branch: " + branchName)
                         .metadata(Map.of(
                             "branch", branchName,
-                            "sessionId", sessionId,
-                            "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId
+                            "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
+                            "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId
                         ))
                         .build();
             } else {
@@ -349,13 +380,15 @@ public class GitTool implements Tool {
                 git.branchList().call().forEach(ref -> 
                     branches.add(ref.getName().replace("refs/heads/", "")));
                 
+                log.info("{}: [{}] Listed branches in repository at path: {}", FILE_OP_LOG_PREFIX, getName(), path);
+                
                 return ToolOutput.builder()
                         .type("git_branch_list")
                         .content("Available branches")
                         .metadata(Map.of(
                             "branches", branches,
-                            "sessionId", sessionId,
-                            "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + sessionId
+                            "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
+                            "workspacePath", DEFAULT_WORKSPACE_PATH + "/" + aiDeveloperAgentSessionId
                         ))
                         .build();
             }

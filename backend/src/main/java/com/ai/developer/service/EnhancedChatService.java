@@ -126,7 +126,7 @@ public class EnhancedChatService {
         agentStates.put(sessionId, agentState);
         
         return Mono.just(SessionResponse.builder()
-                .sessionId(sessionId)
+                .aiDeveloperAgentSessionId(sessionId)
                 .createdAt(Instant.now())
                 .workspacePath(workspacePath)
                 .build());
@@ -405,7 +405,7 @@ public class EnhancedChatService {
         List<ChatResponse> history = new ArrayList<>();
         for (Message message : context.getMessages()) {
             history.add(ChatResponse.builder()
-                    .sessionId(sessionId)
+                    .aiDeveloperAgentSessionId(sessionId)
                     .role(message.getRole())
                     .message(message.getContent())
                     .timestamp(message.getTimestamp())
@@ -539,7 +539,7 @@ public class EnhancedChatService {
                 agentState.setShouldContinue(false);
                 agentState.setMode(ConversationMode.CONVERSATIONAL);
                 return Flux.just(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message("I've paused the execution. Here's what I've completed so far:\n\n" + 
                                 generateProgressSummary(agentState) + 
@@ -557,7 +557,7 @@ public class EnhancedChatService {
             case REQUEST_EXPLANATION:
                 // Provide explanation of current approach
                 return Flux.just(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message("Here's my current approach to solving your task:\n\n" + 
                                 generateApproachExplanation(agentState) + 
@@ -569,7 +569,7 @@ public class EnhancedChatService {
                 // Modify approach based on user feedback
                 agentState.getMemory().put("userFeedback", message);
                 return Flux.just(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message("I'll adjust my approach based on your feedback. Here's my updated plan:\n\n" + 
                                 generateUpdatedPlan(agentState, message) + 
@@ -589,7 +589,7 @@ public class EnhancedChatService {
             case CHECK_STATUS:
                 // Provide status update
                 return Flux.just(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message("Here's the current status of your task:\n\n" + 
                                 generateProgressSummary(agentState) + 
@@ -758,7 +758,7 @@ public class EnhancedChatService {
             .doOnNext(chunk -> {
                 // Stream chunk to user
                 sink.tryEmitNext(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message(chunk)
                         .timestamp(Instant.now())
@@ -773,7 +773,7 @@ public class EnhancedChatService {
                 
                 // Emit error to user
                 sink.tryEmitNext(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message("I encountered an error: " + error.getMessage())
                         .timestamp(Instant.now())
@@ -854,7 +854,7 @@ public class EnhancedChatService {
                         } else {
                             // Stream non-tool chunks to user in real-time
                             sink.tryEmitNext(ChatResponse.builder()
-                                    .sessionId(sessionId)
+                                    .aiDeveloperAgentSessionId(sessionId)
                                     .role("assistant")
                                     .message(chunk)
                                     .timestamp(Instant.now())
@@ -915,7 +915,7 @@ public class EnhancedChatService {
                         
                         // Emit error to user
                         sink.tryEmitNext(ChatResponse.builder()
-                                .sessionId(sessionId)
+                                .aiDeveloperAgentSessionId(sessionId)
                                 .role("assistant")
                                 .message("I encountered an error: " + error.getMessage() + "\nI'll try a different approach.")
                                 .timestamp(Instant.now())
@@ -938,7 +938,7 @@ public class EnhancedChatService {
                 
                 // Emit error to user
                 sink.tryEmitNext(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message("I encountered an error: " + e.getMessage() + "\nI'll try a different approach.")
                         .timestamp(Instant.now())
@@ -962,7 +962,7 @@ public class EnhancedChatService {
             
             // Emit warning to user
             sink.tryEmitNext(ChatResponse.builder()
-                    .sessionId(sessionId)
+                    .aiDeveloperAgentSessionId(sessionId)
                     .role("assistant")
                     .message("I've reached the maximum number of iterations. Here's what I've accomplished so far:\n\n" + 
                             generateProgressSummary(agentState) + 
@@ -1008,7 +1008,7 @@ public class EnhancedChatService {
                     
                     // Emit error to user
                     sink.tryEmitNext(ChatResponse.builder()
-                            .sessionId(sessionId)
+                            .aiDeveloperAgentSessionId(sessionId)
                             .role("assistant")
                             .message("I tried to use a tool that doesn't exist: " + toolCall.getName())
                             .timestamp(Instant.now())
@@ -1094,7 +1094,7 @@ public class EnhancedChatService {
                 
                 // Emit error to user
                 sink.tryEmitNext(ChatResponse.builder()
-                        .sessionId(sessionId)
+                        .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
                         .message("I encountered an error executing a tool: " + e.getMessage())
                         .timestamp(Instant.now())

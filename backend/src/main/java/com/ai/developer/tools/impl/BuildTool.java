@@ -20,6 +20,9 @@ public class BuildTool implements Tool {
     // Session workspace root folder parameter name for workspace management
     private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
     
+    // Logging prefix for file operations to enable easy grepping
+    private static final String FILE_OP_LOG_PREFIX = "FILE_OPERATION";
+    
     @Override
     public String getName() {
         return "build_tool";
@@ -73,6 +76,13 @@ public class BuildTool implements Tool {
             .name("taskDir")
             .type("string")
             .description("Task-specific subdirectory within the session workspace")
+            .required(false)
+            .build());
+            
+        params.put("aiDeveloperAgentSessionId", ParameterInfo.builder()
+            .name("aiDeveloperAgentSessionId")
+            .type("string")
+            .description("AI Developer Agent session ID for workspace management")
             .required(false)
             .build());
             
@@ -141,11 +151,13 @@ public class BuildTool implements Tool {
             }
         }
         
-        String sessionId = (String) arguments.getOrDefault("sessionId", UUID.randomUUID().toString());
+        // Use aiDeveloperAgentSessionId if available, otherwise fall back to sessionId
+        String aiDeveloperAgentSessionId = (String) arguments.getOrDefault("aiDeveloperAgentSessionId", 
+                                                arguments.getOrDefault("sessionId", UUID.randomUUID().toString()));
         String taskDir = (String) arguments.getOrDefault("taskDir", "");
         
-        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to sessionId
-        String sessionWorkspaceRootFolder = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionId);
+        // Use sessionWorkspaceRootFolder for workspace management if provided, otherwise fall back to aiDeveloperAgentSessionId
+        String sessionWorkspaceRootFolder = (String) arguments.getOrDefault(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, aiDeveloperAgentSessionId);
         
         // Resolve project path within session workspace
         String resolvedProjectPath = resolveProjectPath(projectPath, sessionWorkspaceRootFolder, taskDir);
@@ -154,9 +166,9 @@ public class BuildTool implements Tool {
         log.info("BuildTool executing with tool: {}, projectPath: {}, goals: {}", tool, resolvedProjectPath, goals);
         
         if ("maven".equalsIgnoreCase(tool)) {
-            return executeMaven(resolvedProjectPath, goals, sessionId, sessionWorkspaceRootFolder, taskDir);
+            return executeMaven(resolvedProjectPath, goals, aiDeveloperAgentSessionId, sessionWorkspaceRootFolder, taskDir);
         } else if ("gradle".equalsIgnoreCase(tool)) {
-            return executeGradle(resolvedProjectPath, goals, sessionId, sessionWorkspaceRootFolder, taskDir);
+            return executeGradle(resolvedProjectPath, goals, aiDeveloperAgentSessionId, sessionWorkspaceRootFolder, taskDir);
         } else {
             log.error("Unknown build tool: {}. Supported tools: maven, gradle", tool);
             return Flux.error(new IllegalArgumentException("Unknown build tool: " + tool));
@@ -183,19 +195,20 @@ public class BuildTool implements Tool {
         
         try {
             Files.createDirectories(Path.of(sessionWorkspace));
+            log.info("{}: [{}] Creating workspace directory at path: {}", FILE_OP_LOG_PREFIX, getName(), sessionWorkspace);
         } catch (Exception e) {
-            log.error("Error creating workspace directory: {}", sessionWorkspace, e);
+            log.error("{}: [{}] Error creating workspace directory: {}", FILE_OP_LOG_PREFIX, getName(), sessionWorkspace, e);
         }
         
         // Resolve relative path within workspace
         return sessionWorkspace + "/" + projectPath;
     }
     
-    private Flux<ToolOutput> executeMaven(String projectPath, List<String> goals, String sessionId, String sessionWorkspaceRootFolder, String taskDir) {
+    private Flux<ToolOutput> executeMaven(String projectPath, List<String> goals, String aiDeveloperAgentSessionId, String sessionWorkspaceRootFolder, String taskDir) {
         // Create final copies of variables for lambda
         final String finalProjectPath = projectPath;
         final List<String> finalGoals = goals;
-        final String finalSessionId = sessionId;
+        final String finalAiDeveloperAgentSessionId = aiDeveloperAgentSessionId;
         final String finalSessionWorkspaceRootFolder = sessionWorkspaceRootFolder;
         final String finalTaskDir = taskDir;
         
@@ -203,17 +216,21 @@ public class BuildTool implements Tool {
             try {
                 // Ensure project directory exists
                 Files.createDirectories(Path.of(finalProjectPath));
+                log.info("{}: [{}] Creating Maven project directory at path: {}", FILE_OP_LOG_PREFIX, getName(), finalProjectPath);
                 
                 InvocationRequest request = new DefaultInvocationRequest();
                 request.setPomFile(new File(finalProjectPath, "pom.xml"));
                 request.setGoals(finalGoals);
+                
+                log.info("{}: [{}] Executing Maven build with goals {} at path: {}", FILE_OP_LOG_PREFIX, getName(), finalGoals, finalProjectPath);
+                
                 request.setOutputHandler(line -> {
                     sink.next(ToolOutput.builder()
                             .type("build_output")
                             .content(line)
                             .metadata(Map.of(
                                 "tool", "maven",
-                                "sessionId", finalSessionId,
+                                "aiDeveloperAgentSessionId", finalAiDeveloperAgentSessionId,
                                 "workspacePath", getWorkspacePath(finalSessionWorkspaceRootFolder, finalTaskDir),
                                 "projectPath", finalProjectPath
                             ))
@@ -224,23 +241,25 @@ public class BuildTool implements Tool {
                 InvocationResult result = invoker.execute(request);
                 
                 if (result.getExitCode() == 0) {
+                    log.info("{}: [{}] Maven build completed successfully at path: {}", FILE_OP_LOG_PREFIX, getName(), finalProjectPath);
                     sink.next(ToolOutput.builder()
                             .type("build_complete")
                             .content("Maven build completed successfully")
                             .metadata(Map.of(
                                 "exitCode", result.getExitCode(),
-                                "sessionId", finalSessionId,
+                                "aiDeveloperAgentSessionId", finalAiDeveloperAgentSessionId,
                                 "workspacePath", getWorkspacePath(finalSessionWorkspaceRootFolder, finalTaskDir),
                                 "projectPath", finalProjectPath
                             ))
                             .build());
                 } else {
+                    log.error("{}: [{}] Maven build failed with exit code {} at path: {}", FILE_OP_LOG_PREFIX, getName(), result.getExitCode(), finalProjectPath);
                     sink.next(ToolOutput.builder()
                             .type("build_error")
                             .content("Maven build failed with exit code: " + result.getExitCode())
                             .metadata(Map.of(
                                 "exitCode", result.getExitCode(),
-                                "sessionId", finalSessionId,
+                                "aiDeveloperAgentSessionId", finalAiDeveloperAgentSessionId,
                                 "workspacePath", getWorkspacePath(finalSessionWorkspaceRootFolder, finalTaskDir),
                                 "projectPath", finalProjectPath
                             ))
@@ -249,17 +268,18 @@ public class BuildTool implements Tool {
                 
                 sink.complete();
             } catch (Exception e) {
-                log.error("Error executing Maven build", e);
+                log.error("{}: [{}] Error executing Maven build at path: {}", FILE_OP_LOG_PREFIX, getName(), finalProjectPath, e);
                 sink.error(e);
             }
         });
     }
     
-    private Flux<ToolOutput> executeGradle(String projectPath, List<String> goals, String sessionId, String sessionWorkspaceRootFolder, String taskDir) {
+    private Flux<ToolOutput> executeGradle(String projectPath, List<String> goals, String aiDeveloperAgentSessionId, String sessionWorkspaceRootFolder, String taskDir) {
         return Flux.create(sink -> {
             try {
                 // Ensure project directory exists
                 Files.createDirectories(Path.of(projectPath));
+                log.info("{}: [{}] Creating Gradle project directory at path: {}", FILE_OP_LOG_PREFIX, getName(), projectPath);
                 
                 ProcessBuilder processBuilder = new ProcessBuilder();
                 List<String> command = new ArrayList<>();
@@ -277,10 +297,12 @@ public class BuildTool implements Tool {
                 processBuilder.directory(new File(projectPath));
                 processBuilder.redirectErrorStream(true);
                 
+                log.info("{}: [{}] Executing Gradle build with goals {} at path: {}", FILE_OP_LOG_PREFIX, getName(), goals, projectPath);
+                
                 // Add workspace information to environment
                 Map<String, String> env = processBuilder.environment();
                 env.put("WORKSPACE_PATH", getWorkspacePath(sessionWorkspaceRootFolder, taskDir));
-                env.put("SESSION_ID", sessionId);
+                env.put("AI_DEVELOPER_AGENT_SESSION_ID", aiDeveloperAgentSessionId);
                 
                 Process process = processBuilder.start();
                 
@@ -294,7 +316,7 @@ public class BuildTool implements Tool {
                                 .content(line)
                                 .metadata(Map.of(
                                     "tool", "gradle",
-                                    "sessionId", sessionId,
+                                    "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
                                     "workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir),
                                     "projectPath", projectPath
                                 ))
@@ -304,23 +326,25 @@ public class BuildTool implements Tool {
                 
                 int exitCode = process.waitFor();
                 if (exitCode == 0) {
+                    log.info("{}: [{}] Gradle build completed successfully at path: {}", FILE_OP_LOG_PREFIX, getName(), projectPath);
                     sink.next(ToolOutput.builder()
                             .type("build_complete")
                             .content("Gradle build completed successfully")
                             .metadata(Map.of(
                                 "exitCode", exitCode,
-                                "sessionId", sessionId,
+                                "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
                                 "workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir),
                                 "projectPath", projectPath
                             ))
                             .build());
                 } else {
+                    log.error("{}: [{}] Gradle build failed with exit code {} at path: {}", FILE_OP_LOG_PREFIX, getName(), exitCode, projectPath);
                     sink.next(ToolOutput.builder()
                             .type("build_error")
                             .content("Gradle build failed with exit code: " + exitCode)
                             .metadata(Map.of(
                                 "exitCode", exitCode,
-                                "sessionId", sessionId,
+                                "aiDeveloperAgentSessionId", aiDeveloperAgentSessionId,
                                 "workspacePath", getWorkspacePath(sessionWorkspaceRootFolder, taskDir),
                                 "projectPath", projectPath
                             ))
@@ -329,7 +353,7 @@ public class BuildTool implements Tool {
                 
                 sink.complete();
             } catch (Exception e) {
-                log.error("Error executing Gradle build", e);
+                log.error("{}: [{}] Error executing Gradle build at path: {}", FILE_OP_LOG_PREFIX, getName(), projectPath, e);
                 sink.error(e);
             }
         });

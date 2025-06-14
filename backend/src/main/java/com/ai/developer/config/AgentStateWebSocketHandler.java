@@ -35,18 +35,18 @@ public class AgentStateWebSocketHandler extends TextWebSocketHandler {
     /**
      * Broadcast agent state update to all connected clients
      */
-    public void broadcastAgentState(String sessionId, String state) {
-        String message = String.format("{\"sessionId\":\"%s\",\"state\":%s}", sessionId, state);
+    public void broadcastAgentState(String aiDeveloperAgentSessionId, String state) {
+        String message = String.format("{\"aiDeveloperAgentSessionId\":\"%s\",\"state\":%s}", aiDeveloperAgentSessionId, state);
         broadcast(message);
     }
 
     /**
      * Broadcast agent progress update to all connected clients
      */
-    public void broadcastProgress(String sessionId, String phase, int progress, String currentTask) {
+    public void broadcastProgress(String aiDeveloperAgentSessionId, String phase, int progress, String currentTask) {
         String message = String.format(
-                "{\"sessionId\":\"%s\",\"type\":\"progress\",\"phase\":\"%s\",\"progress\":%d,\"currentTask\":\"%s\"}",
-                sessionId, phase, progress, currentTask.replace("\"", "\\\""));
+                "{\"aiDeveloperAgentSessionId\":\"%s\",\"type\":\"progress\",\"phase\":\"%s\",\"progress\":%d,\"currentTask\":\"%s\"}",
+                aiDeveloperAgentSessionId, phase, progress, currentTask.replace("\"", "\\\""));
         broadcast(message);
     }
     

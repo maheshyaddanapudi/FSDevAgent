@@ -32,7 +32,7 @@ public class SessionController {
         return enhancedChatService.createSession()
             .map(SessionResponseDTO::fromSessionResponse)
             .doOnSuccess(session -> {
-                log.info("Session created successfully: {}", session.getSessionId());
+                log.info("Session created successfully: {}", session.getAiDeveloperAgentSessionId());
             })
             .doOnError(error -> log.error("Error creating session", error));
     }
@@ -49,9 +49,9 @@ public class SessionController {
     /**
      * Delete a session
      */
-    @DeleteMapping("/{sessionId}")
-    public boolean deleteSession(@PathVariable String sessionId) {
-        log.info("REST request to delete session: {}", sessionId);
-        return enhancedChatService.deleteSession(sessionId);
+    @DeleteMapping("/{aiDeveloperAgentSessionId}")
+    public boolean deleteSession(@PathVariable String aiDeveloperAgentSessionId) {
+        log.info("REST request to delete session: {}", aiDeveloperAgentSessionId);
+        return enhancedChatService.deleteSession(aiDeveloperAgentSessionId);
     }
 }

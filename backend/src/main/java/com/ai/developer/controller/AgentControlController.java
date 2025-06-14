@@ -36,52 +36,52 @@ public class AgentControlController {
     /**
      * Start autonomous execution for a session
      */
-    @PostMapping("/start/{sessionId}")
+    @PostMapping("/start/{aiDeveloperAgentSessionId}")
     public Flux<Map<String, Object>> startAutonomousExecution(
-            @PathVariable String sessionId,
+            @PathVariable String aiDeveloperAgentSessionId,
             @RequestBody AgentControlRequest request) {
         log.info("Starting autonomous execution for session {} with objective: {}", 
-                sessionId, request.getObjective());
-        return autonomousAgentService.startAutonomousExecution(sessionId, request.getObjective());
+                aiDeveloperAgentSessionId, request.getObjective());
+        return autonomousAgentService.startAutonomousExecution(aiDeveloperAgentSessionId, request.getObjective());
     }
 
     /**
      * Pause agent execution
      */
-    @PostMapping("/pause/{sessionId}")
-    public Mono<ResponseEntity<Boolean>> pauseExecution(@PathVariable String sessionId) {
-        log.info("Pausing execution for session: {}", sessionId);
-        return agentControlService.pauseExecution(sessionId)
+    @PostMapping("/pause/{aiDeveloperAgentSessionId}")
+    public Mono<ResponseEntity<Boolean>> pauseExecution(@PathVariable String aiDeveloperAgentSessionId) {
+        log.info("Pausing execution for session: {}", aiDeveloperAgentSessionId);
+        return agentControlService.pauseExecution(aiDeveloperAgentSessionId)
                 .map(result -> ResponseEntity.ok(result));
     }
 
     /**
      * Resume agent execution
      */
-    @PostMapping("/resume/{sessionId}")
-    public Mono<ResponseEntity<Boolean>> resumeExecution(@PathVariable String sessionId) {
-        log.info("Resuming execution for session: {}", sessionId);
-        return agentControlService.resumeExecution(sessionId)
+    @PostMapping("/resume/{aiDeveloperAgentSessionId}")
+    public Mono<ResponseEntity<Boolean>> resumeExecution(@PathVariable String aiDeveloperAgentSessionId) {
+        log.info("Resuming execution for session: {}", aiDeveloperAgentSessionId);
+        return agentControlService.resumeExecution(aiDeveloperAgentSessionId)
                 .map(result -> ResponseEntity.ok(result));
     }
 
     /**
      * Step through agent execution
      */
-    @PostMapping("/step/{sessionId}")
-    public Mono<ResponseEntity<Boolean>> stepExecution(@PathVariable String sessionId) {
-        log.info("Stepping execution for session: {}", sessionId);
-        return agentControlService.stepExecution(sessionId)
+    @PostMapping("/step/{aiDeveloperAgentSessionId}")
+    public Mono<ResponseEntity<Boolean>> stepExecution(@PathVariable String aiDeveloperAgentSessionId) {
+        log.info("Stepping execution for session: {}", aiDeveloperAgentSessionId);
+        return agentControlService.stepExecution(aiDeveloperAgentSessionId)
                 .map(result -> ResponseEntity.ok(result));
     }
 
     /**
      * Get agent state
      */
-    @GetMapping("/state/{sessionId}")
-    public ResponseEntity<TaskMemory> getAgentState(@PathVariable String sessionId) {
-        log.info("Getting agent state for session: {}", sessionId);
-        TaskMemory state = agentControlService.getAgentState(sessionId);
+    @GetMapping("/state/{aiDeveloperAgentSessionId}")
+    public ResponseEntity<TaskMemory> getAgentState(@PathVariable String aiDeveloperAgentSessionId) {
+        log.info("Getting agent state for session: {}", aiDeveloperAgentSessionId);
+        TaskMemory state = agentControlService.getAgentState(aiDeveloperAgentSessionId);
         if (state == null) {
             return ResponseEntity.notFound().build();
         }

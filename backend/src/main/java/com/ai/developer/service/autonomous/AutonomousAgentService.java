@@ -214,7 +214,7 @@ public class AutonomousAgentService {
                 // Process the prompt through the chat service
                 // This will trigger tool use and other actions
                 ChatRequest chatRequest = ChatRequest.builder()
-                    .sessionId(sessionId)
+                    .aiDeveloperAgentSessionId(sessionId)
                     .message(prompt)
                     .build();
                 

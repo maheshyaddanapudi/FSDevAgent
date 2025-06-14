@@ -11,8 +11,8 @@ import java.time.Instant;
 @Data
 @Builder
 public class SessionResponseDTO {
-    @JsonProperty("sessionId")
-    private String sessionId;
+    @JsonProperty("aiDeveloperAgentSessionId")
+    private String aiDeveloperAgentSessionId;
     
     @JsonProperty("createdAt")
     private Instant createdAt;
@@ -22,8 +22,27 @@ public class SessionResponseDTO {
      */
     public static SessionResponseDTO fromSessionResponse(SessionResponse response) {
         return SessionResponseDTO.builder()
-                .sessionId(response.getSessionId())
+                .aiDeveloperAgentSessionId(response.getAiDeveloperAgentSessionId())
                 .createdAt(response.getCreatedAt())
                 .build();
+    }
+    
+    /**
+     * @deprecated Use getAiDeveloperAgentSessionId() instead.
+     * This method is kept for backward compatibility during migration.
+     */
+    @Deprecated
+    @JsonProperty("sessionId")
+    public String getSessionId() {
+        return aiDeveloperAgentSessionId;
+    }
+    
+    /**
+     * @deprecated Use setAiDeveloperAgentSessionId(String) instead.
+     * This method is kept for backward compatibility during migration.
+     */
+    @Deprecated
+    public void setSessionId(String sessionId) {
+        this.aiDeveloperAgentSessionId = sessionId;
     }
 }

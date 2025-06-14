@@ -27,9 +27,9 @@ public class EventStreamController {
     /**
      * Stream events for a specific session
      */
-    @GetMapping(value = "/stream/{sessionId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<String>> streamEvents(@PathVariable String sessionId) {
-        log.info("Client connected to event stream for session: {}", sessionId);
-        return eventStreamingService.createEventStream(sessionId);
+    @GetMapping(value = "/stream/{aiDeveloperAgentSessionId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> streamEvents(@PathVariable String aiDeveloperAgentSessionId) {
+        log.info("Client connected to event stream for session: {}", aiDeveloperAgentSessionId);
+        return eventStreamingService.createEventStream(aiDeveloperAgentSessionId);
     }
 }

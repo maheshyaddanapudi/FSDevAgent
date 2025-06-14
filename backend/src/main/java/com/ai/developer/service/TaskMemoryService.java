@@ -54,7 +54,7 @@ public class TaskMemoryService {
             // Try to load from disk first
             TaskMemory loaded = loadFromDisk(sessionId, taskId);
             return loaded != null ? loaded : TaskMemory.builder()
-                    .sessionId(sessionId)
+                    .aiDeveloperAgentSessionId(sessionId)
                     .taskId(taskId)
                     .createdAt(Instant.now())
                     .completedSteps(new ArrayList<>())
