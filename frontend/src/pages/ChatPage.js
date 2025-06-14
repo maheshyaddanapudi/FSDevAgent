@@ -19,7 +19,7 @@ const ChatPage = () => {
   
   // Issue #5 Fix: Enhanced chat state management with error handling
   const { 
-    sessionId,
+    aiDeveloperAgentSessionId,
     messages, 
     addMessage, 
     toolOutputs,
@@ -45,7 +45,7 @@ const ChatPage = () => {
   
   // Issue #5 Fix: Initialize session on component mount
   useEffect(() => {
-    if (!sessionInitialized && !sessionId && !isLoading) {
+    if (!sessionInitialized && !aiDeveloperAgentSessionId && !isLoading) {
       console.log('Initializing new session...');
       initializeSession()
         .then((newSessionId) => {
@@ -61,7 +61,7 @@ const ChatPage = () => {
           setError('Failed to initialize session');
         });
     }
-  }, [sessionInitialized, sessionId, isLoading, initializeSession]);
+  }, [sessionInitialized, aiDeveloperAgentSessionId, isLoading, initializeSession]);
 
   // Issue #5 Fix: Enhanced WebSocket message handling with proper error handling
   useEffect(() => {
@@ -163,7 +163,7 @@ const ChatPage = () => {
       return;
     }
     
-    if (!sessionId) {
+    if (!aiDeveloperAgentSessionId) {
       setError('No active session. Please refresh the page.');
       return;
     }
@@ -200,7 +200,7 @@ const ChatPage = () => {
       setIsProcessing(false);
       setIsTyping(false);
     }
-  }, [message, isProcessing, sessionId, wsConnected, wsSendMessage, addMessage, sendChatMessage]);
+  }, [message, isProcessing, aiDeveloperAgentSessionId, wsConnected, wsSendMessage, addMessage, sendChatMessage]);
   
   // Issue #5 Fix: Handle keyboard shortcuts
   const handleKeyDown = useCallback((e) => {
@@ -227,10 +227,10 @@ const ChatPage = () => {
     wsReconnect();
     
     // Also try to reinitialize session if needed
-    if (!sessionId) {
+    if (!aiDeveloperAgentSessionId) {
       initializeSession();
     }
-  }, [wsReconnect, sessionId, initializeSession]);
+  }, [wsReconnect, aiDeveloperAgentSessionId, initializeSession]);
   
   // Issue #5 Fix: Render connection status
   const renderConnectionStatus = () => {
@@ -334,19 +334,19 @@ const ChatPage = () => {
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
-              !sessionId 
+              !aiDeveloperAgentSessionId 
                 ? "Initializing session..." 
                 : !wsConnected 
                   ? "Type your message (WebSocket disconnected)..."
                   : "Type your message..."
             }
-            disabled={isProcessing || !sessionId}
+            disabled={isProcessing || !aiDeveloperAgentSessionId}
             maxLength={4000}
           />
           
           <button 
             type="submit" 
-            disabled={isProcessing || !sessionId || !message.trim()}
+            disabled={isProcessing || !aiDeveloperAgentSessionId || !message.trim()}
             className={isProcessing ? 'processing' : ''}
           >
             {isProcessing ? (
@@ -363,7 +363,7 @@ const ChatPage = () => {
         <UnifiedEmulator 
           toolOutputs={toolOutputs}
           wsConnected={wsConnected}
-          sessionId={sessionId}
+          sessionId={aiDeveloperAgentSessionId}
         />
       </div>
     </div>

@@ -5,7 +5,7 @@ import axios from 'axios';
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api';
 
 const useChatStore = create((set, get) => ({
-  sessionId: null,
+  aiDeveloperAgentSessionId: null,
   messages: [],
   isLoading: false,
   isProcessing: false,
@@ -80,26 +80,26 @@ const useChatStore = create((set, get) => ({
         timeout: 10000 // 10 second timeout
       });
       
-      if (!response.data || !response.data.sessionId) {
-        throw new Error('Invalid response from server: missing sessionId');
+      if (!response.data || !response.data.aiDeveloperAgentSessionId) {
+        throw new Error('Invalid response from server: missing aiDeveloperAgentSessionId');
       }
       
       set({ 
-        sessionId: response.data.sessionId,
+        aiDeveloperAgentSessionId: response.data.aiDeveloperAgentSessionId,
         isLoading: false,
         messages: [],
         error: null
       });
       
-      console.log('Session initialized successfully:', response.data.sessionId);
-      return response.data.sessionId;
+      console.log('Session initialized successfully:', response.data.aiDeveloperAgentSessionId);
+      return response.data.aiDeveloperAgentSessionId;
     } catch (error) {
       console.error('Session initialization failed:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to initialize session';
       set({ 
         error: errorMessage,
         isLoading: false,
-        sessionId: null
+        aiDeveloperAgentSessionId: null
       });
       return null;
     }
@@ -107,14 +107,14 @@ const useChatStore = create((set, get) => ({
   
   // Issue #2 Fix: Improved sendMessage with better error handling and validation
   sendMessage: async (message) => {
-    const { sessionId } = get();
+    const { aiDeveloperAgentSessionId } = get();
     
     if (!message || typeof message !== 'string' || message.trim() === '') {
       set({ error: 'Message cannot be empty' });
       return null;
     }
     
-    if (!sessionId) {
+    if (!aiDeveloperAgentSessionId) {
       set({ error: 'No active session. Please refresh the page.' });
       return null;
     }
@@ -131,7 +131,7 @@ const useChatStore = create((set, get) => ({
       set({ isLoading: true, error: null, isProcessing: true });
       
       const encodedMessage = encodeURIComponent(message.trim());
-      const eventSource = new EventSource(`${API_BASE_URL}/chat?sessionId=${sessionId}&message=${encodedMessage}`);
+      const eventSource = new EventSource(`${API_BASE_URL}/chat?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}&message=${encodedMessage}`);
       
       let assistantMessage = '';
       let messageComplete = false;
@@ -241,9 +241,9 @@ const useChatStore = create((set, get) => ({
   
   // Issue #2 Fix: Improved tool execution with better error handling
   executeTool: async (toolName, args) => {
-    const { sessionId } = get();
+    const { aiDeveloperAgentSessionId } = get();
     
-    if (!sessionId) {
+    if (!aiDeveloperAgentSessionId) {
       set({ error: 'No active session' });
       return null;
     }
@@ -257,7 +257,7 @@ const useChatStore = create((set, get) => ({
     
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/tools/${toolName}?sessionId=${sessionId}`,
+        `${API_BASE_URL}/tools/${toolName}?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}`,
         args || {},
         { 
           responseType: 'stream',
@@ -270,7 +270,7 @@ const useChatStore = create((set, get) => ({
         args: args || {},
         output: response.data,
         timestamp: new Date().toISOString(),
-        sessionId
+        aiDeveloperAgentSessionId
       };
       
       get().addToolOutput(toolOutput);
@@ -290,9 +290,9 @@ const useChatStore = create((set, get) => ({
   
   // Issue #2 Fix: Improved session history with better error handling
   getSessionHistory: async () => {
-    const { sessionId } = get();
+    const { aiDeveloperAgentSessionId } = get();
     
-    if (!sessionId) {
+    if (!aiDeveloperAgentSessionId) {
       set({ error: 'No active session' });
       return;
     }
@@ -300,7 +300,7 @@ const useChatStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const response = await axios.get(`${API_BASE_URL}/sessions/${sessionId}/history`, {
+      const response = await axios.get(`${API_BASE_URL}/sessions/${aiDeveloperAgentSessionId}/history`, {
         timeout: 10000 // 10 second timeout
       });
       
@@ -356,7 +356,7 @@ const useChatStore = create((set, get) => ({
   resetSession: () => {
     try {
       set({
-        sessionId: null,
+        aiDeveloperAgentSessionId: null,
         messages: [],
         toolOutputs: [],
         isLoading: false,
