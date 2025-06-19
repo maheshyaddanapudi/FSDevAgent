@@ -3,7 +3,7 @@ package com.ai.developer.controller;
 
 import com.ai.developer.model.HumanInputRequest;
 import com.ai.developer.model.HumanInputResponse;
-import com.ai.developer.service.ChatService;
+import com.ai.developer.service.EnhancedChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +18,7 @@ public class HumanInputController {
     private static final Logger log = LoggerFactory.getLogger(HumanInputController.class);
     
     @Autowired
-    private ChatService chatService;
+    private EnhancedChatService chatService;
     
     @GetMapping(value = "/stream/human-input", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamHumanInputResponse(

@@ -68,7 +68,7 @@ const useChatStore = create((set, get) => ({
     
     try {
       console.log('Initializing new session...');
-      const response = await axios.post(`${API_BASE_URL}/sessions/initialize`, {}, {
+      const response = await axios.post(`${API_BASE_URL}/sessions`, {}, {
         timeout: 10000 // 10 second timeout
       });
       

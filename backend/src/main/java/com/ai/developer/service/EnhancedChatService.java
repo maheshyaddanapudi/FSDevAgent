@@ -1261,4 +1261,27 @@ public class EnhancedChatService {
                     }
                 });
     }
+
+    /**
+     * Process human input response for human-in-the-loop workflow
+     */
+    public void processHumanInputResponse(HumanInputResponse humanInputResponse, org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter) {
+        String sessionId = humanInputResponse.getAiDeveloperAgentSessionId();
+        String response = humanInputResponse.getResponse();
+        
+        log.info("Processing human input response for session: {}, response: {}", sessionId, response);
+        
+        try {
+            // Send the human response back to the chat flow
+            emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
+                    .name("human-input-response")
+                    .data(response));
+            
+            emitter.complete();
+        } catch (Exception e) {
+            log.error("Error processing human input response for session: {}", sessionId, e);
+            emitter.completeWithError(e);
+        }
+    }
 }
+

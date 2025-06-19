@@ -1,17 +1,50 @@
-// Enhanced ChatPage.js with Human-in-the-Loop Support
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import useChatStore from '../hooks/useChatStore';
-import UnifiedEmulator from '../components/UnifiedEmulator';
+import UnifiedEmulator from '../components/UnifiedEmulator/UnifiedEmulator';
 import MessageList from '../components/MessageList';
 import '../styles/ChatPage.css';
+import '../styles/enhanced-error-handling.css';
+
+// Enhanced Error Alert Component
+const ErrorAlert = ({ error, onRetry, onDismiss, showDetails, onToggleDetails }) => {
+  if (!error) return null;
+  
+  return (
+    <div className="error-alert">
+      <div className="error-header">
+        <span className="error-icon">⚠️</span>
+        <span className="error-title">Connection Issue</span>
+        <button className="error-dismiss" onClick={onDismiss}>✕</button>
+      </div>
+      <div className="error-message">
+        {error.userMessage || 'Unable to connect to the AI Developer Agent service'}
+      </div>
+      <div className="error-actions">
+        <button className="retry-button" onClick={onRetry}>
+          🔄 Retry Connection
+        </button>
+        <button className="details-button" onClick={onToggleDetails}>
+          {showDetails ? '📄 Hide Details' : '🔍 Show Details'}
+        </button>
+      </div>
+      {showDetails && (
+        <div className="error-details">
+          <strong>Technical Details:</strong>
+          <pre>{error.technicalDetails || error.message || 'Unknown error'}</pre>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ChatPage = () => {
   // State management
   const [message, setMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [sessionInitialized, setSessionInitialized] = useState(false);
-  const [error, setError] = useState(null);
+  const [connectionError, setConnectionError] = useState(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
   
   // Refs for auto-scroll
   const messagesEndRef = useRef(null);
@@ -47,26 +80,51 @@ const ChatPage = () => {
     reconnect: wsReconnect,
     getConnectionStatus
   } = useWebSocket();
-  
-  // Issue #5 Fix: Initialize session on component mount
-  useEffect(() => {
-    if (!sessionInitialized && !aiDeveloperAgentSessionId && !isLoading) {
-      console.log('Initializing new session...');
-      initializeSession()
-        .then((newSessionId) => {
-          if (newSessionId) {
-            setSessionInitialized(true);
-            console.log('Session initialized:', newSessionId);
-          } else {
-            setError('Failed to initialize session');
-          }
-        })
-        .catch((err) => {
-          console.error('Session initialization error:', err);
-          setError('Failed to initialize session');
-        });
+
+  // Enhanced session initialization with better error handling
+  const handleSessionInitialization = useCallback(async () => {
+    if (sessionInitialized || aiDeveloperAgentSessionId || isLoading) {
+      return;
+    }
+
+    try {
+      console.log('Attempting to initialize session...');
+      const newSessionId = await initializeSession();
+      
+      if (newSessionId) {
+        setSessionInitialized(true);
+        setConnectionError(null);
+        console.log('Session initialized successfully:', newSessionId);
+      } else {
+        throw new Error('Session initialization returned empty response');
+      }
+    } catch (err) {
+      console.error('Session initialization failed:', err);
+      
+      // Create user-friendly error message
+      const userError = {
+        userMessage: 'Failed to connect to AI Developer Agent service',
+        technicalDetails: `${err.message}\n\nThis could be due to:\n- Backend service not running\n- Network connectivity issues\n- API endpoint configuration problems`,
+        originalError: err
+      };
+      
+      setConnectionError(userError);
+      setSessionInitialized(false); // Allow retry
     }
   }, [sessionInitialized, aiDeveloperAgentSessionId, isLoading, initializeSession]);
+
+  // Retry connection handler
+  const handleRetryConnection = useCallback(() => {
+    setConnectionError(null);
+    setSessionInitialized(false);
+    clearError();
+    handleSessionInitialization();
+  }, [handleSessionInitialization, clearError]);
+
+  // Initialize session on component mount
+  useEffect(() => {
+    handleSessionInitialization();
+  }, [handleSessionInitialization]);
 
   // Issue #5 Fix: Enhanced WebSocket message handling with proper error handling
   useEffect(() => {
@@ -98,373 +156,260 @@ const ChatPage = () => {
           }
           break;
           
-        case 'typing':
-          setIsTyping(Boolean(data.isTyping));
-          break;
-          
         case 'error':
-          console.error('WebSocket error message:', data);
-          setError(data.message || 'Unknown error occurred');
+          console.error('WebSocket error:', data);
+          addMessage({
+            role: 'assistant',
+            content: `Error: ${data.message || 'Unknown error occurred'}`,
+            timestamp: new Date().toISOString()
+          });
           setIsProcessing(false);
           setIsTyping(false);
           break;
           
-        case 'status':
-          // Handle status updates
-          console.log('Status update:', data.status);
-          break;
-          
         default:
-          console.warn('Unknown WebSocket message type:', data.type);
-          // Try to process as tool output if it has relevant fields
-          if (data.toolName || data.output) {
-            addToolOutput({
-              ...data,
-              timestamp: data.timestamp || new Date().toISOString()
-            });
-          }
+          console.log('Unknown message type:', data.type);
       }
-    } catch (parseError) {
-      console.error('Error parsing WebSocket message:', parseError);
-      console.error('Raw message:', wsLastMessage.data);
+    } catch (error) {
+      console.error('Error parsing WebSocket message:', error);
     }
   }, [wsLastMessage, addMessage, addToolOutput, setIsProcessing]);
-  
-  // Issue #5 Fix: Auto-scroll to bottom when messages change
+
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ 
-        behavior: 'smooth',
-        block: 'nearest'
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, toolOutputs]);
+
+  // Enhanced message sending with better error handling
+  const handleSendMessage = useCallback(async () => {
+    if (!message.trim()) return;
+    
+    // Check if session is initialized
+    if (!sessionInitialized || !aiDeveloperAgentSessionId) {
+      setConnectionError({
+        userMessage: 'Session not initialized. Please retry connection.',
+        technicalDetails: 'No active session ID available for sending messages.'
       });
-    }
-  }, [messages, isTyping]);
-  
-  // Issue #5 Fix: Clear errors when they change
-  useEffect(() => {
-    if (storeError) {
-      setError(storeError);
-      // Auto-clear error after 5 seconds
-      const timeout = setTimeout(() => {
-        clearError();
-        setError(null);
-      }, 5000);
-      return () => clearTimeout(timeout);
-    }
-  }, [storeError, clearError]);
-  
-  // FIXED: Modified message submission to prioritize REST API over WebSocket
-  // This ensures all prompts are properly processed by the backend's ChatService
-  const handleSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    
-    if (!message.trim()) {
-      console.warn('Cannot send empty message');
       return;
     }
-    
-    if (isProcessing) {
-      console.warn('Already processing a message');
-      return;
-    }
-    
-    if (!aiDeveloperAgentSessionId) {
-      setError('No active session. Please refresh the page.');
-      return;
-    }
-    
-    const messageText = message.trim();
-    console.log('Sending message:', messageText);
-    
-    // Clear input and errors
+
+    const userMessage = message.trim();
     setMessage('');
-    setError(null);
     setIsProcessing(true);
-    
+    setIsTyping(true);
+
+    // Add user message to chat
+    addMessage({
+      role: 'user',
+      content: userMessage,
+      timestamp: new Date().toISOString()
+    });
+
     try {
-      // FIXED: Always use HTTP REST API as primary method
-      // This ensures the backend's ChatService.processMessage is always called
-      console.log('Using HTTP REST API for message submission...');
-      
-      // REMOVED: Don't add user message here to prevent duplication
-      // User message is already added in useChatStore.js sendMessage function
-      
-      // Send via REST API
-      const cleanup = await sendChatMessage(messageText);
-      
-      if (cleanup) {
-        // Store cleanup function for potential use
-        window._currentChatCleanup = cleanup;
-      }
-      
-      // REMOVED: WebSocket message sending for chat to prevent duplication
-      // Only WebSocket should be used for emulator, not for chat messages
+      // Send message via chat service
+      await sendChatMessage(aiDeveloperAgentSessionId, userMessage);
     } catch (error) {
       console.error('Error sending message:', error);
-      setError(`Failed to send message: ${error.message}`);
+      
+      setConnectionError({
+        userMessage: 'Failed to send message to AI Developer Agent',
+        technicalDetails: `${error.message}\n\nThe message could not be delivered. Please check your connection and try again.`
+      });
+      
       setIsProcessing(false);
       setIsTyping(false);
     }
-  }, [message, isProcessing, aiDeveloperAgentSessionId, sendChatMessage]);
-  
-  // NEW: Handle human input submission
-  const handleHumanInputSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    
-    if (!message.trim()) {
-      console.warn('Cannot send empty response');
-      return;
-    }
-    
-    if (!aiDeveloperAgentSessionId) {
-      setError('No active session. Please refresh the page.');
-      return;
-    }
-    
-    const responseText = message.trim();
-    console.log('Submitting human input response:', responseText);
-    
-    // Clear input and errors
-    setMessage('');
-    setError(null);
-    setIsProcessing(true);
-    
-    try {
-      // Submit the human input response
-      const cleanup = await submitHumanInput(responseText);
-      
-      if (cleanup) {
-        // Store cleanup function for potential use
-        window._currentChatCleanup = cleanup;
-      }
-    } catch (error) {
-      console.error('Error submitting human input:', error);
-      setError(`Failed to submit response: ${error.message}`);
-      setIsProcessing(false);
-    }
-  }, [message, aiDeveloperAgentSessionId, submitHumanInput]);
-  
-  // NEW: Handle human input cancellation
-  const handleCancelHumanInput = useCallback(() => {
-    console.log('Canceling human input request');
-    cancelHumanInputRequest();
-  }, [cancelHumanInputRequest]);
-  
-  // Issue #5 Fix: Handle keyboard shortcuts
-  const handleKeyDown = useCallback((e) => {
+  }, [message, sessionInitialized, aiDeveloperAgentSessionId, addMessage, sendChatMessage, setIsProcessing]);
+
+  // Handle Enter key press
+  const handleKeyPress = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (waitingForHumanInput) {
-        handleHumanInputSubmit(e);
-      } else {
-        handleSubmit(e);
-      }
-    } else if (e.key === 'Escape') {
-      setMessage('');
-      setError(null);
-      if (waitingForHumanInput) {
-        handleCancelHumanInput();
-      }
+      handleSendMessage();
     }
-  }, [handleSubmit, handleHumanInputSubmit, handleCancelHumanInput, waitingForHumanInput]);
-  
-  // Issue #5 Fix: Focus input on component mount
-  useEffect(() => {
-    if (inputRef.current && sessionInitialized) {
-      inputRef.current.focus();
+  }, [handleSendMessage]);
+
+  // Clear messages handler
+  const handleClearMessages = useCallback(() => {
+    // Implementation for clearing messages
+    console.log('Clear messages requested');
+  }, []);
+
+  // Refresh handler
+  const handleRefresh = useCallback(() => {
+    window.location.reload();
+  }, []);
+
+  // Human input submission handler
+  const handleHumanInputSubmit = useCallback((inputText) => {
+    if (!inputText.trim()) return;
+    
+    try {
+      submitHumanInput(inputText);
+    } catch (error) {
+      console.error('Error submitting human input:', error);
+      setConnectionError({
+        userMessage: 'Failed to submit human input response',
+        technicalDetails: error.message
+      });
     }
-  }, [sessionInitialized]);
-  
-  // Issue #5 Fix: Connection retry function
-  const handleConnectionRetry = useCallback(() => {
-    console.log('Retrying connection...');
-    setError(null);
-    wsReconnect();
-    
-    // Also try to reinitialize session if needed
-    if (!aiDeveloperAgentSessionId) {
-      initializeSession();
-    }
-  }, [wsReconnect, aiDeveloperAgentSessionId, initializeSession]);
-  
-  // Issue #5 Fix: Render connection status
-  const renderConnectionStatus = () => {
-    const status = getConnectionStatus();
-    
-    if (!wsConnected && !isReconnecting) {
-      return (
-        <div className="connection-warning">
-          <span>⚠️ WebSocket disconnected</span>
-          <button onClick={handleConnectionRetry} className="retry-btn">
-            Retry
-          </button>
-        </div>
-      );
-    }
-    
-    if (isReconnecting) {
-      return (
-        <div className="connection-warning">
-          <span>🔄 Reconnecting...</span>
-        </div>
-      );
-    }
-    
-    return null;
-  };
-  
-  // Issue #5 Fix: Render error message
-  const renderError = () => {
-    if (!error) return null;
-    
-    return (
-      <div className="error-message">
-        <span>❌ {error}</span>
-        <button onClick={() => setError(null)} className="close-btn">
-          ✕
-        </button>
-      </div>
-    );
-  };
-  
-  // NEW: Render human input request UI
-  const renderHumanInputRequest = () => {
-    if (!waitingForHumanInput || !humanInputRequest) return null;
-    
-    return (
-      <div className="human-input-request">
-        <div className="human-input-header">
-          <h3>Input Required</h3>
-          <button onClick={handleCancelHumanInput} className="cancel-btn">
-            ✕
-          </button>
-        </div>
-        <p>{humanInputRequest.text}</p>
-        {humanInputRequest.attachments && humanInputRequest.attachments.length > 0 && (
-          <div className="human-input-attachments">
-            <h4>Attachments:</h4>
-            <ul>
-              {humanInputRequest.attachments.map((attachment, index) => (
-                <li key={index}>
-                  <a href={attachment} target="_blank" rel="noopener noreferrer">
-                    {attachment.split('/').pop()}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  };
-  
-  // Issue #5 Fix: Loading state for session initialization
-  if (!sessionInitialized && isLoading) {
-    return (
-      <div className="chat-page loading">
-        <div className="loading-container">
-          <div className="loading-spinner"></div>
-          <p>Initializing AI Developer Agent...</p>
-        </div>
-      </div>
-    );
-  }
-  
-  // Issue #5 Fix: Error state for failed session initialization
-  if (!sessionInitialized && error) {
-    return (
-      <div className="chat-page error">
-        <div className="error-container">
-          <h2>Failed to Initialize</h2>
-          <p>{error}</p>
-          <button onClick={() => window.location.reload()} className="retry-button">
-            Reload Page
-          </button>
-        </div>
-      </div>
-    );
-  }
-  
+  }, [submitHumanInput]);
+
+  // Determine if the interface should be disabled
+  const isInterfaceDisabled = !sessionInitialized || isLoading || !!connectionError;
+
   return (
     <div className="chat-page">
-      {/* Chat Section */}
-      <div className="chat-container">
-        {/* Connection and Error Status */}
-        {renderConnectionStatus()}
-        {renderError()}
-        
-        {/* Human Input Request */}
-        {renderHumanInputRequest()}
-        
-        {/* Messages Area */}
-        <div className="chat-messages">
-          <MessageList messages={messages} />
-          
-          {/* Typing Indicator */}
-          {isTyping && (
-            <div className="typing-indicator">
-              <span></span>
-              <span></span>
-              <span></span>
-              <div className="typing-text">AI is thinking...</div>
+      {/* Static Responsive Header */}
+      <header className="app-header">
+        <div className="header-content">
+          <div className="header-left">
+            <h1 className="app-title">🤖 AI Developer Agent</h1>
+            <span className="app-subtitle">Your AI-Powered Development Assistant</span>
+          </div>
+          <div className="header-right">
+            <div className="connection-status">
+              <span className={`status-indicator ${wsConnected ? 'connected' : 'disconnected'}`}>
+                {wsConnected ? '🟢' : '🔴'}
+              </span>
+              <span className="status-text">
+                {isLoading ? 'Initializing...' : 
+                 sessionInitialized ? 'Ready' : 
+                 connectionError ? 'Connection Failed' : 'Connecting...'}
+              </span>
             </div>
-          )}
-          
-          {/* Auto-scroll anchor */}
-          <div ref={messagesEndRef} />
+          </div>
         </div>
-        
-        {/* Input Area */}
-        <form 
-          className={`chat-input ${waitingForHumanInput ? 'human-input-mode' : ''}`} 
-          onSubmit={waitingForHumanInput ? handleHumanInputSubmit : handleSubmit}
-        >
-          <input
-            ref={inputRef}
-            type="text"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              !aiDeveloperAgentSessionId 
-                ? "Initializing session..." 
-                : !wsConnected 
-                  ? "Type your message (WebSocket disconnected)..."
-                  : waitingForHumanInput
-                    ? "Type your response..."
-                    : "Type your message..."
-            }
-            disabled={(!waitingForHumanInput && isProcessing) || !aiDeveloperAgentSessionId}
-            maxLength={4000}
-            className={waitingForHumanInput ? 'human-input' : ''}
-          />
-          
-          <button 
-            type="submit" 
-            disabled={(isProcessing && !waitingForHumanInput) || !aiDeveloperAgentSessionId || !message.trim()}
-            className={`${isProcessing && !waitingForHumanInput ? 'processing' : ''} ${waitingForHumanInput ? 'human-input-button' : ''}`}
-          >
-            {isProcessing && !waitingForHumanInput ? (
-              <span className="button-spinner">⟳</span>
-            ) : waitingForHumanInput ? (
-              'Submit Response'
-            ) : (
-              'Send'
+      </header>
+
+      {/* Enhanced Error Alert */}
+      <ErrorAlert 
+        error={connectionError || storeError}
+        onRetry={handleRetryConnection}
+        onDismiss={() => {
+          setConnectionError(null);
+          clearError();
+        }}
+        showDetails={showErrorDetails}
+        onToggleDetails={() => setShowErrorDetails(!showErrorDetails)}
+      />
+
+      {/* Main Content - 50/50 Split */}
+      <div className="main-content">
+        {/* Left Half - Chat Interface */}
+        <div className="chat-section">
+          <div className="messages-container">
+            {!sessionInitialized && !connectionError && (
+              <div className="welcome-message">
+                <h2>Welcome to AI Developer Agent</h2>
+                <p>Ask me anything about development, and I'll help you with coding, debugging, and using various tools.</p>
+              </div>
             )}
-          </button>
-        </form>
-      </div>
-      
-      {/* Emulator Section */}
-      <div className="emulator-container">
-        <UnifiedEmulator 
-          toolOutputs={toolOutputs}
-          wsConnected={wsConnected}
-          sessionId={aiDeveloperAgentSessionId}
-        />
+            
+            {sessionInitialized && (
+              <>
+                <MessageList messages={messages} />
+                
+                {/* Human-in-the-loop UI */}
+                {waitingForHumanInput && humanInputRequest && (
+                  <div className="human-input-request">
+                    <div className="human-input-header">
+                      <h3>🤖 AI Agent needs your input</h3>
+                      <p>{humanInputRequest.message}</p>
+                    </div>
+                    
+                    {humanInputRequest.attachments && humanInputRequest.attachments.length > 0 && (
+                      <div className="human-input-attachments">
+                        <h4>Related files:</h4>
+                        <ul>
+                          {humanInputRequest.attachments.map((attachment, index) => (
+                            <li key={index}>
+                              <a href={attachment.url} target="_blank" rel="noopener noreferrer">
+                                {attachment.name}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                <div ref={messagesEndRef} />
+              </>
+            )}
+          </div>
+
+          {/* Chat Input Section */}
+          <div className="chat-input-section">
+            <div className="input-controls">
+              <button 
+                className="control-button clear-button" 
+                onClick={handleClearMessages}
+                disabled={isInterfaceDisabled}
+                title="Clear messages"
+              >
+                🗑️
+              </button>
+              <button 
+                className="control-button refresh-button" 
+                onClick={handleRefresh}
+                title="Refresh page"
+              >
+                🔄
+              </button>
+            </div>
+            
+            <div className={`chat-input ${waitingForHumanInput ? 'human-input-mode' : ''}`}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={waitingForHumanInput ? '' : message}
+                onChange={(e) => !waitingForHumanInput && setMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={
+                  waitingForHumanInput ? 'Waiting for your response above...' :
+                  isInterfaceDisabled ? 'Please retry connection to send messages...' :
+                  'Type your message...'
+                }
+                disabled={isInterfaceDisabled}
+                className={waitingForHumanInput ? 'human-input' : ''}
+              />
+              <button 
+                onClick={waitingForHumanInput ? 
+                  () => handleHumanInputSubmit(message) : 
+                  handleSendMessage
+                }
+                disabled={isInterfaceDisabled || (!message.trim() && !waitingForHumanInput)}
+                className={`send-button ${isProcessing && !waitingForHumanInput ? 'processing' : ''} ${waitingForHumanInput ? 'human-input-button' : ''}`}
+              >
+                {isProcessing && !waitingForHumanInput ? '⏳' : 
+                 waitingForHumanInput ? '📤' : 'Send'}
+              </button>
+            </div>
+            
+            {waitingForHumanInput && (
+              <button 
+                className="cancel-human-input"
+                onClick={cancelHumanInputRequest}
+              >
+                Cancel Request
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right Half - Enhanced Emulator */}
+        <div className="emulator-section">
+          <UnifiedEmulator 
+            toolOutputs={toolOutputs} 
+            wsConnected={wsConnected} 
+          />
+        </div>
       </div>
     </div>
   );
 };
 
 export default ChatPage;
+
