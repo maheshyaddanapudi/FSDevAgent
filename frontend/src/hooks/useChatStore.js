@@ -1,53 +1,56 @@
 // Enhanced Chat Store with Human-in-the-Loop Support
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { API_BASE_URL } from '../config';
 
-const useChatStore = create((set, get) => ({
-  // State
-  aiDeveloperAgentSessionId: null,
-  messages: [],
-  toolOutputs: [],
-  isLoading: false,
-  isProcessing: false,
-  error: null,
-  
-  // NEW: Human-in-the-loop state
-  waitingForHumanInput: false,
-  humanInputRequest: null,
-  
-  // Actions
-  clearError: () => set({ error: null }),
-  
-  // Add missing setIsProcessing function
-  setIsProcessing: (processing) => set({ isProcessing: processing }),
-  
-  // Issue #2 Fix: Enhanced addMessage with validation
-  addMessage: (message) => {
-    if (!message || !message.role) {
-      console.warn('Invalid message format:', message);
-      return;
-    }
-    
-    set(state => ({
-      messages: [...state.messages, {
-        id: message.id || uuidv4(),
-        role: message.role,
-        content: message.content || '',
-        toolCall: message.toolCall || null,
-        isComplete: message.isComplete !== undefined ? message.isComplete : true,
-        timestamp: message.timestamp || new Date().toISOString()
-      }]
-    }));
-  },
-  
-  // Issue #2 Fix: Enhanced addToolOutput with validation
-  addToolOutput: (toolOutput) => {
-    if (!toolOutput) {
-      console.warn('Invalid tool output:', toolOutput);
-      return;
-    }
+const useChatStore = create(
+  persist(
+    (set, get) => ({
+      // State
+      aiDeveloperAgentSessionId: null,
+      messages: [],
+      toolOutputs: [],
+      isLoading: false,
+      isProcessing: false,
+      error: null,
+      
+      // NEW: Human-in-the-loop state
+      waitingForHumanInput: false,
+      humanInputRequest: null,
+      
+      // Actions
+      clearError: () => set({ error: null }),
+      
+      // Add missing setIsProcessing function
+      setIsProcessing: (processing) => set({ isProcessing: processing }),
+      
+      // Issue #2 Fix: Enhanced addMessage with validation
+      addMessage: (message) => {
+        if (!message || !message.role) {
+          console.warn('Invalid message format:', message);
+          return;
+        }
+        
+        set(state => ({
+          messages: [...state.messages, {
+            id: message.id || uuidv4(),
+            role: message.role,
+            content: message.content || '',
+            toolCall: message.toolCall || null,
+            isComplete: message.isComplete !== undefined ? message.isComplete : true,
+            timestamp: message.timestamp || new Date().toISOString()
+          }]
+        }));
+      },
+      
+      // Issue #2 Fix: Enhanced addToolOutput with validation
+      addToolOutput: (toolOutput) => {
+        if (!toolOutput) {
+          console.warn('Invalid tool output:', toolOutput);
+          return;
+        }
     
     set(state => ({
       toolOutputs: [...state.toolOutputs, {
@@ -573,13 +576,23 @@ const useChatStore = create((set, get) => ({
       get().addMessage({
         role: 'system',
         content: 'Human input request canceled.',
-        timestamp: new Date().toISOString()
+         timestamp: new Date().toISOString()
       });
     } catch (error) {
       console.error('Error canceling human input request:', error);
       set({ error: 'Failed to cancel human input request' });
     }
   }
-}));
+    }),
+    {
+      name: 'ai-developer-agent-store',
+      partialize: (state) => ({
+        aiDeveloperAgentSessionId: state.aiDeveloperAgentSessionId,
+        messages: state.messages,
+        toolOutputs: state.toolOutputs
+      })
+    }
+  )
+);
 
 export default useChatStore;

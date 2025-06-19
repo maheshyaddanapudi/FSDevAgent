@@ -247,6 +247,19 @@ public class PlanningTool implements Tool {
         // Generate comprehensive plan report
         String report = generateHierarchicalPlanReport(plan, context);
         
+        // CRITICAL: Write the plan to todo.md file for autonomous agent to read
+        try {
+            java.nio.file.Path workspaceDir = java.nio.file.Paths.get(workspacePath);
+            java.nio.file.Files.createDirectories(workspaceDir);
+            
+            java.nio.file.Path todoFile = workspaceDir.resolve("todo.md");
+            java.nio.file.Files.writeString(todoFile, report, java.nio.charset.StandardCharsets.UTF_8);
+            
+            log.info("Successfully wrote plan to: {}", todoFile.toAbsolutePath());
+        } catch (Exception e) {
+            log.error("Failed to write todo.md file to workspace: {}", workspacePath, e);
+        }
+        
         return ToolOutput.builder()
                 .type("plan_created")
                 .content(report)

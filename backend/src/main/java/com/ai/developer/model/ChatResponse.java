@@ -16,6 +16,10 @@ public class ChatResponse {
     private ToolCallResponse toolCall;
     private Instant timestamp;
     
+    // Message type for UI rendering (thinking, analysis, reflection, planning, answer, tool_result, text)
+    @Builder.Default
+    private String messageType = "text";
+    
     /**
      * @deprecated Use getAiDeveloperAgentSessionId() instead.
      * This method is kept for backward compatibility during migration.

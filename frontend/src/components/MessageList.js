@@ -60,28 +60,69 @@ const MessageList = ({ messages }) => {
   );
 };
 
-// Individual message component with collapsible sections
+/// Individual message component with enhanced structured content rendering
 const MessageItem = ({ message, renderMarkdown }) => {
   const [expandedSections, setExpandedSections] = useState({
     thinking: false,
+    analysis: false,
+    reflection: false,
+    planning: false,
     toolCall: false,
     toolExecution: false,
     toolResult: message.toolResult?.includes('error') || message.toolResult?.includes('Error') || false
   });
-
+  
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
       ...prev,
       [section]: !prev[section]
     }));
   };
-
+  
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
     // You could add a toast notification here
   };
-
-  // Helper to get tool icon based on tool name
+  
+  // Enhanced content parsing for structured tags
+  const parseStructuredContent = (content) => {
+    if (!content) return { main: '', structured: {} };
+    
+    const structured = {};
+    let mainContent = content;
+    
+    // Extract thinking content
+    const thinkingMatch = content.match(/<thinking>(.*?)<\/thinking>/s);
+    if (thinkingMatch) {
+      structured.thinking = thinkingMatch[1].trim();
+      mainContent = mainContent.replace(thinkingMatch[0], '');
+    }
+    
+    // Extract analysis content
+    const analysisMatch = content.match(/<analysis>(.*?)<\/analysis>/s);
+    if (analysisMatch) {
+      structured.analysis = analysisMatch[1].trim();
+      mainContent = mainContent.replace(analysisMatch[0], '');
+    }
+    
+    // Extract reflection content
+    const reflectionMatch = content.match(/<reflection>(.*?)<\/reflection>/s);
+    if (reflectionMatch) {
+      structured.reflection = reflectionMatch[1].trim();
+      mainContent = mainContent.replace(reflectionMatch[0], '');
+    }
+    
+    // Extract planning content
+    const planningMatch = content.match(/<planning>(.*?)<\/planning>/s);
+    if (planningMatch) {
+      structured.planning = planningMatch[1].trim();
+      mainContent = mainContent.replace(planningMatch[0], '');
+    }
+    
+    return { main: mainContent.trim(), structured };
+  };
+  
+  // Helper to get tool icon based on tool nameme
   const getToolIcon = (toolName) => {
     const icons = {
       'file_system': '📁',
@@ -119,8 +160,117 @@ const MessageItem = ({ message, renderMarkdown }) => {
         </div>
       </div>
       <div className="message-content">
-        {/* Main message content */}
-        {message.content && renderMarkdown(message.content)}
+        {(() => {
+          // Parse structured content from message
+          const { main, structured } = parseStructuredContent(message.content || message.message);
+          
+          return (
+            <>
+              {/* Main message content */}
+              {main && renderMarkdown(main)}
+              
+              {/* Thinking section - Collapsible */}
+              {(structured.thinking || message.thinking) && (
+                <div className="claude-section thinking-section">
+                  <button 
+                    className="claude-section-header"
+                    onClick={() => toggleSection('thinking')}
+                    aria-expanded={expandedSections.thinking}
+                  >
+                    <span className="claude-section-icon">💭</span>
+                    <span className="claude-section-title">Thinking</span>
+                    <span className="claude-section-preview">
+                      {!expandedSections.thinking && getPreviewText(structured.thinking || message.thinking)}
+                    </span>
+                    <span className="claude-section-chevron">
+                      {expandedSections.thinking ? '▼' : '▶'}
+                    </span>
+                  </button>
+                  {expandedSections.thinking && (
+                    <div className="claude-section-content">
+                      {renderMarkdown(structured.thinking || message.thinking)}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Analysis section - Collapsible */}
+              {structured.analysis && (
+                <div className="claude-section analysis-section">
+                  <button 
+                    className="claude-section-header"
+                    onClick={() => toggleSection('analysis')}
+                    aria-expanded={expandedSections.analysis}
+                  >
+                    <span className="claude-section-icon">🔍</span>
+                    <span className="claude-section-title">Analysis</span>
+                    <span className="claude-section-preview">
+                      {!expandedSections.analysis && getPreviewText(structured.analysis)}
+                    </span>
+                    <span className="claude-section-chevron">
+                      {expandedSections.analysis ? '▼' : '▶'}
+                    </span>
+                  </button>
+                  {expandedSections.analysis && (
+                    <div className="claude-section-content">
+                      {renderMarkdown(structured.analysis)}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Reflection section - Collapsible */}
+              {structured.reflection && (
+                <div className="claude-section reflection-section">
+                  <button 
+                    className="claude-section-header"
+                    onClick={() => toggleSection('reflection')}
+                    aria-expanded={expandedSections.reflection}
+                  >
+                    <span className="claude-section-icon">🤔</span>
+                    <span className="claude-section-title">Reflection</span>
+                    <span className="claude-section-preview">
+                      {!expandedSections.reflection && getPreviewText(structured.reflection)}
+                    </span>
+                    <span className="claude-section-chevron">
+                      {expandedSections.reflection ? '▼' : '▶'}
+                    </span>
+                  </button>
+                  {expandedSections.reflection && (
+                    <div className="claude-section-content">
+                      {renderMarkdown(structured.reflection)}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Planning section - Collapsible */}
+              {structured.planning && (
+                <div className="claude-section planning-section">
+                  <button 
+                    className="claude-section-header"
+                    onClick={() => toggleSection('planning')}
+                    aria-expanded={expandedSections.planning}
+                  >
+                    <span className="claude-section-icon">📋</span>
+                    <span className="claude-section-title">Planning</span>
+                    <span className="claude-section-preview">
+                      {!expandedSections.planning && getPreviewText(structured.planning)}
+                    </span>
+                    <span className="claude-section-chevron">
+                      {expandedSections.planning ? '▼' : '▶'}
+                    </span>
+                  </button>
+                  {expandedSections.planning && (
+                    <div className="claude-section-content">
+                      {renderMarkdown(structured.planning)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          );
+        })()}
         
         {/* Thinking section - Collapsible */}
         {message.thinking && (

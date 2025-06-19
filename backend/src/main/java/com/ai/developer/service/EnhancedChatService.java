@@ -15,6 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -54,6 +55,7 @@ public class EnhancedChatService {
     // Session workspace root folder parameter name for workspace management
     private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
     
+    // Patterns for parsing responses
     // Patterns for parsing responses
     private static final Pattern TOOL_USE_PATTERN = Pattern.compile("<tool_use>(.*?)</tool_use>|\\{\"type\":\"content_block_start\".*?\"type\":\"tool_use\".*?\\}", Pattern.DOTALL);
     private static final Pattern COMPLETION_PATTERN = Pattern.compile("(?i)(task complete|objectives? (?:met|achieved|completed)|all (?:done|finished)|nothing (?:more|else) to do)");
@@ -852,11 +854,12 @@ public class EnhancedChatService {
                             chunk.contains("\"type\":\"tool_use\"")) {
                             hasToolUse.set(true);
                         } else {
-                            // Stream non-tool chunks to user in real-time
+                            // Stream all content chunks to user in real-time (including thinking, analysis, etc.)
                             sink.tryEmitNext(ChatResponse.builder()
                                     .aiDeveloperAgentSessionId(sessionId)
                                     .role("assistant")
                                     .message(chunk)
+                                    .messageType(determineMessageType(chunk))
                                     .timestamp(Instant.now())
                                     .build());
                         }
@@ -1018,15 +1021,18 @@ public class EnhancedChatService {
                 }
                 
                 // Execute tool
-                log.info("Executing tool {} for session {}", toolCall.getName(), sessionId);
+                log.info("TOOL_EXECUTION: Starting execution of tool '{}' for session '{}' with arguments: {}", 
+                    toolCall.getName(), sessionId, toolCall.getArguments());
                 
                 // Get workspace path from agent state
                 String workspacePath = agentState.getCanonicalWorkspacePath();
                 if (workspacePath == null || workspacePath.isEmpty()) {
                     workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
-                    log.warn("Canonical workspace path not set, using default: {}", workspacePath);
+                    log.warn("TOOL_EXECUTION: Canonical workspace path not set, using default: {}", workspacePath);
                     agentState.setCanonicalWorkspacePath(workspacePath);
                 }
+                
+                log.info("TOOL_EXECUTION: Using workspace path: {}", workspacePath);
                 
                 // Set last action
                 agentState.setLastAction("Executing tool: " + toolCall.getName());
@@ -1046,6 +1052,15 @@ public class EnhancedChatService {
                             outputBuilder.append(output.getContent()).append("\n");
                         }
                         String combinedOutput = outputBuilder.toString().trim();
+                        
+                        log.info("TOOL_RESULT: Tool '{}' completed successfully. Output length: {} characters", 
+                            toolCall.getName(), combinedOutput.length());
+                        log.debug("TOOL_RESULT: Full output for '{}': {}", toolCall.getName(), combinedOutput);
+                        
+                        // Verify workspace files if this was a file-writing tool
+                        if (toolCall.getName().equals("planning_tool") || toolCall.getName().equals("file_system")) {
+                            verifyWorkspaceFiles(finalWorkspacePath, toolCall.getName());
+                        }
                         
                         // Send tool output to websocket
                         webSocketHandler.broadcastToolOutput(Map.of(
@@ -1109,10 +1124,13 @@ public class EnhancedChatService {
     private List<String> extractToolCalls(String llmResponse) {
         List<String> toolCalls = new ArrayList<>();
         
+        log.debug("TOOL_EXTRACTION: Analyzing response for tool calls: {}", llmResponse.substring(0, Math.min(200, llmResponse.length())));
+        
         Matcher matcher = TOOL_USE_PATTERN.matcher(llmResponse);
         while (matcher.find()) {
             String toolCallJson = matcher.group(1);
             if (toolCallJson != null) {
+                log.info("TOOL_CALL: Found XML format tool call: {}", toolCallJson);
                 toolCalls.add(toolCallJson);
             } else {
                 // Handle Claude 3 format
@@ -1123,10 +1141,20 @@ public class EnhancedChatService {
                     int endIndex = fullMatch.lastIndexOf("}") + 1;
                     if (startIndex >= 0 && endIndex > startIndex) {
                         String jsonBlock = fullMatch.substring(startIndex, endIndex);
+                        log.info("TOOL_CALL: Found Claude 3 format tool call: {}", jsonBlock);
                         toolCalls.add(jsonBlock);
                     }
                 }
             }
+        }
+        
+        if (toolCalls.isEmpty()) {
+            log.warn("TOOL_EXTRACTION: No tool calls found in response. Response contains: thinking={}, tool_use={}, analysis={}", 
+                llmResponse.contains("<thinking>"), 
+                llmResponse.contains("<tool_use>"), 
+                llmResponse.contains("<analysis>"));
+        } else {
+            log.info("TOOL_EXTRACTION: Successfully extracted {} tool calls", toolCalls.size());
         }
         
         return toolCalls;
@@ -1283,5 +1311,64 @@ public class EnhancedChatService {
             emitter.completeWithError(e);
         }
     }
+    
+    /**
+     * Verify workspace files after tool execution
+     */
+    private void verifyWorkspaceFiles(String workspacePath, String toolName) {
+        try {
+            File workspaceDir = new File(workspacePath);
+            if (!workspaceDir.exists()) {
+                log.warn("WORKSPACE_VERIFY: Workspace directory does not exist: {}", workspacePath);
+                return;
+            }
+            
+            File[] files = workspaceDir.listFiles();
+            if (files == null || files.length == 0) {
+                log.warn("WORKSPACE_VERIFY: No files found in workspace after {} execution: {}", toolName, workspacePath);
+                return;
+            }
+            
+            log.info("WORKSPACE_VERIFY: Found {} files in workspace after {} execution:", files.length, toolName);
+            for (File file : files) {
+                if (file.isFile()) {
+                    log.info("WORKSPACE_VERIFY: - {} (size: {} bytes)", file.getName(), file.length());
+                    
+                    // Special logging for todo.md from planning_tool
+                    if (file.getName().equals("todo.md") && toolName.equals("planning_tool")) {
+                        try {
+                            String content = java.nio.file.Files.readString(file.toPath());
+                            log.info("WORKSPACE_VERIFY: todo.md content preview: {}", 
+                                content.substring(0, Math.min(200, content.length())));
+                        } catch (Exception e) {
+                            log.warn("WORKSPACE_VERIFY: Could not read todo.md content: {}", e.getMessage());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("WORKSPACE_VERIFY: Error verifying workspace files: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Determine message type based on content for UI rendering
+     */
+    private String determineMessageType(String content) {
+        if (content.contains("<thinking>") || content.contains("</thinking>")) {
+            return "thinking";
+        } else if (content.contains("<analysis>") || content.contains("</analysis>")) {
+            return "analysis";
+        } else if (content.contains("<reflection>") || content.contains("</reflection>")) {
+            return "reflection";
+        } else if (content.contains("<planning>") || content.contains("</planning>")) {
+            return "planning";
+        } else if (content.contains("<answer>") || content.contains("</answer>")) {
+            return "answer";
+        } else if (content.contains("<tool_result>") || content.contains("</tool_result>")) {
+            return "tool_result";
+        } else {
+            return "text";
+        }
+    }
 }
-
