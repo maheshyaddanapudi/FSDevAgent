@@ -1503,3 +1503,252 @@ src/pages/ChatPage.js
   Line 81:5:   'getConnectionStatus' is assigned a value but never used  no-unused-vars
 
 webpack compiled with 1 warning
+Compiling...
+Compiled with warnings.
+
+[eslint] 
+src/components/UnifiedEmulator.js
+  Line 198:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  Line 226:6:  React Hook useEffect has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  Line 436:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/components/UnifiedEmulator/UnifiedEmulator.js
+  Line 2:70:  'lazy' is defined but never used                              no-unused-vars
+  Line 4:8:   'useWebSocket' is defined but never used                      no-unused-vars
+  Line 21:5:  'activeTools' is assigned a value but never used              no-unused-vars
+  Line 22:5:  'processWebSocketMessage' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/CodeOutput.js
+  Line 70:32:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:48:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 72:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+
+src/components/UnifiedEmulator/tools/FileSystemOutput.js
+  Line 180:9:  'toggleViewMode' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/GitOutput.js
+  Line 72:9:  'inOldSection' is assigned a value but never used  no-unused-vars
+  Line 73:9:  'inNewSection' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/TerminalOutput.js
+  Line 146:6:  React Hook useEffect has missing dependencies: 'allOutputs', 'settings?.fontSize', 'settings?.theme', and 'wsConnected'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+src/hooks/useWebSocket.js
+  Line 184:6:  React Hook useEffect has a missing dependency: 'initializeWebSocket'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used             no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used        no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used       no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used          no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used  no-unused-vars
+
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
+
+WARNING in [eslint] 
+src/components/UnifiedEmulator.js
+  Line 198:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  Line 226:6:  React Hook useEffect has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  Line 436:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/components/UnifiedEmulator/UnifiedEmulator.js
+  Line 2:70:  'lazy' is defined but never used                              no-unused-vars
+  Line 4:8:   'useWebSocket' is defined but never used                      no-unused-vars
+  Line 21:5:  'activeTools' is assigned a value but never used              no-unused-vars
+  Line 22:5:  'processWebSocketMessage' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/CodeOutput.js
+  Line 70:32:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:48:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 72:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+
+src/components/UnifiedEmulator/tools/FileSystemOutput.js
+  Line 180:9:  'toggleViewMode' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/GitOutput.js
+  Line 72:9:  'inOldSection' is assigned a value but never used  no-unused-vars
+  Line 73:9:  'inNewSection' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/TerminalOutput.js
+  Line 146:6:  React Hook useEffect has missing dependencies: 'allOutputs', 'settings?.fontSize', 'settings?.theme', and 'wsConnected'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+src/hooks/useWebSocket.js
+  Line 184:6:  React Hook useEffect has a missing dependency: 'initializeWebSocket'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used             no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used        no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used       no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used          no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used  no-unused-vars
+
+webpack compiled with 1 warning
+Compiling...
+Compiled with warnings.
+
+[eslint] 
+src/components/UnifiedEmulator.js
+  Line 198:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  Line 226:6:  React Hook useEffect has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  Line 436:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/components/UnifiedEmulator/UnifiedEmulator.js
+  Line 2:70:  'lazy' is defined but never used                              no-unused-vars
+  Line 4:8:   'useWebSocket' is defined but never used                      no-unused-vars
+  Line 21:5:  'activeTools' is assigned a value but never used              no-unused-vars
+  Line 22:5:  'processWebSocketMessage' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/CodeOutput.js
+  Line 70:32:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:48:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 72:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+
+src/components/UnifiedEmulator/tools/FileSystemOutput.js
+  Line 180:9:  'toggleViewMode' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/GitOutput.js
+  Line 72:9:  'inOldSection' is assigned a value but never used  no-unused-vars
+  Line 73:9:  'inNewSection' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/TerminalOutput.js
+  Line 146:6:  React Hook useEffect has missing dependencies: 'allOutputs', 'settings?.fontSize', 'settings?.theme', and 'wsConnected'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+src/hooks/useWebSocket.js
+  Line 184:6:  React Hook useEffect has a missing dependency: 'initializeWebSocket'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used             no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used        no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used       no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used          no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used  no-unused-vars
+
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
+
+WARNING in [eslint] 
+src/components/UnifiedEmulator.js
+  Line 198:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  Line 226:6:  React Hook useEffect has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  Line 436:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/components/UnifiedEmulator/UnifiedEmulator.js
+  Line 2:70:  'lazy' is defined but never used                              no-unused-vars
+  Line 4:8:   'useWebSocket' is defined but never used                      no-unused-vars
+  Line 21:5:  'activeTools' is assigned a value but never used              no-unused-vars
+  Line 22:5:  'processWebSocketMessage' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/CodeOutput.js
+  Line 70:32:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:48:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 72:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+
+src/components/UnifiedEmulator/tools/FileSystemOutput.js
+  Line 180:9:  'toggleViewMode' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/GitOutput.js
+  Line 72:9:  'inOldSection' is assigned a value but never used  no-unused-vars
+  Line 73:9:  'inNewSection' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/TerminalOutput.js
+  Line 146:6:  React Hook useEffect has missing dependencies: 'allOutputs', 'settings?.fontSize', 'settings?.theme', and 'wsConnected'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+src/hooks/useWebSocket.js
+  Line 184:6:  React Hook useEffect has a missing dependency: 'initializeWebSocket'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used             no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used        no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used       no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used          no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used  no-unused-vars
+
+webpack compiled with 1 warning
+Compiling...
+Compiled with warnings.
+
+[eslint] 
+src/components/UnifiedEmulator.js
+  Line 198:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  Line 226:6:  React Hook useEffect has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  Line 436:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/components/UnifiedEmulator/UnifiedEmulator.js
+  Line 2:70:  'lazy' is defined but never used                              no-unused-vars
+  Line 4:8:   'useWebSocket' is defined but never used                      no-unused-vars
+  Line 21:5:  'activeTools' is assigned a value but never used              no-unused-vars
+  Line 22:5:  'processWebSocketMessage' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/CodeOutput.js
+  Line 70:32:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:48:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 72:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+
+src/components/UnifiedEmulator/tools/FileSystemOutput.js
+  Line 180:9:  'toggleViewMode' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/GitOutput.js
+  Line 72:9:  'inOldSection' is assigned a value but never used  no-unused-vars
+  Line 73:9:  'inNewSection' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/TerminalOutput.js
+  Line 146:6:  React Hook useEffect has missing dependencies: 'allOutputs', 'settings?.fontSize', 'settings?.theme', and 'wsConnected'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+src/hooks/useWebSocket.js
+  Line 184:6:  React Hook useEffect has a missing dependency: 'initializeWebSocket'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used             no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used        no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used       no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used          no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used  no-unused-vars
+
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
+
+WARNING in [eslint] 
+src/components/UnifiedEmulator.js
+  Line 198:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  Line 226:6:  React Hook useEffect has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array    react-hooks/exhaustive-deps
+  Line 436:6:  React Hook useCallback has a missing dependency: 'processToolOutputs'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/components/UnifiedEmulator/UnifiedEmulator.js
+  Line 2:70:  'lazy' is defined but never used                              no-unused-vars
+  Line 4:8:   'useWebSocket' is defined but never used                      no-unused-vars
+  Line 21:5:  'activeTools' is assigned a value but never used              no-unused-vars
+  Line 22:5:  'processWebSocketMessage' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/CodeOutput.js
+  Line 70:32:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 71:48:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+  Line 72:26:  Unexpected mix of '||' and '&&'. Use parentheses to clarify the intended order of operations  no-mixed-operators
+
+src/components/UnifiedEmulator/tools/FileSystemOutput.js
+  Line 180:9:  'toggleViewMode' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/GitOutput.js
+  Line 72:9:  'inOldSection' is assigned a value but never used  no-unused-vars
+  Line 73:9:  'inNewSection' is assigned a value but never used  no-unused-vars
+
+src/components/UnifiedEmulator/tools/TerminalOutput.js
+  Line 146:6:  React Hook useEffect has missing dependencies: 'allOutputs', 'settings?.fontSize', 'settings?.theme', and 'wsConnected'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+src/hooks/useWebSocket.js
+  Line 184:6:  React Hook useEffect has a missing dependency: 'initializeWebSocket'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used             no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used        no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used       no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used          no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used  no-unused-vars
+
+webpack compiled with 1 warning

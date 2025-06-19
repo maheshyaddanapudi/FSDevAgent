@@ -20,6 +20,9 @@ const useChatStore = create((set, get) => ({
   // Actions
   clearError: () => set({ error: null }),
   
+  // Add missing setIsProcessing function
+  setIsProcessing: (processing) => set({ isProcessing: processing }),
+  
   // Issue #2 Fix: Enhanced addMessage with validation
   addMessage: (message) => {
     if (!message || !message.role) {
@@ -133,7 +136,7 @@ const useChatStore = create((set, get) => ({
       
       // Setup for SSE
       const eventSource = new EventSource(
-        `${API_BASE_URL}/chat/stream?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}&message=${encodeURIComponent(messageText)}`
+        `${API_BASE_URL}/chat?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}&message=${encodeURIComponent(messageText)}`
       );
       
       let messageComplete = false;
@@ -302,7 +305,7 @@ const useChatStore = create((set, get) => ({
       
       // Send the human input response to the backend
       const eventSource = new EventSource(
-        `${API_BASE_URL}/chat/stream/human-input?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}&response=${encodeURIComponent(responseText)}`
+        `${API_BASE_URL}/chat?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}&response=${encodeURIComponent(responseText)}`
       );
       
       let messageComplete = false;
