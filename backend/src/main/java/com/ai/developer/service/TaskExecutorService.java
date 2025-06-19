@@ -481,6 +481,23 @@ public class TaskExecutorService {
                 // Extract JSON content from tool_use blocks if needed
                 Object rawArgsObj = invocation.getArgs();
                 
+                // Check if this is a regular response wrapped in <r> tags
+                if (rawArgsObj instanceof String rawArgs && rawArgs.contains("<r>")) {
+                    log.info("Detected regular response with <r> tags, skipping tool execution for session: {}", context.get("sessionId"));
+                    // Extract the text content from <r> tags and return as a regular response
+                    Pattern rPattern = Pattern.compile("<r>(.*?)</r>", Pattern.DOTALL);
+                    Matcher rMatcher = rPattern.matcher(rawArgs);
+                    if (rMatcher.find()) {
+                        String responseContent = rMatcher.group(1).trim();
+                        log.info("Extracted response content: {}", responseContent);
+                        // Return the response content as a regular message, not a tool execution result
+                        return Flux.just(ToolOutput.builder()
+                            .type("text")
+                            .content(responseContent)
+                            .build());
+                    }
+                }
+                
                 if (rawArgsObj instanceof String rawArgs && rawArgs.contains("<tool_use>")) {
                     Pattern pattern = Pattern.compile("<tool_use>(.*?)</tool_use>", Pattern.DOTALL);
                     Matcher matcher = pattern.matcher(rawArgs);

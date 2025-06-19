@@ -18,6 +18,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+
+import jakarta.annotation.PostConstruct;
 import reactor.core.publisher.SynchronousSink;
 import reactor.core.scheduler.Schedulers;
 
@@ -73,6 +75,11 @@ public class AutonomousAgentService {
         this.webSocketHandler = webSocketHandler;
         this.agentStates = agentStates;
         this.projectTemplateManager = projectTemplateManager;
+        // Note: maxIterations will be injected after construction
+    }
+    
+    @PostConstruct
+    public void init() {
         log.info("AutonomousAgentService initialized with max iterations: {}", maxIterations);
     }
 

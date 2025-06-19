@@ -1,0 +1,578 @@
+// Enhanced Chat Store with Human-in-the-Loop Support
+import { create } from 'zustand';
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
+import { API_BASE_URL } from '../config';
+
+const useChatStore = create((set, get) => ({
+  // State
+  aiDeveloperAgentSessionId: null,
+  messages: [],
+  toolOutputs: [],
+  isLoading: false,
+  isProcessing: false,
+  error: null,
+  
+  // NEW: Human-in-the-loop state
+  waitingForHumanInput: false,
+  humanInputRequest: null,
+  
+  // Actions
+  clearError: () => set({ error: null }),
+  
+  // Add missing setIsProcessing function
+  setIsProcessing: (processing) => set({ isProcessing: processing }),
+  
+  // Issue #2 Fix: Enhanced addMessage with validation
+  addMessage: (message) => {
+    if (!message || !message.role) {
+      console.warn('Invalid message format:', message);
+      return;
+    }
+    
+    set(state => ({
+      messages: [...state.messages, {
+        id: message.id || uuidv4(),
+        role: message.role,
+        content: message.content || '',
+        toolCall: message.toolCall || null,
+        isComplete: message.isComplete !== undefined ? message.isComplete : true,
+        timestamp: message.timestamp || new Date().toISOString()
+      }]
+    }));
+  },
+  
+  // Issue #2 Fix: Enhanced addToolOutput with validation
+  addToolOutput: (toolOutput) => {
+    if (!toolOutput) {
+      console.warn('Invalid tool output:', toolOutput);
+      return;
+    }
+    
+    set(state => ({
+      toolOutputs: [...state.toolOutputs, {
+        id: toolOutput.id || uuidv4(),
+        toolName: toolOutput.toolName || 'unknown',
+        args: toolOutput.args || {},
+        output: toolOutput.output || '',
+        timestamp: toolOutput.timestamp || new Date().toISOString()
+      }]
+    }));
+  },
+  
+  // Issue #2 Fix: Enhanced initializeSession with better error handling
+  initializeSession: async () => {
+    // Don't initialize if already loading or if session exists
+    if (get().isLoading || get().aiDeveloperAgentSessionId) {
+      return get().aiDeveloperAgentSessionId;
+    }
+    
+    set({ isLoading: true, error: null });
+    
+    try {
+      console.log('Initializing new session...');
+      const response = await axios.post(`${API_BASE_URL}/sessions`, {}, {
+        timeout: 10000 // 10 second timeout
+      });
+      
+      if (!response.data || !response.data.aiDeveloperAgentSessionId) {
+        throw new Error('Invalid response from server');
+      }
+      
+      const aiDeveloperAgentSessionId = response.data.aiDeveloperAgentSessionId;
+      console.log('Session initialized:', aiDeveloperAgentSessionId);
+      
+      set({ 
+        aiDeveloperAgentSessionId,
+        isLoading: false,
+        error: null
+      });
+      
+      return aiDeveloperAgentSessionId;
+    } catch (error) {
+      console.error('Error initializing session:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to initialize session';
+      set({ 
+        error: errorMessage,
+        isLoading: false
+      });
+      return null;
+    }
+  },
+  
+  // Issue #2 Fix: Enhanced sendMessage with better error handling and streaming support
+  sendMessage: async (messageText) => {
+    const { aiDeveloperAgentSessionId } = get();
+    
+    if (!aiDeveloperAgentSessionId) {
+      set({ error: 'No active session' });
+      return null;
+    }
+    
+    if (!messageText || typeof messageText !== 'string') {
+      set({ error: 'Invalid message' });
+      return null;
+    }
+    
+    set({ isProcessing: true, error: null });
+    
+    // Add user message to state
+    get().addMessage({
+      role: 'user',
+      content: messageText,
+      timestamp: new Date().toISOString()
+    });
+    
+    try {
+      // Add initial assistant message that will be updated
+      const assistantMessageId = uuidv4();
+      get().addMessage({
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        isComplete: false,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Setup for SSE
+      const eventSource = new EventSource(
+        `${API_BASE_URL}/chat?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}&message=${encodeURIComponent(messageText)}`
+      );
+      
+      let messageComplete = false;
+      
+      // Cleanup function
+      const cleanup = () => {
+        if (eventSource) {
+          eventSource.close();
+        }
+        set({ isProcessing: false });
+      };
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('SSE message received:', data);
+          
+          // Handle message content from backend (backend sends 'message' field, not 'content')
+          if (data.message) {
+            set(state => {
+              const messages = [...state.messages];
+              const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
+              
+              if (lastMessageIndex !== -1) {
+                // Append the new message chunk to existing content
+                const currentContent = messages[lastMessageIndex].content || '';
+                messages[lastMessageIndex] = {
+                  ...messages[lastMessageIndex],
+                  content: currentContent + data.message,
+                  isComplete: false
+                };
+              }
+              
+              return { messages };
+            });
+          }
+          
+          // Check for tool calls (if backend sends them)
+          if (data.tool_call) {
+            console.log('Tool call received:', data.tool_call);
+            // Handle tool calls if needed
+          }
+          
+        } catch (error) {
+          console.error('Error parsing SSE message:', error, 'Raw data:', event.data);
+        }
+      };
+      
+      eventSource.onerror = (error) => {
+        console.log('SSE connection ended or error occurred:', error);
+        
+        if (!messageComplete) {
+          // Mark the last assistant message as complete
+          set(state => {
+            const messages = [...state.messages];
+            const lastMessage = messages[messages.length - 1];
+            
+            if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
+              messages[messages.length - 1] = {
+                ...lastMessage,
+                isComplete: true
+              };
+            }
+            
+            return { messages };
+          });
+          messageComplete = true;
+        }
+        
+        cleanup();
+      };
+      
+    } catch (error) {
+      console.error('Error setting up SSE connection:', error);
+      set({ 
+        error: 'Failed to send message. Please try again.',
+        isProcessing: false 
+      });
+    }
+  },
+          // Mark the last assistant message as complete
+          set(state => {
+            const messages = [...state.messages];
+            const lastMessage = messages[messages.length - 1];
+            
+            if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
+              messages[messages.length - 1] = {
+                ...lastMessage,
+                isComplete: true
+              };
+            }
+            
+            return { messages };
+          });
+          messageComplete = true;
+        }
+        
+        cleanup();
+      };
+      
+      // Return cleanup function
+      return cleanup;
+      
+    } catch (error) {
+      console.error('Error sending message:', error);
+      set({ 
+        error: error.message || 'Failed to send message',
+        isLoading: false,
+        isProcessing: false
+      });
+      return null;
+    }
+  },
+  
+  // NEW: Submit human input response
+  submitHumanInput: async (responseText) => {
+    const { aiDeveloperAgentSessionId, humanInputRequest } = get();
+    
+    if (!aiDeveloperAgentSessionId) {
+      set({ error: 'No active session' });
+      return null;
+    }
+    
+    if (!humanInputRequest) {
+      set({ error: 'No pending human input request' });
+      return null;
+    }
+    
+    if (!responseText || typeof responseText !== 'string') {
+      set({ error: 'Invalid response' });
+      return null;
+    }
+    
+    set({ isProcessing: true, error: null });
+    
+    // Add user response to state
+    get().addMessage({
+      role: 'user',
+      content: responseText,
+      timestamp: new Date().toISOString()
+    });
+    
+    try {
+      // Reset human input request state
+      set({
+        waitingForHumanInput: false,
+        humanInputRequest: null
+      });
+      
+      // Add initial assistant message that will be updated
+      const assistantMessageId = uuidv4();
+      get().addMessage({
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        isComplete: false,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Send the human input response to the backend
+      const eventSource = new EventSource(
+        `${API_BASE_URL}/chat?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}&response=${encodeURIComponent(responseText)}`
+      );
+      
+      let messageComplete = false;
+      
+      // Cleanup function
+      const cleanup = () => {
+        if (eventSource) {
+          eventSource.close();
+        }
+        set({ isProcessing: false });
+      };
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Check for another human input request
+          if (data.type === 'tool_call' && data.tool === 'message_ask_user') {
+            // Close the event source as we need to pause for human input
+            cleanup();
+            
+            // Set the human input request state
+            set({
+              waitingForHumanInput: true,
+              humanInputRequest: {
+                id: data.id || uuidv4(),
+                text: data.text || 'Please provide additional information:',
+                attachments: data.attachments || [],
+                timestamp: new Date().toISOString()
+              },
+              isProcessing: false
+            });
+            
+            // Add a system message indicating human input is required
+            get().addMessage({
+              role: 'system',
+              content: `**Input Required**: ${data.text || 'Please provide additional information.'}`,
+              timestamp: new Date().toISOString()
+            });
+            
+            return;
+          }
+          
+          // Handle normal message content
+          if (data.content) {
+            set(state => {
+              const messages = [...state.messages];
+              const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
+              
+              if (lastMessageIndex !== -1) {
+                messages[lastMessageIndex] = {
+                  ...messages[lastMessageIndex],
+                  content: data.content,
+                  isComplete: data.isComplete || false
+                };
+              }
+              
+              return { messages };
+            });
+          }
+          
+          // Handle tool calls
+          if (data.toolCall) {
+            set(state => {
+              const messages = [...state.messages];
+              const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
+              
+              if (lastMessageIndex !== -1) {
+                messages[lastMessageIndex] = {
+                  ...messages[lastMessageIndex],
+                  toolCall: data.toolCall,
+                  isComplete: data.isComplete || false
+                };
+              }
+              
+              return { messages };
+            });
+          }
+        } catch (parseError) {
+          console.error('Error parsing SSE message:', parseError, event.data);
+        }
+      };
+      
+      eventSource.onerror = (error) => {
+        console.log('SSE connection ended or error occurred:', error);
+        
+        if (!messageComplete) {
+          // Mark the last assistant message as complete
+          set(state => {
+            const messages = [...state.messages];
+            const lastMessage = messages[messages.length - 1];
+            
+            if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isComplete) {
+              messages[messages.length - 1] = {
+                ...lastMessage,
+                isComplete: true
+              };
+            }
+            
+            return { messages };
+          });
+          messageComplete = true;
+        }
+        
+        cleanup();
+      };
+      
+      // Return cleanup function
+      return cleanup;
+      
+    } catch (error) {
+      console.error('Error sending human input response:', error);
+      set({ 
+        error: error.message || 'Failed to send response',
+        isLoading: false,
+        isProcessing: false,
+        waitingForHumanInput: false,
+        humanInputRequest: null
+      });
+      return null;
+    }
+  },
+  
+  // Issue #2 Fix: Improved tool execution with better error handling
+  executeTool: async (toolName, args) => {
+    const { aiDeveloperAgentSessionId } = get();
+    
+    if (!aiDeveloperAgentSessionId) {
+      set({ error: 'No active session' });
+      return null;
+    }
+    
+    if (!toolName || typeof toolName !== 'string') {
+      set({ error: 'Invalid tool name provided' });
+      return null;
+    }
+    
+    set({ isLoading: true, error: null });
+    
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/tools/${toolName}?aiDeveloperAgentSessionId=${aiDeveloperAgentSessionId}`,
+        args || {},
+        { 
+          responseType: 'stream',
+          timeout: 30000 // 30 second timeout for tool execution
+        }
+      );
+      
+      const toolOutput = {
+        toolName,
+        args: args || {},
+        output: response.data,
+        timestamp: new Date().toISOString(),
+        aiDeveloperAgentSessionId
+      };
+      
+      get().addToolOutput(toolOutput);
+      set({ isLoading: false });
+      
+      return response.data;
+    } catch (error) {
+      console.error(`Error executing tool ${toolName}:`, error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to execute tool';
+      set({ 
+        error: errorMessage,
+        isLoading: false
+      });
+      return null;
+    }
+  },
+  
+  // Issue #2 Fix: Improved session history with better error handling
+  getSessionHistory: async () => {
+    const { aiDeveloperAgentSessionId } = get();
+    
+    if (!aiDeveloperAgentSessionId) {
+      set({ error: 'No active session' });
+      return;
+    }
+    
+    set({ isLoading: true, error: null });
+    
+    try {
+      const response = await axios.get(`${API_BASE_URL}/sessions/${aiDeveloperAgentSessionId}/history`, {
+        timeout: 10000 // 10 second timeout
+      });
+      
+      if (!response.data || !Array.isArray(response.data)) {
+        throw new Error('Invalid response format from server');
+      }
+      
+      const messages = response.data.map((msg, index) => ({
+        id: msg.id || `history_${index}`,
+        role: msg.role || 'unknown',
+        content: msg.message || msg.content || '',
+        toolCall: msg.toolCall || null,
+        isComplete: true,
+        timestamp: msg.timestamp || new Date().toISOString()
+      }));
+      
+      set({ 
+        messages,
+        isLoading: false,
+        error: null
+      });
+    } catch (error) {
+      console.error('Error getting session history:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to get session history';
+      set({ 
+        error: errorMessage,
+        isLoading: false
+      });
+    }
+  },
+  
+  // Issue #2 Fix: Enhanced clearMessages with validation
+  clearMessages: () => {
+    try {
+      set({ messages: [], error: null });
+    } catch (error) {
+      console.error('Error clearing messages:', error);
+      set({ error: 'Failed to clear messages' });
+    }
+  },
+  
+  // Issue #2 Fix: Add clearToolOutputs function
+  clearToolOutputs: () => {
+    try {
+      set({ toolOutputs: [], error: null });
+    } catch (error) {
+      console.error('Error clearing tool outputs:', error);
+      set({ error: 'Failed to clear tool outputs' });
+    }
+  },
+  
+  // Issue #2 Fix: Add resetSession function
+  resetSession: () => {
+    try {
+      set({
+        aiDeveloperAgentSessionId: null,
+        messages: [],
+        toolOutputs: [],
+        isLoading: false,
+        isProcessing: false,
+        error: null,
+        waitingForHumanInput: false,
+        humanInputRequest: null
+      });
+    } catch (error) {
+      console.error('Error resetting session:', error);
+    }
+  },
+  
+  // NEW: Cancel human input request
+  cancelHumanInputRequest: () => {
+    try {
+      set({
+        waitingForHumanInput: false,
+        humanInputRequest: null,
+        isProcessing: false
+      });
+      
+      // Add a system message indicating the request was canceled
+      get().addMessage({
+        role: 'system',
+        content: 'Human input request canceled.',
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error canceling human input request:', error);
+      set({ error: 'Failed to cancel human input request' });
+    }
+  }
+}));
+
+export default useChatStore;
