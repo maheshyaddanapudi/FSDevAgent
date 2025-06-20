@@ -11,8 +11,7 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
-@Component
-public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
+public abstract class ToolOutputWebSocketHandler extends TextWebSocketHandler {
     
     private final ConcurrentHashMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper;
@@ -45,6 +44,11 @@ public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
     }
     
     public void broadcastToolOutput(Object output) {
+        // TEMPORARILY DISABLED FOR TESTING - WebSocket streaming disabled to test SSE-only
+        log.info("WebSocket broadcasting DISABLED for testing - would broadcast to {} sessions", sessions.size());
+        return;
+        
+        /*
         try {
             String jsonOutput = objectMapper.writeValueAsString(output);
             TextMessage message = new TextMessage(jsonOutput);
@@ -63,10 +67,16 @@ public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
         } catch (IOException e) {
             log.error("Error serializing tool output to JSON: {}", e.getMessage());
         }
+        */
     }
     
     // Enhanced method to broadcast tool usage events specifically
     public void broadcastToolUsage(String aiDeveloperAgentSessionId, String toolName, Object arguments, String toolCallId) {
+        // TEMPORARILY DISABLED FOR TESTING - WebSocket streaming disabled to test SSE-only
+        log.info("WebSocket tool usage broadcasting DISABLED for testing - tool: {}", toolName);
+        return;
+        
+        /*
         try {
             // Create a specialized tool usage event
             ToolUsageEvent event = new ToolUsageEvent();
@@ -94,6 +104,7 @@ public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
         } catch (IOException e) {
             log.error("Error serializing tool usage event to JSON: {}", e.getMessage());
         }
+        */
     }
     
     // Enhanced method to broadcast tool results specifically
