@@ -754,19 +754,45 @@ public class EnhancedChatService {
         Sinks.Many<ChatResponse> sink = Sinks.many().multicast().onBackpressureBuffer();
         sessionSinks.put(sessionId, sink);
         
+        // Send stream-start event
+        sink.tryEmitNext(ChatResponse.builder()
+                .aiDeveloperAgentSessionId(sessionId)
+                .role("assistant")
+                .messageType("stream-start")
+                .message("")
+                .timestamp(Instant.now())
+                .build());
+        
+        // StringBuilder to accumulate streaming content
+        StringBuilder accumulatedContent = new StringBuilder();
+        
         // Stream LLM response
         llmProvider.streamResponse(message, context)
             .doOnNext(chunk -> {
-                // Stream chunk to user
+                // Accumulate the chunk
+                accumulatedContent.append(chunk);
+                
+                // Stream accumulated content to user
                 sink.tryEmitNext(ChatResponse.builder()
                         .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
-                        .message(chunk)
+                        .messageType("message")
+                        .message(accumulatedContent.toString())  // Send accumulated content
                         .timestamp(Instant.now())
                         .build());
             })
             .doOnComplete(() -> {
                 log.info("Completed LLM response for session {}", sessionId);
+                
+                // Send stream-end event
+                sink.tryEmitNext(ChatResponse.builder()
+                        .aiDeveloperAgentSessionId(sessionId)
+                        .role("assistant")
+                        .messageType("stream-end")
+                        .message("")
+                        .timestamp(Instant.now())
+                        .build());
+                
                 sink.tryEmitComplete();
             })
             .doOnError(error -> {
@@ -776,7 +802,17 @@ public class EnhancedChatService {
                 sink.tryEmitNext(ChatResponse.builder()
                         .aiDeveloperAgentSessionId(sessionId)
                         .role("assistant")
+                        .messageType("message")
                         .message("I encountered an error: " + error.getMessage())
+                        .timestamp(Instant.now())
+                        .build());
+                
+                // Send stream-end event even on error
+                sink.tryEmitNext(ChatResponse.builder()
+                        .aiDeveloperAgentSessionId(sessionId)
+                        .role("assistant")
+                        .messageType("stream-end")
+                        .message("")
                         .timestamp(Instant.now())
                         .build());
                 
@@ -879,12 +915,27 @@ public class EnhancedChatService {
                                 .computeIfAbsent("conversationHistory", k -> new ArrayList<String>());
                         conversationHistory.add("Assistant: " + completeResponse);
                         
-                        // Process the response
+                        // CRITICAL FIX: Process events FIRST before other completion checks
+                        processEvents(sessionId, agentState, completeResponse);
+                        
+                        // Check if events set shouldContinue to false (e.g., TASK_COMPLETE)
+                        if (!agentState.isShouldContinue()) {
+                            log.info("Task completion detected via events for session {}", sessionId);
+                            return;
+                        }
+                        
+                        // Process the response for tool calls
                         processAutonomousResponse(sessionId, context, agentState, completeResponse, sink);
                         
-                        // Check if task is complete
+                        // Check if events processing in tool execution set shouldContinue to false
+                        if (!agentState.isShouldContinue()) {
+                            log.info("Task completion detected during tool processing for session {}", sessionId);
+                            return;
+                        }
+                        
+                        // Check if task is complete using pattern matching
                         if (isTaskComplete(completeResponse)) {
-                            log.info("Task complete for session {}", sessionId);
+                            log.info("Task complete detected via pattern matching for session {}", sessionId);
                             agentState.setShouldContinue(false);
                             return;
                         }
@@ -904,12 +955,15 @@ public class EnhancedChatService {
                         
                         // Continue to next iteration if execution should continue
                         if (agentState.isShouldContinue()) {
+                            log.debug("Continuing autonomous execution for session {} - iteration {}", sessionId, iterationCount.get());
                             // Small delay to prevent tight loops
                             try {
                                 Thread.sleep(1000);
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                             }
+                        } else {
+                            log.info("Autonomous execution stopping for session {} after iteration {}", sessionId, iterationCount.get());
                         }
                     })
                     .doOnError(error -> {
@@ -991,8 +1045,8 @@ public class EnhancedChatService {
             // No tool calls, treat as regular response
             log.info("No tool calls found in response for session {}", sessionId);
             
-            // Check for events
-            processEvents(sessionId, agentState, llmResponse);
+            // NOTE: Event processing is now handled in doOnComplete() before this method
+            // No need to process events here to avoid duplication
             
             return;
         }
@@ -1185,19 +1239,86 @@ public class EnhancedChatService {
             
             switch (eventType) {
                 case "TASK_COMPLETE":
+                    log.info("TASK_COMPLETE event: Setting shouldContinue to false for session {}", sessionId);
                     agentState.setShouldContinue(false);
+                    agentState.setLastAction("Task completed: " + eventData);
                     break;
+                    
+                case "PROGRESS":
+                    log.info("PROGRESS event: Updating progress for session {}: {}", sessionId, eventData);
+                    agentState.getMemory().put("currentProgress", eventData);
+                    agentState.setLastAction("Progress update: " + eventData);
+                    break;
+                    
+                case "PHASE_TRANSITION":
+                    log.info("PHASE_TRANSITION event: Phase transition for session {}: {}", sessionId, eventData);
+                    agentState.getMemory().put("currentPhase", eventData);
+                    agentState.setLastAction("Phase transition: " + eventData);
+                    
+                    // Check if phase transition indicates completion
+                    if ("COMPLETED".equalsIgnoreCase(eventData) || "COMPLETE".equalsIgnoreCase(eventData)) {
+                        log.info("PHASE_TRANSITION indicates completion: Setting shouldContinue to false for session {}", sessionId);
+                        agentState.setShouldContinue(false);
+                    }
+                    break;
+                    
                 case "SET_GOAL":
+                    log.info("SET_GOAL event: Setting goal for session {}: {}", sessionId, eventData);
                     agentState.setCurrentObjective(eventData);
+                    agentState.setLastAction("Goal set: " + eventData);
                     break;
+                    
                 case "ADD_MEMORY":
                     String[] memoryParts = eventData.split(":", 2);
                     if (memoryParts.length == 2) {
-                        agentState.getMemory().put(memoryParts[0].trim(), memoryParts[1].trim());
+                        String key = memoryParts[0].trim();
+                        String value = memoryParts[1].trim();
+                        log.info("ADD_MEMORY event: Adding memory for session {}: {} = {}", sessionId, key, value);
+                        agentState.getMemory().put(key, value);
+                        agentState.setLastAction("Memory added: " + key + " = " + value);
+                    } else {
+                        log.warn("ADD_MEMORY event: Invalid format for session {}: {}", sessionId, eventData);
                     }
                     break;
+                    
+                case "ERROR":
+                    log.warn("ERROR event: Error reported for session {}: {}", sessionId, eventData);
+                    agentState.getMemory().put("lastError", eventData);
+                    agentState.setLastAction("Error: " + eventData);
+                    break;
+                    
+                case "PAUSE":
+                    log.info("PAUSE event: Pausing execution for session {}: {}", sessionId, eventData);
+                    agentState.setShouldContinue(false);
+                    agentState.setWaitingForUserInput(true);
+                    agentState.setLastAction("Paused: " + eventData);
+                    break;
+                    
+                case "RESUME":
+                    log.info("RESUME event: Resuming execution for session {}: {}", sessionId, eventData);
+                    agentState.setShouldContinue(true);
+                    agentState.setWaitingForUserInput(false);
+                    agentState.setLastAction("Resumed: " + eventData);
+                    break;
+                    
+                case "STEP_COMPLETE":
+                    log.info("STEP_COMPLETE event: Step completed for session {}: {}", sessionId, eventData);
+                    agentState.getMemory().put("lastCompletedStep", eventData);
+                    agentState.setLastAction("Step completed: " + eventData);
+                    break;
+                    
+                case "OBJECTIVE_UPDATE":
+                    log.info("OBJECTIVE_UPDATE event: Updating objective for session {}: {}", sessionId, eventData);
+                    agentState.setCurrentObjective(eventData);
+                    agentState.setLastAction("Objective updated: " + eventData);
+                    break;
+                    
                 default:
-                    log.warn("Unknown event type: {}", eventType);
+                    log.warn("Unknown event type: {} with data: {} for session {}", eventType, eventData, sessionId);
+                    // Store unknown events in memory for debugging
+                    List<String> unknownEvents = (List<String>) agentState.getMemory()
+                            .computeIfAbsent("unknownEvents", k -> new ArrayList<String>());
+                    unknownEvents.add(eventType + ":" + eventData);
                     break;
             }
         }

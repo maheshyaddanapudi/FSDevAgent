@@ -25,11 +25,11 @@ const ChatInterface = ({ sessionId }) => {
       try {
         const data = JSON.parse(chatMessage.data);
         
-        if (data.type === 'stream-start') {
+        if (data.messageType === 'stream-start') {
           setIsStreaming(true);
-        } else if (data.type === 'stream-end') {
+        } else if (data.messageType === 'stream-end') {
           setIsStreaming(false);
-        } else if (data.type === 'message') {
+        } else if (data.messageType === 'message') {
           // Handle new message
           setMessages(prev => {
             // Check if this is a continuation of a streaming message
