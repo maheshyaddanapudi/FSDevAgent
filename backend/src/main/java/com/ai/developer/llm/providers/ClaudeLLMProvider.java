@@ -192,9 +192,26 @@ public class ClaudeLLMProvider implements LLMProvider {
                         } else {
                             return response.bodyToMono(String.class)
                                 .doOnNext(errorBody -> {
-                                    log.error("Claude API error: {} - {}", response.statusCode(), errorBody);
+                                    log.error("Claude API error response: Status={}, Body={}", response.statusCode(), errorBody);
+                                    
+                                    // Parse error details for better logging
+                                    try {
+                                        JsonNode errorJson = objectMapper.readTree(errorBody);
+                                        JsonNode error = errorJson.get("error");
+                                        if (error != null) {
+                                            String errorType = error.get("type") != null ? error.get("type").asText() : "unknown";
+                                            String errorMessage = error.get("message") != null ? error.get("message").asText() : "No message";
+                                            log.error("Claude API error details: type={}, message={}", errorType, errorMessage);
+                                        }
+                                    } catch (Exception e) {
+                                        log.warn("Could not parse error response JSON: {}", e.getMessage());
+                                    }
                                 })
-                                .map(errorBody -> "Error from Claude API: " + response.statusCode() + " - " + errorBody);
+                                .flatMap(errorBody -> {
+                                    // Throw proper exception instead of returning error as text
+                                    String errorMessage = "Claude API error: " + response.statusCode() + " - " + errorBody;
+                                    return Mono.error(new RuntimeException(errorMessage));
+                                });
                         }
                     })
                     .onErrorResume(error -> {
@@ -332,8 +349,24 @@ public class ClaudeLLMProvider implements LLMProvider {
                         } else {
                             return response.bodyToMono(String.class)
                                 .flatMapMany(errorBody -> {
-                                    log.error("Claude API error: {} - {}", response.statusCode(), errorBody);
-                                    return Flux.just("Error from Claude API: " + response.statusCode() + " - " + errorBody);
+                                    log.error("Claude API streaming error response: Status={}, Body={}", response.statusCode(), errorBody);
+                                    
+                                    // Parse error details for better logging
+                                    try {
+                                        JsonNode errorJson = objectMapper.readTree(errorBody);
+                                        JsonNode error = errorJson.get("error");
+                                        if (error != null) {
+                                            String errorType = error.get("type") != null ? error.get("type").asText() : "unknown";
+                                            String errorMessage = error.get("message") != null ? error.get("message").asText() : "No message";
+                                            log.error("Claude API streaming error details: type={}, message={}", errorType, errorMessage);
+                                        }
+                                    } catch (Exception e) {
+                                        log.warn("Could not parse streaming error response JSON: {}", e.getMessage());
+                                    }
+                                    
+                                    // Throw proper exception instead of returning error as text
+                                    String errorMessage = "Claude API streaming error: " + response.statusCode() + " - " + errorBody;
+                                    return Flux.error(new RuntimeException(errorMessage));
                                 });
                         }
                     })

@@ -77,20 +77,19 @@ public class EnhancedChatService {
     }
     
     /**
-     * Create a new session with workspace initialization and agent state
+     * Create a new chat session with proper workspace management
      */
     public Mono<SessionResponse> createSession() {
         String sessionId = UUID.randomUUID().toString();
         log.info("Created new session: {}", sessionId);
         
-        // Use sessionId as sessionWorkspaceRootFolder for workspace management
-        String sessionWorkspaceRootFolder = sessionId;
+        // Fix: Proper workspace management - use aiDeveloperAgentSessionId for workspace paths
+        String sessionWorkspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
         
         // Create session workspace directory
-        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionWorkspaceRootFolder;
         try {
-            Files.createDirectories(Path.of(workspacePath));
-            log.info("Created workspace directory for session {}: {}", sessionId, workspacePath);
+            Files.createDirectories(Path.of(sessionWorkspacePath));
+            log.info("Created workspace directory for session {}: {}", sessionId, sessionWorkspacePath);
         } catch (Exception e) {
             log.error("Error creating workspace directory for session {}: {}", sessionId, e.getMessage(), e);
         }
@@ -98,17 +97,17 @@ public class EnhancedChatService {
         // Create chat context with autonomous agent prompt
         ChatContext context = new ChatContext();
         ProjectContext projectContext = new ProjectContext();
-        projectContext.setProjectPath(workspacePath);
+        projectContext.setProjectPath(sessionWorkspacePath);
         
         String systemPrompt = agentPromptService.generateSystemPrompt(projectContext);
         context.setSystemPrompt(systemPrompt);
         context.setMessages(new ArrayList<>());
         
-        // Add metadata with session ID, sessionWorkspaceRootFolder, and workspace path
+        // Add metadata with session ID and workspace path
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("sessionId", sessionId);
-        metadata.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, sessionWorkspaceRootFolder);
-        metadata.put("workspacePath", workspacePath);
+        metadata.put(SESSION_WORKSPACE_ROOT_FOLDER_PARAM, DEFAULT_WORKSPACE_PATH);
+        metadata.put("workspacePath", sessionWorkspacePath);
         context.setMetadata(metadata);
         
         // Create agent state
@@ -118,10 +117,10 @@ public class EnhancedChatService {
         agentState.setMode(ConversationMode.AUTONOMOUS); // Start in autonomous mode for true autonomy
         
         // Set canonical workspace path
-        agentState.setCanonicalWorkspacePath(workspacePath);
+        agentState.setCanonicalWorkspacePath(sessionWorkspacePath);
         
         // Initialize workspace context
-        refreshWorkspaceContext(sessionId, workspacePath);
+        refreshWorkspaceContext(sessionId, sessionWorkspacePath);
         
         // Store context and state
         sessions.put(sessionId, context);
@@ -130,7 +129,7 @@ public class EnhancedChatService {
         return Mono.just(SessionResponse.builder()
                 .aiDeveloperAgentSessionId(sessionId)
                 .createdAt(Instant.now())
-                .workspacePath(workspacePath)
+                .workspacePath(sessionWorkspacePath)
                 .build());
     }
     
@@ -299,11 +298,11 @@ public class EnhancedChatService {
             return;
         }
         
-        // Create session workspace directory
-        String workspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
+        // Create session workspace directory  
+        String sessionWorkspacePath = DEFAULT_WORKSPACE_PATH + "/" + sessionId;
         try {
-            Files.createDirectories(Path.of(workspacePath));
-            log.info("Created workspace directory for existing session {}: {}", workspacePath, sessionId);
+            Files.createDirectories(Path.of(sessionWorkspacePath));
+            log.info("Created workspace directory for existing session {}: {}", sessionId, sessionWorkspacePath);
         } catch (Exception e) {
             log.error("Error creating workspace directory for existing session {}: {}", sessionId, e.getMessage(), e);
         }
@@ -311,7 +310,7 @@ public class EnhancedChatService {
         // Create chat context with autonomous agent prompt
         ChatContext context = new ChatContext();
         ProjectContext projectContext = new ProjectContext();
-        projectContext.setProjectPath(workspacePath);
+        projectContext.setProjectPath(sessionWorkspacePath);
         
         String systemPrompt = agentPromptService.generateSystemPrompt(projectContext);
         context.setSystemPrompt(systemPrompt);
@@ -320,7 +319,7 @@ public class EnhancedChatService {
         // Add metadata with session ID and workspace path
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("sessionId", sessionId);
-        metadata.put("workspacePath", workspacePath);
+        metadata.put("workspacePath", sessionWorkspacePath);
         context.setMetadata(metadata);
         
         // Create agent state
@@ -330,10 +329,10 @@ public class EnhancedChatService {
         agentState.setMode(ConversationMode.AUTONOMOUS); // Start in autonomous mode for true autonomy
         
         // Set canonical workspace path
-        agentState.setCanonicalWorkspacePath(workspacePath);
+        agentState.setCanonicalWorkspacePath(sessionWorkspacePath);
         
         // Initialize workspace context
-        refreshWorkspaceContext(sessionId, workspacePath);
+        refreshWorkspaceContext(sessionId, sessionWorkspacePath);
         
         // Store context and state
         sessions.put(sessionId, context);

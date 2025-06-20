@@ -9,6 +9,7 @@ import ToolSkeleton from './ToolSkeleton';
 const ToolOutputFactory = ({ type, data, allOutputs, wsConnected, toolId }) => {
   // Define lazy-loaded tool components
   const toolComponents = {
+    initializing: lazy(() => import('./tools/InitializingOutput')),
     terminal: lazy(() => import('./tools/TerminalOutput')),
     browser: lazy(() => import('./tools/BrowserOutput')),
     filesystem: lazy(() => import('./tools/FileSystemOutput')),

@@ -83,12 +83,20 @@ const ChatPage = () => {
 
   // Enhanced session initialization with better error handling
   const handleSessionInitialization = useCallback(async () => {
-    if (sessionInitialized || aiDeveloperAgentSessionId || isLoading) {
+    // Check if we already have a persisted session
+    if (aiDeveloperAgentSessionId) {
+      console.log('Using persisted session:', aiDeveloperAgentSessionId);
+      setSessionInitialized(true);
+      setConnectionError(null);
+      return;
+    }
+    
+    if (sessionInitialized || isLoading) {
       return;
     }
 
     try {
-      console.log('Attempting to initialize session...');
+      console.log('Attempting to initialize new session...');
       const newSessionId = await initializeSession();
       
       if (newSessionId) {
@@ -111,7 +119,7 @@ const ChatPage = () => {
       setConnectionError(userError);
       setSessionInitialized(false); // Allow retry
     }
-  }, [sessionInitialized, aiDeveloperAgentSessionId, isLoading, initializeSession]);
+  }, [aiDeveloperAgentSessionId, sessionInitialized, isLoading, initializeSession]);
 
   // Retry connection handler
   const handleRetryConnection = useCallback(() => {
@@ -198,16 +206,9 @@ const ChatPage = () => {
     setIsProcessing(true);
     setIsTyping(true);
 
-    // Add user message to chat
-    addMessage({
-      role: 'user',
-      content: userMessage,
-      timestamp: new Date().toISOString()
-    });
-
     try {
-      // Send message via chat service
-      await sendChatMessage(aiDeveloperAgentSessionId, userMessage);
+      // Send message via chat service (sendChatMessage handles all message state management)
+      await sendChatMessage(userMessage);
     } catch (error) {
       console.error('Error sending message:', error);
       

@@ -10,19 +10,55 @@ Learn more here: https://cra.link/advanced-config
 [HPM] Subscribed to http-proxy events: [ 'error', 'close' ]
 [HPM] Proxy created: /  -> http://localhost:8080
 [HPM] Subscribed to http-proxy events: [ 'error', 'close' ]
-(node:27317) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: 'onAfterSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+(node:32267) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: 'onAfterSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
 (Use `node --trace-deprecation ...` to show where the warning was created)
-(node:27317) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: 'onBeforeSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+(node:32267) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: 'onBeforeSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
 Starting the development server...
 
-Compiled successfully!
+Compiled with warnings.
 
-You can now view ai-developer-agent-ui in the browser.
+[eslint] 
+src/hooks/useChatStore.js
+  Line 82:17:  'validationResponse' is assigned a value but never used  no-unused-vars
 
-  http://localhost:3000
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
 
-Note that the development build is not optimized.
-To create a production build, use npm run build.
+WARNING in [eslint] 
+src/hooks/useChatStore.js
+  Line 82:17:  'validationResponse' is assigned a value but never used  no-unused-vars
 
-webpack compiled successfully
-(node:27317) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+webpack compiled with 1 warning
+(node:32267) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+Compiling...
+Compiled with warnings.
+
+[eslint] 
+src/hooks/useChatStore.js
+  Line 82:17:  'validationResponse' is assigned a value but never used  no-unused-vars
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used                                                                         no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used                                                                    no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used                                                                   no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used                                                                      no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used                                                              no-unused-vars
+  Line 223:6:  React Hook useCallback has an unnecessary dependency: 'addMessage'. Either exclude it or remove the dependency array  react-hooks/exhaustive-deps
+
+Search for the keywords to learn more about each warning.
+To ignore, add // eslint-disable-next-line to the line before.
+
+WARNING in [eslint] 
+src/hooks/useChatStore.js
+  Line 82:17:  'validationResponse' is assigned a value but never used  no-unused-vars
+
+src/pages/ChatPage.js
+  Line 44:10:  'isTyping' is assigned a value but never used                                                                         no-unused-vars
+  Line 77:18:  'wsSendMessage' is assigned a value but never used                                                                    no-unused-vars
+  Line 79:5:   'isReconnecting' is assigned a value but never used                                                                   no-unused-vars
+  Line 80:16:  'wsReconnect' is assigned a value but never used                                                                      no-unused-vars
+  Line 81:5:   'getConnectionStatus' is assigned a value but never used                                                              no-unused-vars
+  Line 223:6:  React Hook useCallback has an unnecessary dependency: 'addMessage'. Either exclude it or remove the dependency array  react-hooks/exhaustive-deps
+
+webpack compiled with 1 warning
+The build failed because the process exited too early. This probably means the system ran out of memory or someone called `kill -9` on the process.

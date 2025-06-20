@@ -63,16 +63,38 @@ const useChatStore = create(
     }));
   },
   
-  // Issue #2 Fix: Enhanced initializeSession with better error handling
+  // Issue #2 Fix: Enhanced initializeSession with backend validation
   initializeSession: async () => {
-    // Don't initialize if already loading or if session exists
-    if (get().isLoading || get().aiDeveloperAgentSessionId) {
+    // Don't initialize if already loading
+    if (get().isLoading) {
       return get().aiDeveloperAgentSessionId;
     }
     
     set({ isLoading: true, error: null });
     
     try {
+      const existingSessionId = get().aiDeveloperAgentSessionId;
+      
+      // If we have an existing session ID, validate it with the backend first
+      if (existingSessionId) {
+        try {
+          console.log('Validating existing session:', existingSessionId);
+          const validationResponse = await axios.get(`${API_BASE_URL}/sessions/${existingSessionId}/history`, {
+            timeout: 5000
+          });
+          
+          // If validation succeeds, the session exists on backend
+          console.log('Session validation successful:', existingSessionId);
+          set({ isLoading: false });
+          return existingSessionId;
+        } catch (validationError) {
+          console.log('Session validation failed, creating new session:', validationError.message);
+          // Clear the invalid session ID and create a new one
+          set({ aiDeveloperAgentSessionId: null });
+        }
+      }
+      
+      // Create new session
       console.log('Initializing new session...');
       const response = await axios.post(`${API_BASE_URL}/sessions`, {}, {
         timeout: 10000 // 10 second timeout
@@ -97,7 +119,8 @@ const useChatStore = create(
       const errorMessage = error.response?.data?.message || error.message || 'Failed to initialize session';
       set({ 
         error: errorMessage,
-        isLoading: false
+        isLoading: false,
+        aiDeveloperAgentSessionId: null // Clear invalid session
       });
       return null;
     }
@@ -184,7 +207,7 @@ const useChatStore = create(
           }
           
           // Handle normal message content
-          if (data.content) {
+          if (data.message) {
             set(state => {
               const messages = [...state.messages];
               const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
@@ -192,7 +215,7 @@ const useChatStore = create(
               if (lastMessageIndex !== -1) {
                 messages[lastMessageIndex] = {
                   ...messages[lastMessageIndex],
-                  content: data.content,
+                  content: data.message,
                   isComplete: data.isComplete || false
                 };
               }
@@ -353,7 +376,7 @@ const useChatStore = create(
           }
           
           // Handle normal message content
-          if (data.content) {
+          if (data.message) {
             set(state => {
               const messages = [...state.messages];
               const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
@@ -361,7 +384,7 @@ const useChatStore = create(
               if (lastMessageIndex !== -1) {
                 messages[lastMessageIndex] = {
                   ...messages[lastMessageIndex],
-                  content: data.content,
+                  content: data.message,
                   isComplete: data.isComplete || false
                 };
               }

@@ -12,8 +12,9 @@ import './UnifiedEmulator.css';
  * UnifiedEmulator - Enhanced plugin-based tool output visualization system
  */
 const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
-  const [activeToolType, setActiveToolType] = useState('terminal');
+  const [activeToolType, setActiveToolType] = useState('initializing');
   const [selectedOutputIndex, setSelectedOutputIndex] = useState(0);
+  const [hasReceivedOutput, setHasReceivedOutput] = useState(false);
   
   const { 
     registerTool, 
@@ -33,9 +34,9 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
 
   // Process tool outputs to determine available types
   const availableToolTypes = useMemo(() => {
-    if (!toolOutputs || toolOutputs.length === 0) return new Set(['terminal']);
+    if (!toolOutputs || toolOutputs.length === 0) return new Set(['initializing']);
     
-    const types = new Set();
+    const types = new Set(['initializing']); // Always include initializing
     toolOutputs.forEach(output => {
       const toolName = output.toolName || output.type;
       types.add(mapToolNameToType(toolName));
@@ -45,7 +46,15 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
 
   // Auto-detect and switch to appropriate tool type
   useEffect(() => {
-    if (toolOutputs && toolOutputs.length > 0) {
+    if (toolOutputs && toolOutputs.length > 0 && !hasReceivedOutput) {
+      // First tool output received - switch from initializing to appropriate tool
+      setHasReceivedOutput(true);
+      const latestOutput = toolOutputs[toolOutputs.length - 1];
+      const detectedType = mapToolNameToType(latestOutput.toolName || latestOutput.type);
+      setActiveToolType(detectedType);
+      setSelectedOutputIndex(toolOutputs.length - 1);
+    } else if (toolOutputs && toolOutputs.length > 0 && hasReceivedOutput) {
+      // Subsequent outputs - only switch if user hasn't manually selected a different tool
       const latestOutput = toolOutputs[toolOutputs.length - 1];
       const detectedType = mapToolNameToType(latestOutput.toolName || latestOutput.type);
       
@@ -54,11 +63,11 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
         setSelectedOutputIndex(toolOutputs.length - 1);
       }
     }
-  }, [toolOutputs, activeToolType, availableToolTypes]);
+  }, [toolOutputs, activeToolType, availableToolTypes, hasReceivedOutput]);
 
   // Filter outputs for current tool type
   const filteredOutputs = useMemo(() => {
-    if (!toolOutputs) return [];
+    if (!toolOutputs || activeToolType === 'initializing') return [];
     
     return toolOutputs.filter(output => {
       const outputType = mapToolNameToType(output.toolName || output.type);
@@ -181,7 +190,8 @@ function mapToolNameToType(toolName) {
     'git_operations': 'git',
     'build_tool': 'build',
     'code_intelligence': 'code',
-    'data_visualization': 'dataviz'
+    'data_visualization': 'dataviz',
+    'planning_tool': 'terminal' // Map planning tool to terminal for now
   };
   
   return mapping[toolName] || 'terminal';
