@@ -15,17 +15,7 @@ public class ToolCall {
     private String id;
     private String name;
     
-    // Claude uses "input" field, so we map it to "arguments" for our tools
-    @JsonProperty("input")
+    // Claude can use "args", "input", or "arguments" - we normalize to "arguments"
+    @JsonProperty("arguments")
     private Map<String, Object> arguments;
-    
-    // Getter for arguments (used by tools)
-    public Map<String, Object> getArguments() {
-        return arguments;
-    }
-    
-    // Setter for arguments
-    public void setArguments(Map<String, Object> arguments) {
-        this.arguments = arguments;
-    }
 }

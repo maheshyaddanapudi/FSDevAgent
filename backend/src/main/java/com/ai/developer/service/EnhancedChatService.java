@@ -1000,8 +1000,13 @@ public class EnhancedChatService {
         // Process tool calls
         for (String toolCallJson : toolCalls) {
             try {
-                // Parse tool call
-                ToolCall toolCall = objectMapper.readValue(toolCallJson, ToolCall.class);
+                // Normalize JSON keys: change "args" and "input" to "arguments"
+                String normalizedJson = toolCallJson
+                    .replaceAll("\"args\"\\s*:", "\"arguments\":")
+                    .replaceAll("\"input\"\\s*:", "\"arguments\":");
+                
+                // Parse tool call with normalized JSON
+                ToolCall toolCall = objectMapper.readValue(normalizedJson, ToolCall.class);
                 
                 // Get tool
                 Tool tool = toolRegistry.getTool(toolCall.getName());
@@ -1033,11 +1038,19 @@ public class EnhancedChatService {
                 
                 log.info("TOOL_EXECUTION: Using workspace path: {}", workspacePath);
                 
+                // Inject session ID and workspace path into tool arguments
+                Map<String, Object> enhancedArguments = new HashMap<>(toolCall.getArguments());
+                enhancedArguments.put("aiDeveloperAgentSessionId", sessionId);
+                enhancedArguments.put("sessionWorkspaceRootFolder", sessionId);
+                enhancedArguments.put("sessionId", sessionId);
+                
+                log.info("TOOL_EXECUTION: Enhanced arguments with session ID: {}", enhancedArguments);
+                
                 // Set last action
                 agentState.setLastAction("Executing tool: " + toolCall.getName());
                 
-                // Execute tool
-                Flux<ToolOutput> toolOutputFlux = tool.execute(toolCall.getArguments());
+                // Execute tool with enhanced arguments
+                Flux<ToolOutput> toolOutputFlux = tool.execute(enhancedArguments);
                 
                 // Process tool output
                 // Capture the workspacePath as final to use in lambda
