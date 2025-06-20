@@ -1,12 +1,13 @@
-// Fixed useWebSocket.js - Issue #3: WebSocket Connection Issues Fix
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useEmulatorStore } from '../store/emulatorStore';
+import { debugLog } from '../utils/debugLogger';
 
 export const useWebSocket = () => {
   const [connected, setConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState(null);
   const [connectionAttempts, setConnectionAttempts] = useState(0);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [error, setError] = useState(null);
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const maxReconnectAttempts = 5;
@@ -17,264 +18,297 @@ export const useWebSocket = () => {
 
   // Updated WebSocket URL construction to work with proxied domains
   const getWebSocketUrl = useCallback(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname;
-    
-    // Check if we're using the proxied domain
-    if (host.includes('manusvm.computer')) {
-      // For proxied domains, use the 8080 subdomain for backend
-      const baseHost = host.split('-').slice(1).join('-'); // Remove port prefix
-      return `${protocol}//8080-${baseHost}/ws/tool-output`;
-    } else {
-      // Default behavior for local development
-      const port = process.env.REACT_APP_WS_PORT || '8080';
-      return `${protocol}//${host}:${port}/ws/tool-output`;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.hostname;
+      
+      // Check if we're using the proxied domain
+      if (host.includes('manusvm.computer')) {
+        // For proxied domains, use the 8080 subdomain for backend
+        const baseHost = host.split('-').slice(1).join('-'); // Remove port prefix
+        return `${protocol}//8080-${baseHost}/ws/tool-output`;
+      } else {
+        // Default behavior for local development
+        const port = process.env.REACT_APP_WS_PORT || '8080';
+        return `${protocol}//${host}:${port}/ws/tool-output`;
+      }
+    } catch (error) {
+      debugLog.error('WebSocket', 'Error constructing WebSocket URL', { error: error.message });
+      console.error('Error constructing WebSocket URL:', error);
+      return 'ws://localhost:8080/ws/tool-output'; // Fallback URL
     }
   }, []);
 
-  // Initialize WebSocket connection with improved error handling
+  // Initialize WebSocket connection with comprehensive error handling
   const initializeWebSocket = useCallback(() => {
-    // Clear any existing reconnect timeout
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    // Close existing socket if open
-    if (socketRef.current) {
-      if (socketRef.current.readyState === WebSocket.OPEN || 
-          socketRef.current.readyState === WebSocket.CONNECTING) {
-        socketRef.current.close();
-      }
-      socketRef.current = null;
-    }
-
     try {
-      // Use the updated URL construction method
-      const wsUrl = getWebSocketUrl();
-      console.log('Connecting to WebSocket:', wsUrl);
-      
-      const socket = new WebSocket(wsUrl);
-      socketRef.current = socket;
-
-      // Set up event handlers with improved error handling
-      socket.onopen = () => {
-        console.log('WebSocket connected successfully');
-        setConnected(true);
-        setIsReconnecting(false);
-        setConnectionAttempts(0);
-        
-        // Update emulator store
-        if (setWebSocket) {
-          setWebSocket(socket);
-        }
-        
-        // Send initial connection message
-        try {
-          socket.send(JSON.stringify({
-            type: 'connection',
-            timestamp: new Date().toISOString(),
-            clientInfo: {
-              userAgent: navigator.userAgent,
-              url: window.location.href
-            }
-          }));
-        } catch (sendError) {
-          console.warn('Failed to send initial connection message:', sendError);
-        }
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          setLastMessage(event);
-          
-          // Issue #3 Fix: Improved message processing with error handling
-          if (event.data && typeof event.data === 'string') {
-            const data = JSON.parse(event.data);
-            
-            // Process message in emulator store if available
-            if (processWebSocketMessage && typeof processWebSocketMessage === 'function') {
-              processWebSocketMessage(data);
-            }
-            
-            console.log('WebSocket message processed:', data.type || 'unknown type');
-          }
-        } catch (error) {
-          console.error('Error processing WebSocket message:', error);
-          console.error('Raw message data:', event.data);
-        }
-      };
-
-      socket.onclose = (event) => {
-        console.log('WebSocket disconnected:', event.code, event.reason);
-        setConnected(false);
-        
-        // Update emulator store
-        if (setWebSocket) {
-          setWebSocket(null);
-        }
-        
-        // Issue #3 Fix: Improved reconnection logic with exponential backoff
-        if (!event.wasClean && connectionAttempts < maxReconnectAttempts) {
-          const delay = baseReconnectDelay * Math.pow(2, connectionAttempts);
-          console.log(`Scheduling reconnection attempt ${connectionAttempts + 1} in ${delay}ms`);
-          
-          setIsReconnecting(true);
-          setConnectionAttempts(prev => prev + 1);
-          
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (connectionAttempts < maxReconnectAttempts) {
-              initializeWebSocket();
-            } else {
-              console.error('Max reconnection attempts reached. Please refresh the page.');
-              setIsReconnecting(false);
-            }
-          }, delay);
-        } else if (connectionAttempts >= maxReconnectAttempts) {
-          console.error('WebSocket connection failed after maximum attempts');
-          setIsReconnecting(false);
-        }
-      };
-
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        
-        // Issue #3 Fix: Better error handling for different error types
-        if (socket.readyState === WebSocket.CONNECTING) {
-          console.error('Failed to connect to WebSocket server. Check if the backend is running.');
-        } else if (socket.readyState === WebSocket.OPEN) {
-          console.error('WebSocket connection error during communication.');
-        }
-        
-        // Don't close manually here, let onclose handle the reconnection
-      };
-
-    } catch (error) {
-      console.error('Error creating WebSocket connection:', error);
-      setConnected(false);
-      setIsReconnecting(false);
-      
-      // Schedule retry for connection creation errors
-      if (connectionAttempts < maxReconnectAttempts) {
-        const delay = baseReconnectDelay * Math.pow(2, connectionAttempts);
-        setConnectionAttempts(prev => prev + 1);
-        
-        reconnectTimeoutRef.current = setTimeout(() => {
-          initializeWebSocket();
-        }, delay);
-      }
-    }
-  }, [getWebSocketUrl, setWebSocket, processWebSocketMessage, connectionAttempts]);
-
-  // Initialize WebSocket on component mount
-  useEffect(() => {
-    initializeWebSocket();
-
-    // Clean up on unmount
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
+      // Clear any existing reconnect timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-    };
-  }, []); // Empty dependency array to run only once
 
-  // Issue #3 Fix: Enhanced sendMessage with better error handling and validation
+      // Close existing socket if open
+      if (socketRef.current) {
+        try {
+          if (socketRef.current.readyState === WebSocket.OPEN || 
+              socketRef.current.readyState === WebSocket.CONNECTING) {
+            socketRef.current.close();
+          }
+        } catch (closeError) {
+          debugLog.error('WebSocket', 'Error closing existing socket', { error: closeError.message });
+          console.error('Error closing existing WebSocket:', closeError);
+        }
+        socketRef.current = null;
+      }
+
+      const wsUrl = getWebSocketUrl();
+      debugLog.websocket('Attempting WebSocket connection', { url: wsUrl, attempt: connectionAttempts + 1 });
+      
+      try {
+        const socket = new WebSocket(wsUrl);
+        socketRef.current = socket;
+
+        socket.onopen = (event) => {
+          try {
+            debugLog.websocket('WebSocket connected successfully', { url: wsUrl });
+            console.log('WebSocket connected:', wsUrl);
+            
+            setConnected(true);
+            setConnectionAttempts(0);
+            setIsReconnecting(false);
+            setError(null);
+            
+            // Register socket with emulator store
+            if (setWebSocket) {
+              setWebSocket(socket);
+            }
+          } catch (error) {
+            debugLog.error('WebSocket', 'Error in onopen handler', { error: error.message });
+            console.error('Error in WebSocket onopen handler:', error);
+          }
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            debugLog.websocket('Received WebSocket message', { rawData: event.data });
+            
+            try {
+              const data = JSON.parse(event.data);
+              debugLog.websocket('Parsed WebSocket message', { parsedData: data });
+              
+              setLastMessage(data);
+              
+              // Process message through emulator store
+              if (processWebSocketMessage) {
+                processWebSocketMessage(data);
+              }
+            } catch (parseError) {
+              debugLog.error('WebSocket', 'Error parsing WebSocket message', { 
+                error: parseError.message, 
+                rawData: event.data 
+              });
+              console.error('Error parsing WebSocket message:', parseError, event.data);
+              
+              // Continue processing instead of crashing
+              return;
+            }
+          } catch (messageHandlingError) {
+            debugLog.error('WebSocket', 'Error handling WebSocket message', { 
+              error: messageHandlingError.message, 
+              stack: messageHandlingError.stack 
+            });
+            console.error('Error handling WebSocket message:', messageHandlingError);
+            
+            // Continue processing instead of crashing
+            return;
+          }
+        };
+
+        socket.onerror = (error) => {
+          try {
+            debugLog.error('WebSocket', 'WebSocket error occurred', { error: error.message || 'Unknown error' });
+            console.error('WebSocket error:', error);
+            
+            setError(error.message || 'WebSocket connection error');
+            setConnected(false);
+          } catch (errorHandlingError) {
+            debugLog.error('WebSocket', 'Error in onerror handler', { error: errorHandlingError.message });
+            console.error('Error in WebSocket onerror handler:', errorHandlingError);
+          }
+        };
+
+        socket.onclose = (event) => {
+          try {
+            debugLog.websocket('WebSocket connection closed', { 
+              code: event.code, 
+              reason: event.reason, 
+              wasClean: event.wasClean 
+            });
+            console.log('WebSocket closed:', event.code, event.reason);
+            
+            setConnected(false);
+            socketRef.current = null;
+            
+            // Clear socket from emulator store
+            if (setWebSocket) {
+              setWebSocket(null);
+            }
+            
+            // Attempt reconnection if not a clean close and we haven't exceeded max attempts
+            if (!event.wasClean && connectionAttempts < maxReconnectAttempts) {
+              const delay = baseReconnectDelay * Math.pow(2, connectionAttempts); // Exponential backoff
+              debugLog.websocket('Scheduling reconnection', { delay, attempt: connectionAttempts + 1 });
+              
+              setIsReconnecting(true);
+              setConnectionAttempts(prev => prev + 1);
+              
+              reconnectTimeoutRef.current = setTimeout(() => {
+                initializeWebSocket();
+              }, delay);
+            } else if (connectionAttempts >= maxReconnectAttempts) {
+              debugLog.error('WebSocket', 'Max reconnection attempts reached', { maxAttempts: maxReconnectAttempts });
+              setError('Failed to reconnect after multiple attempts');
+              setIsReconnecting(false);
+            }
+          } catch (closeHandlingError) {
+            debugLog.error('WebSocket', 'Error in onclose handler', { error: closeHandlingError.message });
+            console.error('Error in WebSocket onclose handler:', closeHandlingError);
+          }
+        };
+
+      } catch (socketCreationError) {
+        debugLog.error('WebSocket', 'Error creating WebSocket', { error: socketCreationError.message, url: wsUrl });
+        console.error('Error creating WebSocket:', socketCreationError);
+        setError(socketCreationError.message || 'Failed to create WebSocket connection');
+        setConnected(false);
+        throw socketCreationError;
+      }
+
+    } catch (initializationError) {
+      debugLog.error('WebSocket', 'Error initializing WebSocket', { error: initializationError.message });
+      console.error('Error initializing WebSocket:', initializationError);
+      setError(initializationError.message || 'Failed to initialize WebSocket');
+      setConnected(false);
+    }
+  }, [getWebSocketUrl, connectionAttempts, setWebSocket, processWebSocketMessage]);
+
+  // Send message with error handling
   const sendMessage = useCallback((message) => {
-    if (!message) {
-      console.warn('Cannot send empty message');
-      return false;
-    }
-
-    if (!socketRef.current) {
-      console.warn('WebSocket not initialized');
-      return false;
-    }
-
-    if (socketRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected. Current state:', socketRef.current.readyState);
-      return false;
-    }
-
     try {
-      const messageToSend = typeof message === 'string' ? message : JSON.stringify(message);
-      socketRef.current.send(messageToSend);
-      console.log('Message sent successfully');
-      return true;
+      if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+        const errorMsg = 'WebSocket is not connected';
+        debugLog.error('WebSocket', errorMsg, { readyState: socketRef.current?.readyState });
+        console.error(errorMsg);
+        setError(errorMsg);
+        return false;
+      }
+
+      try {
+        const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
+        debugLog.websocket('Sending WebSocket message', { message: messageStr });
+        
+        socketRef.current.send(messageStr);
+        return true;
+      } catch (sendError) {
+        debugLog.error('WebSocket', 'Error sending message', { error: sendError.message, message });
+        console.error('Error sending WebSocket message:', sendError);
+        setError(sendError.message || 'Failed to send message');
+        return false;
+      }
     } catch (error) {
-      console.error('Error sending WebSocket message:', error);
+      debugLog.error('WebSocket', 'Error in sendMessage function', { error: error.message });
+      console.error('Error in sendMessage function:', error);
+      setError(error.message || 'Failed to send message');
       return false;
     }
   }, []);
 
-  // Issue #3 Fix: Manual reconnect function with reset
-  const reconnect = useCallback(() => {
-    console.log('Manual reconnection requested');
-    setConnectionAttempts(0); // Reset attempts for manual reconnection
-    setIsReconnecting(true);
-    initializeWebSocket();
-  }, [initializeWebSocket]);
-
-  // Issue #3 Fix: Function to get connection status details
-  const getConnectionStatus = useCallback(() => {
-    if (!socketRef.current) {
-      return { status: 'disconnected', readyState: null, attempts: connectionAttempts };
-    }
-    
-    const readyStateMap = {
-      [WebSocket.CONNECTING]: 'connecting',
-      [WebSocket.OPEN]: 'connected',
-      [WebSocket.CLOSING]: 'closing',
-      [WebSocket.CLOSED]: 'disconnected'
-    };
-    
-    return {
-      status: readyStateMap[socketRef.current.readyState] || 'unknown',
-      readyState: socketRef.current.readyState,
-      attempts: connectionAttempts,
-      isReconnecting
-    };
-  }, [connectionAttempts, isReconnecting]);
-
-  // Issue #3 Fix: Disconnect function for clean shutdown
+  // Disconnect with error handling
   const disconnect = useCallback(() => {
-    console.log('Manual disconnection requested');
-    
-    // Clear reconnection timeout
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-    
-    // Close socket
-    if (socketRef.current) {
-      socketRef.current.close(1000, 'Manual disconnect');
+    try {
+      debugLog.websocket('Manually disconnecting WebSocket');
+      
+      // Clear reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+
+      // Close socket
+      if (socketRef.current) {
+        try {
+          socketRef.current.close(1000, 'Manual disconnect');
+        } catch (closeError) {
+          debugLog.error('WebSocket', 'Error during manual disconnect', { error: closeError.message });
+          console.error('Error during manual WebSocket disconnect:', closeError);
+        }
+      }
+
+      // Reset state
+      setConnected(false);
+      setConnectionAttempts(0);
+      setIsReconnecting(false);
+      setError(null);
       socketRef.current = null;
-    }
-    
-    setConnected(false);
-    setIsReconnecting(false);
-    setConnectionAttempts(0);
-    
-    // Update emulator store
-    if (setWebSocket) {
-      setWebSocket(null);
+      
+      // Clear socket from emulator store
+      if (setWebSocket) {
+        setWebSocket(null);
+      }
+    } catch (error) {
+      debugLog.error('WebSocket', 'Error in disconnect function', { error: error.message });
+      console.error('Error in disconnect function:', error);
     }
   }, [setWebSocket]);
 
+  // Manual reconnect with error handling
+  const reconnect = useCallback(() => {
+    try {
+      debugLog.websocket('Manual reconnection requested');
+      setConnectionAttempts(0);
+      setError(null);
+      disconnect();
+      setTimeout(() => {
+        initializeWebSocket();
+      }, 1000);
+    } catch (error) {
+      debugLog.error('WebSocket', 'Error in reconnect function', { error: error.message });
+      console.error('Error in reconnect function:', error);
+    }
+  }, [disconnect, initializeWebSocket]);
+
+  // Initialize connection on mount
+  useEffect(() => {
+    try {
+      initializeWebSocket();
+
+      // Cleanup on unmount
+      return () => {
+        try {
+          disconnect();
+        } catch (error) {
+          debugLog.error('WebSocket', 'Error during cleanup', { error: error.message });
+          console.error('Error during WebSocket cleanup:', error);
+        }
+      };
+    } catch (error) {
+      debugLog.error('WebSocket', 'Error in useEffect', { error: error.message });
+      console.error('Error in WebSocket useEffect:', error);
+    }
+  }, [initializeWebSocket, disconnect]);
+
   return {
     connected,
-    sendMessage,
     lastMessage,
-    reconnect,
-    disconnect,
     isReconnecting,
     connectionAttempts,
-    maxReconnectAttempts,
-    getConnectionStatus
+    error,
+    sendMessage,
+    disconnect,
+    reconnect
   };
 };
+
+export default useWebSocket;
+

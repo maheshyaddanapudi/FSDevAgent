@@ -13,10 +13,10 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
 
-    private final ToolOutputWebSocketHandler toolOutputHandler;
+    private final EnhancedToolOutputWebSocketHandler toolOutputHandler;
     private final AgentStateWebSocketHandler agentStateHandler;
     
-    public WebSocketConfig(ToolOutputWebSocketHandler toolOutputHandler, 
+    public WebSocketConfig(EnhancedToolOutputWebSocketHandler toolOutputHandler, 
                           AgentStateWebSocketHandler agentStateHandler) {
         this.toolOutputHandler = toolOutputHandler;
         this.agentStateHandler = agentStateHandler;

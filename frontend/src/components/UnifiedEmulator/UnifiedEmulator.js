@@ -1,12 +1,93 @@
 // frontend/src/components/UnifiedEmulator/UnifiedEmulator.js
-import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
-import useWebSocket from '../../hooks/useWebSocket';
 import { useEmulatorStore } from '../../store/emulatorStore';
 import ToolOutputFactory from './ToolOutputFactory';
 import ToolSkeleton from './ToolSkeleton';
 import ErrorDisplay from './ErrorDisplay';
+import { debugLog } from '../../utils/debugLogger';
 import './UnifiedEmulator.css';
+
+// Enhanced Error Fallback Component
+const EmulatorErrorFallback = ({ error, resetErrorBoundary }) => {
+  const handleExportError = () => {
+    const errorReport = {
+      timestamp: new Date().toISOString(),
+      component: 'UnifiedEmulator',
+      error: error.toString(),
+      stack: error.stack,
+      debugLogs: window.fsdevDebugLogs || []
+    };
+
+    const blob = new Blob([JSON.stringify(errorReport, null, 2)], { 
+      type: 'application/json' 
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `unified-emulator-error-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="emulator-error-fallback" style={{
+      padding: '20px',
+      backgroundColor: '#fee',
+      border: '2px solid #f00',
+      borderRadius: '8px',
+      margin: '10px',
+      fontFamily: 'monospace'
+    }}>
+      <h3 style={{ color: '#d00', marginTop: 0 }}>
+        🚨 UnifiedEmulator Error
+      </h3>
+      
+      <div style={{ marginBottom: '15px' }}>
+        <strong>Error:</strong>
+        <pre style={{ 
+          backgroundColor: '#f5f5f5', 
+          padding: '10px', 
+          borderRadius: '4px',
+          overflow: 'auto',
+          maxHeight: '100px'
+        }}>
+          {error.message}
+        </pre>
+      </div>
+
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <button 
+          onClick={resetErrorBoundary}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          🔄 Retry Emulator
+        </button>
+        
+        <button 
+          onClick={handleExportError}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#28a745',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          📥 Export Error Report
+        </button>
+      </div>
+    </div>
+  );
+};
 
 /**
  * UnifiedEmulator - Enhanced plugin-based tool output visualization system
@@ -16,11 +97,29 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
   const [selectedOutputIndex, setSelectedOutputIndex] = useState(0);
   const [hasReceivedOutput, setHasReceivedOutput] = useState(false);
   
+  // Enhanced logging for debugging
+  useEffect(() => {
+    debugLog.emulator('UnifiedEmulator initialized', { 
+      toolOutputsCount: toolOutputs?.length || 0,
+      wsConnected,
+      activeToolType 
+    });
+  }, [toolOutputs?.length, wsConnected, activeToolType]);
+
+  useEffect(() => {
+    debugLog.emulator('Tool outputs changed', { 
+      count: toolOutputs?.length || 0,
+      outputs: toolOutputs?.map(o => ({ toolName: o.toolName, type: o.type })) || []
+    });
+  }, [toolOutputs]);
+
+  useEffect(() => {
+    debugLog.emulator('WebSocket connection state changed', { wsConnected });
+  }, [wsConnected]);
+  
   const { 
     registerTool, 
-    unregisterTool, 
-    activeTools,
-    processWebSocketMessage 
+    unregisterTool
   } = useEmulatorStore();
 
   // Generate unique tool ID
@@ -28,13 +127,20 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
 
   // Register this tool instance
   useEffect(() => {
+    debugLog.emulator('Registering tool', { toolId, activeToolType });
     registerTool(toolId, activeToolType);
-    return () => unregisterTool(toolId);
+    return () => {
+      debugLog.emulator('Unregistering tool', { toolId });
+      unregisterTool(toolId);
+    };
   }, [toolId, activeToolType, registerTool, unregisterTool]);
 
   // Process tool outputs to determine available types
   const availableToolTypes = useMemo(() => {
-    if (!toolOutputs || toolOutputs.length === 0) return new Set(['initializing']);
+    if (!toolOutputs || toolOutputs.length === 0) {
+      debugLog.emulator('No tool outputs available', { toolOutputs });
+      return new Set(['initializing']);
+    }
     
     const types = new Set(['initializing']); // Always include initializing
     toolOutputs.forEach(output => {
@@ -151,33 +257,44 @@ const UnifiedEmulator = ({ toolOutputs, wsConnected }) => {
   };
 
   return (
-    <div className="unified-emulator">
-      <div className="emulator-header">
-        <div className="header-left">
-          <h3>Tool Output</h3>
-          {renderOutputNavigation()}
+    <ErrorBoundary 
+      FallbackComponent={EmulatorErrorFallback}
+      onError={(error, errorInfo) => {
+        debugLog.error('UnifiedEmulator', 'Error boundary caught error', {
+          error: error.message,
+          stack: error.stack,
+          componentStack: errorInfo.componentStack
+        });
+      }}
+    >
+      <div className="unified-emulator">
+        <div className="emulator-header">
+          <div className="header-left">
+            <h3>Tool Output</h3>
+            {renderOutputNavigation()}
+          </div>
+          <div className="header-right">
+            {renderConnectionStatus()}
+          </div>
         </div>
-        <div className="header-right">
-          {renderConnectionStatus()}
+        
+        {renderToolTabs()}
+        
+        <div className="emulator-content">
+          <ErrorBoundary fallback={<ErrorDisplay />}>
+            <Suspense fallback={<ToolSkeleton type={activeToolType} />}>
+              <ToolOutputFactory
+                type={activeToolType}
+                data={currentOutput}
+                allOutputs={filteredOutputs}
+                wsConnected={wsConnected}
+                toolId={toolId}
+              />
+            </Suspense>
+          </ErrorBoundary>
         </div>
       </div>
-      
-      {renderToolTabs()}
-      
-      <div className="emulator-content">
-        <ErrorBoundary fallback={<ErrorDisplay />}>
-          <Suspense fallback={<ToolSkeleton type={activeToolType} />}>
-            <ToolOutputFactory
-              type={activeToolType}
-              data={currentOutput}
-              allOutputs={filteredOutputs}
-              wsConnected={wsConnected}
-              toolId={toolId}
-            />
-          </Suspense>
-        </ErrorBoundary>
-      </div>
-    </div>
+    </ErrorBoundary>
   );
 };
 
