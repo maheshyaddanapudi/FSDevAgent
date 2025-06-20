@@ -226,8 +226,7 @@ public class AutonomousAgentService {
                     .build();
                 
                 enhancedChatService.processMessage(chatRequest)
-                    .collectList()
-                    .block();
+                    .subscribe();
                 
                 // Update progress based on iteration
                 int progress = Math.min(100, (int)(((double)(iteration + 1) / maxIterations) * 100));
