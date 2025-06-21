@@ -176,10 +176,20 @@ const ChatPage = () => {
     }
   }, [handleSendMessage]);
 
-  // Clear messages handler
+  // Clear messages handler - clears local storage and refreshes page
   const handleClearMessages = useCallback(() => {
-    // Implementation for clearing messages
-    console.log('Clear messages requested');
+    try {
+      // Clear all local storage
+      localStorage.clear();
+      console.log('Local storage cleared');
+      
+      // Refresh the page
+      window.location.reload();
+    } catch (error) {
+      console.error('Error clearing local storage:', error);
+      // Still try to refresh even if localStorage.clear() fails
+      window.location.reload();
+    }
   }, []);
 
   // Refresh handler
@@ -291,7 +301,7 @@ const ChatPage = () => {
                 className="control-button clear-button" 
                 onClick={handleClearMessages}
                 disabled={isInterfaceDisabled}
-                title="Clear messages"
+                title="Clear local storage and refresh page"
               >
                 🗑️
               </button>
