@@ -248,6 +248,7 @@ const UnifiedEmulator = () => {
       <span className="status-indicator"></span>
       <span className="status-text">
         {chatToolOutputs.length > 0 ? 'Connected' : 'Disconnected'}
+      </span>
     </div>
   );
 
@@ -325,7 +326,7 @@ const UnifiedEmulator = () => {
                 type={activeToolType}
                 data={currentOutput}
                 allOutputs={filteredOutputs}
-                wsConnected={sseConnected} // Keep prop name for compatibility
+                wsConnected={chatToolOutputs.length > 0} // Use chat store connection status
                 toolId={toolId}
               />
             </Suspense>
