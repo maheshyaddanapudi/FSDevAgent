@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import useChatStore from '../hooks/useChatStore';
 import UnifiedEmulator from '../components/UnifiedEmulator/UnifiedEmulator';
 import MessageList from '../components/MessageList';
+import ChatInputContainer from '../components/ChatInputContainer';
 import '../styles/ChatPage.css';
 import '../styles/enhanced-error-handling.css';
 
@@ -136,10 +137,8 @@ const ChatPage = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, toolOutputs]);
 
-  // Enhanced message sending with better error handling
-  const handleSendMessage = useCallback(async () => {
-    if (!message.trim()) return;
-    
+  // Enhanced message sending with better error handling - Updated for ChatInputContainer
+  const handleSendMessage = useCallback(async (messageText) => {
     // Check if session is initialized
     if (!sessionInitialized || !aiDeveloperAgentSessionId) {
       setConnectionError({
@@ -149,14 +148,12 @@ const ChatPage = () => {
       return;
     }
 
-    const userMessage = message.trim();
-    setMessage('');
     setIsProcessing(true);
     setIsTyping(true);
 
     try {
       // Send message via chat service (sendChatMessage handles all message state management)
-      await sendChatMessage(userMessage);
+      await sendChatMessage(messageText);
     } catch (error) {
       console.error('Error sending message:', error);
       
@@ -168,7 +165,7 @@ const ChatPage = () => {
       setIsProcessing(false);
       setIsTyping(false);
     }
-  }, [message, sessionInitialized, aiDeveloperAgentSessionId, addMessage, sendChatMessage, setIsProcessing]);
+  }, [sessionInitialized, aiDeveloperAgentSessionId, sendChatMessage, setIsProcessing]);
 
   // Handle Enter key press
   const handleKeyPress = useCallback((e) => {
@@ -313,7 +310,7 @@ const ChatPage = () => {
             )}
           </div>
 
-          {/* Chat Input Section */}
+          {/* Chat Input Section - Using New Isolated Component */}
           <div className="chat-input-section">
             <div className="input-controls">
               <button 
@@ -333,33 +330,42 @@ const ChatPage = () => {
               </button>
             </div>
             
-            <div className={`chat-input ${waitingForHumanInput ? 'human-input-mode' : ''}`}>
-              <input
-                ref={inputRef}
-                type="text"
-                value={waitingForHumanInput ? '' : message}
-                onChange={(e) => !waitingForHumanInput && setMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
+            {/* Replace old input with new ChatInputContainer */}
+            {waitingForHumanInput ? (
+              // Human input mode - keep existing implementation for now
+              <div className={`chat-input human-input-mode`}>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  defaultValue=""
+                  onKeyPress={handleKeyPress}
+                  placeholder="Waiting for your response above..."
+                  disabled={isInterfaceDisabled}
+                  className="human-input"
+                />
+                <button 
+                  onClick={(e) => {
+                    const input = e.target.previousElementSibling;
+                    handleHumanInputSubmit(input.value);
+                    input.value = '';
+                  }}
+                  disabled={isInterfaceDisabled}
+                  className="send-button human-input-button"
+                >
+                  📤
+                </button>
+              </div>
+            ) : (
+              // Normal chat mode - use new isolated component
+              <ChatInputContainer
+                onSendMessage={handleSendMessage}
+                disabled={isInterfaceDisabled}
                 placeholder={
-                  waitingForHumanInput ? 'Waiting for your response above...' :
                   isInterfaceDisabled ? 'Please retry connection to send messages...' :
                   'Type your message...'
                 }
-                disabled={isInterfaceDisabled}
-                className={waitingForHumanInput ? 'human-input' : ''}
               />
-              <button 
-                onClick={waitingForHumanInput ? 
-                  () => handleHumanInputSubmit(message) : 
-                  handleSendMessage
-                }
-                disabled={isInterfaceDisabled || (!message.trim() && !waitingForHumanInput)}
-                className={`send-button ${isProcessing && !waitingForHumanInput ? 'processing' : ''} ${waitingForHumanInput ? 'human-input-button' : ''}`}
-              >
-                {isProcessing && !waitingForHumanInput ? '⏳' : 
-                 waitingForHumanInput ? '📤' : 'Send'}
-              </button>
-            </div>
+            )}
             
             {waitingForHumanInput && (
               <button 

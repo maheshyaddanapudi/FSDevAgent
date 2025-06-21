@@ -1,48 +1,114 @@
+/* Enhanced ChatInput.css - Fix for UI Flickering */
+
 .chat-input-container {
   padding: 15px;
   border-top: 1px solid #ddd;
   background-color: #fff;
+  /* Add CSS containment to isolate layout calculations */
+  contain: layout style;
 }
 
 .input-wrapper {
   display: flex;
   align-items: flex-end;
+  gap: 10px;
 }
 
 .chat-input {
   flex: 1;
   min-height: 60px;
-  max-height: 150px;
+  max-height: 120px;
   padding: 12px;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 8px;
   font-size: 1rem;
+  font-family: inherit;
   resize: none;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s ease;
+  
+  /* Performance optimizations to prevent flickering */
+  contain: size style;
+  transform: translateZ(0); /* Force GPU acceleration */
+  -webkit-backface-visibility: hidden;
+  will-change: height;
+  
+  /* Smooth height transitions */
+  transition: height 0.1s ease-out, border-color 0.2s ease;
 }
 
 .chat-input:focus {
   border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+}
+
+.chat-input:not(:focus) {
+  will-change: auto; /* Remove will-change when not needed */
 }
 
 .send-button {
-  margin-left: 10px;
   padding: 12px 20px;
   background-color: #3498db;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   font-size: 1rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  min-width: 80px;
+  height: fit-content;
+  
+  /* Prevent button from causing layout shifts */
+  flex-shrink: 0;
 }
 
 .send-button:hover:not(:disabled) {
   background-color: #2980b9;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.send-button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .send-button:disabled {
   background-color: #95a5a6;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .chat-input-container {
+    padding: 12px;
+  }
+  
+  .input-wrapper {
+    gap: 8px;
+  }
+  
+  .chat-input {
+    font-size: 16px; /* Prevent zoom on iOS */
+  }
+  
+  .send-button {
+    padding: 10px 16px;
+    min-width: 70px;
+  }
+}
+
+@media (max-width: 480px) {
+  .input-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .send-button {
+    margin-top: 8px;
+    width: 100%;
+  }
 }
