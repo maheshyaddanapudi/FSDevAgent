@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ReactMarkdown from 'react-markdown';
@@ -23,12 +23,20 @@ const EnhancedMessage = ({ message, isStreaming }) => {
   const [expandedSections, setExpandedSections] = useState({});
   const [copiedStates, setCopiedStates] = useState({});
   
+  // Generate stable IDs using useMemo to prevent re-renders
+  const stableIds = useMemo(() => ({
+    toolId: `tool-${message.id || 'unknown'}`,
+    resultId: `result-${message.id || 'unknown'}`,
+    codeId: `code-${message.id || 'unknown'}`,
+    argsId: `args-${message.id || 'unknown'}`
+  }), [message.id]);
+  
   // Auto-expand errors and important results
   useEffect(() => {
     if (message.toolCall) {
-      setExpandedSections(prev => ({ ...prev, [`tool-${message.id || Math.random()}`]: true }));
+      setExpandedSections(prev => ({ ...prev, [stableIds.toolId]: true }));
     }
-  }, [message.toolCall, message.id]);
+  }, [message.toolCall, stableIds.toolId]);
 
   const toggleSection = (sectionId) => {
     setExpandedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
@@ -59,10 +67,10 @@ const EnhancedMessage = ({ message, isStreaming }) => {
                 {String(children).replace(/\n$/, '')}
               </SyntaxHighlighter>
               <button
-                onClick={() => copyToClipboard(String(children), `code-${Math.random()}`)}
+                onClick={() => copyToClipboard(String(children), stableIds.codeId)}
                 className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
               >
-                {copiedStates[`code-${Math.random()}`] ? 
+                {copiedStates[stableIds.codeId] ? 
                   <Check className="w-4 h-4 text-green-500" /> : 
                   <Copy className="w-4 h-4 text-gray-400" />
                 }
@@ -125,12 +133,12 @@ const EnhancedMessage = ({ message, isStreaming }) => {
         {/* Tool Call Section */}
         {hasToolCall && (
           <CollapsibleSection
-            id={`tool-${message.id || Math.random()}`}
+            id={stableIds.toolId}
             title={`Using ${toolName}`}
             icon={<Terminal className="w-4 h-4" />}
-            expanded={expandedSections[`tool-${message.id || Math.random()}`]}
-            onToggle={() => toggleSection(`tool-${message.id || Math.random()}`)}
-            preview={!expandedSections[`tool-${message.id || Math.random()}`] ? 
+            expanded={expandedSections[stableIds.toolId]}
+            onToggle={() => toggleSection(stableIds.toolId)}
+            preview={!expandedSections[stableIds.toolId] ? 
               JSON.stringify(toolArgs).substring(0, 80) + '...' : ''}
           >
             <div className="space-y-2">
@@ -138,10 +146,10 @@ const EnhancedMessage = ({ message, isStreaming }) => {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs text-gray-400">Arguments</span>
                   <button
-                    onClick={() => copyToClipboard(JSON.stringify(toolArgs, null, 2), `args-${message.id || Math.random()}`)}
+                    onClick={() => copyToClipboard(JSON.stringify(toolArgs, null, 2), stableIds.argsId)}
                     className="text-xs text-gray-400 hover:text-white transition-colors"
                   >
-                    {copiedStates[`args-${message.id || Math.random()}`] ? 
+                    {copiedStates[stableIds.argsId] ? 
                       <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   </button>
                 </div>
@@ -156,15 +164,15 @@ const EnhancedMessage = ({ message, isStreaming }) => {
         {/* Tool Result Section */}
         {message.role === 'tool' && (
           <CollapsibleSection
-            id={`result-${message.id || Math.random()}`}
+            id={stableIds.resultId}
             title={`${toolName || 'Tool'} Result`}
             icon={message.message && message.message.includes('Error') ? 
               <AlertCircle className="w-4 h-4 text-red-500" /> : 
               <CheckCircle className="w-4 h-4 text-green-500" />}
-            expanded={expandedSections[`result-${message.id || Math.random()}`]}
-            onToggle={() => toggleSection(`result-${message.id || Math.random()}`)}
+            expanded={expandedSections[stableIds.resultId]}
+            onToggle={() => toggleSection(stableIds.resultId)}
             status={message.message && message.message.includes('Error') ? 'error' : 'success'}
-            preview={!expandedSections[`result-${message.id || Math.random()}`] ? 
+            preview={!expandedSections[stableIds.resultId] ? 
               (message.message || '').substring(0, 80) + '...' : ''}
           >
             <div className="space-y-2">
