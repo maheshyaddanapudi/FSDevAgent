@@ -128,44 +128,6 @@ const ChatPage = () => {
     // Tool events now handled by UnifiedEmulator via SSE
     // Chat messages already use SSE via useChatStore
   }, [addMessage, addToolOutput, setIsProcessing]);
-      
-      switch (data.type) {
-        case 'message':
-          if (data.content) {
-            addMessage({
-              role: 'assistant',
-              content: data.content,
-              timestamp: new Date().toISOString()
-            });
-            setIsProcessing(false);
-            setIsTyping(false);
-          }
-          break;
-          
-        case 'tool_output':
-          if (data.toolName || data.output) {
-            addToolOutput({
-              ...data,
-              timestamp: data.timestamp || new Date().toISOString()
-            });
-          }
-          break;
-          
-        case 'error':
-          addMessage({
-            role: 'assistant',
-            content: `Error: ${data.message || 'Unknown error occurred'}`,
-            timestamp: new Date().toISOString()
-          });
-          setIsProcessing(false);
-          setIsTyping(false);
-          break;
-          
-        default:
-          console.log('Unknown message type:', data.type);
-      }
-    } catch (error) {
-    }
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -254,7 +216,6 @@ const ChatPage = () => {
           </div>
           <div className="header-right">
             <div className="connection-status">
-              </span>
               <span className="status-text">
                 {isLoading ? 'Initializing...' : 
                  sessionInitialized ? 'Ready' : 
