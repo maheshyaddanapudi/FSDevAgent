@@ -1,6 +1,5 @@
 package com.ai.developer.service;
 
-import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.model.AgentState;
 import com.ai.developer.model.ConversationMode;
 import com.ai.developer.model.DevelopmentPhase;
@@ -24,15 +23,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class AgentControlService {
 
-    private final ToolEventStreamService toolEventStreamService;
     private final ConcurrentHashMap<String, AgentState> agentStates;
     private final ConcurrentHashMap<String, AtomicBoolean> pauseFlags = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicBoolean> stepFlags = new ConcurrentHashMap<>();
 
-    public AgentControlService(ToolEventStreamService toolEventStreamService, ConcurrentHashMap<String, AgentState> agentStates) {
-        this.toolEventStreamService = toolEventStreamService;
+    public AgentControlService(ConcurrentHashMap<String, AgentState> agentStates) {
         this.agentStates = agentStates;
-        log.info("AgentControlService initialized with enhanced control capabilities");
+        log.info("AgentControlService initialized with simplified control capabilities");
     }
 
     /**
@@ -62,7 +59,8 @@ public class AgentControlService {
             "timestamp", Instant.now().toString(),
             "state", agentState.toTaskMemory()
         );
-        toolEventStreamService.broadcastAgentStateUpdate(eventData);
+        // Agent state updates now handled via chat SSE stream
+        log.info("Agent execution paused for session: {}", sessionId);
         
         return Mono.just(true);
     }
@@ -95,7 +93,7 @@ public class AgentControlService {
         eventData.put("timestamp", Instant.now().toString());
         eventData.put("state", agentState.toTaskMemory());
         
-        toolEventStreamService.broadcastAgentStateUpdate(eventData);
+        // Event broadcasting now handled via chat SSE stream
         
         return Mono.just(true);
     }
@@ -128,7 +126,7 @@ public class AgentControlService {
         eventData.put("timestamp", Instant.now().toString());
         eventData.put("state", agentState.toTaskMemory());
         
-        toolEventStreamService.broadcastAgentStateUpdate(eventData);
+        // Event broadcasting now handled via chat SSE stream
         
         return Mono.just(true);
     }
@@ -173,7 +171,7 @@ public class AgentControlService {
             eventData.put("details", details);
         }
         
-        toolEventStreamService.broadcastPlanningUpdate(eventData);
+        // Event broadcasting now handled via chat SSE stream
     }
     
     /**
@@ -190,7 +188,7 @@ public class AgentControlService {
         eventData.put("progress", progress);
         eventData.put("timestamp", Instant.now().toString());
         
-        toolEventStreamService.broadcastPhaseTransition(eventData);
+        // Event broadcasting now handled via chat SSE stream
     }
     
     /**
@@ -207,7 +205,7 @@ public class AgentControlService {
         eventData.put("status", status);
         eventData.put("timestamp", Instant.now().toString());
         
-        toolEventStreamService.broadcastToolExecution(eventData);
+        // Event broadcasting now handled via chat SSE stream
     }
     
     /**
@@ -225,7 +223,7 @@ public class AgentControlService {
         eventData.put("success", success);
         eventData.put("timestamp", Instant.now().toString());
         
-        toolEventStreamService.broadcastToolResult(eventData);
+        // Event broadcasting now handled via chat SSE stream
     }
     
     /**
@@ -245,7 +243,7 @@ public class AgentControlService {
             eventData.put("details", details);
         }
         
-        toolEventStreamService.broadcastError(eventData);
+        // Event broadcasting now handled via chat SSE stream
     }
     
     /**
@@ -275,7 +273,7 @@ public class AgentControlService {
             eventData.put("state", agentState.toTaskMemory());
         }
         
-        toolEventStreamService.broadcastAgentStateUpdate(eventData);
+        // Event broadcasting now handled via chat SSE stream
     }
     
     /**

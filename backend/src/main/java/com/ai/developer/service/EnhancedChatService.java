@@ -1,8 +1,12 @@
 package com.ai.developer.service;
 
-import com.ai.developer.service.ToolEventStreamService;
-import com.ai.developer.llm.*;
+import com.ai.developer.service.AgentControlService;
 import com.ai.developer.model.*;
+import com.ai.developer.llm.LLMProvider;
+import com.ai.developer.llm.ChatContext;
+import com.ai.developer.llm.Message;
+import com.ai.developer.llm.ToolCall;
+import com.ai.developer.llm.ProjectContext;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolOutput;
 import com.ai.developer.tools.ToolRegistry;
@@ -41,7 +45,6 @@ public class EnhancedChatService {
     private final LLMProvider llmProvider;
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
-    private final ToolEventStreamService toolEventStreamService;
     private final AgentPromptService agentPromptService;
     
     private final ConcurrentHashMap<String, ChatContext> sessions = new ConcurrentHashMap<>();
@@ -65,14 +68,13 @@ public class EnhancedChatService {
     private static final int MAX_AUTONOMOUS_ITERATIONS = 100;
     
     public EnhancedChatService(LLMProvider llmProvider, ToolRegistry toolRegistry, ObjectMapper objectMapper, 
-                      ToolEventStreamService toolEventStreamService, AgentPromptService agentPromptService) {
+                      AgentPromptService agentPromptService) {
         this.llmProvider = llmProvider;
         this.toolRegistry = toolRegistry;
         this.objectMapper = objectMapper;
-        this.toolEventStreamService = toolEventStreamService;
         this.agentPromptService = agentPromptService;
         
-        log.info("EnhancedChatService initialized with SSE support for tool events");
+        log.info("EnhancedChatService initialized with simplified tool output handling");
     }
     
     /**
@@ -1134,14 +1136,8 @@ public class EnhancedChatService {
                             verifyWorkspaceFiles(finalWorkspacePath, toolCall.getName());
                         }
                         
-                        // Send tool result via SSE
-                        toolEventStreamService.broadcastToolResult(
-                                sessionId,
-                                toolCall.getName(),
-                                combinedOutput,
-                                toolCall.getId(),
-                                true // success
-                        );
+                        // Tool results are now handled via chat SSE stream
+                        // No separate tool event broadcasting needed
                         
                         // Add tool call and output to context
                         context.getMessages().add(Message.builder()

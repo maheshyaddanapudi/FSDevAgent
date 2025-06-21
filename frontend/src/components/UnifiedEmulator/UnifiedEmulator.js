@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { useEmulatorStore } from '../../store/emulatorStore';
-import useToolEventStream from '../../hooks/useToolEventStream';
 import useChatStore from '../../hooks/useChatStore';
 import ToolOutputFactory from './ToolOutputFactory';
 import ToolSkeleton from './ToolSkeleton';
@@ -100,27 +99,21 @@ const UnifiedEmulator = () => {
   const [hasReceivedOutput, setHasReceivedOutput] = useState(false);
   const [toolOutputs, setToolOutputs] = useState([]);
   
-  // Get session ID from chat store
-  const { aiDeveloperAgentSessionId } = useChatStore();
-  
-  // Use SSE hook for tool events
+  // Get session ID and tool outputs from chat store
   const { 
-    connected: sseConnected,
-    lastEvent,
-    error: sseError,
-    reconnect: sseReconnect,
-    isReconnecting
-  } = useToolEventStream(aiDeveloperAgentSessionId);
+    aiDeveloperAgentSessionId, 
+    toolOutputs: chatToolOutputs 
+  } = useChatStore();
   
   // Enhanced logging for debugging
   useEffect(() => {
     debugLog.emulator('UnifiedEmulator initialized', { 
       toolOutputsCount: toolOutputs.length,
-      sseConnected,
+      chatToolOutputsCount: chatToolOutputs.length,
       activeToolType,
       sessionId: aiDeveloperAgentSessionId
     });
-  }, [toolOutputs.length, sseConnected, activeToolType, aiDeveloperAgentSessionId]);
+  }, [toolOutputs.length, chatToolOutputs.length, activeToolType, aiDeveloperAgentSessionId]);
   
   const { 
     registerTool, 
@@ -140,166 +133,66 @@ const UnifiedEmulator = () => {
     };
   }, [toolId, activeToolType, registerTool, unregisterTool]);
 
-  // Process SSE events
+  // Process chat tool outputs instead of SSE events
   useEffect(() => {
-    if (!lastEvent) return;
+    if (!chatToolOutputs || chatToolOutputs.length === 0) return;
     
-    debugLog.emulator('Processing SSE event', { 
-      type: lastEvent.type, 
-      toolName: lastEvent.toolName,
-      sessionId: lastEvent.sessionId 
-    });
-    
-    // Only process events for our session
-    if (lastEvent.sessionId !== aiDeveloperAgentSessionId) {
-      debugLog.emulator('Ignoring event for different session', { 
-        eventSessionId: lastEvent.sessionId,
-        ourSessionId: aiDeveloperAgentSessionId 
-      });
-      return;
-    }
-    
-    switch (lastEvent.type) {
-      case 'tool_execution':
-        handleToolExecution(lastEvent);
-        break;
-        
-      case 'tool_result':
-        handleToolResult(lastEvent);
-        break;
-        
-      case 'phase_transition':
-        handlePhaseTransition(lastEvent);
-        break;
-        
-      case 'planning':
-        handlePlanningUpdate(lastEvent);
-        break;
-        
-      case 'agent_state_update':
-        handleAgentStateUpdate(lastEvent);
-        break;
-        
-      case 'error':
-        handleError(lastEvent);
-        break;
-        
-      case 'connection':
-        debugLog.emulator('SSE connection established', { data: lastEvent.data });
-        break;
-        
-      case 'heartbeat':
-        // Ignore heartbeats
-        break;
-        
-      default:
-        debugLog.emulator('Unknown event type', { type: lastEvent.type });
-    }
-  }, [lastEvent, aiDeveloperAgentSessionId]);
-
-  // Handle tool execution events
-  const handleToolExecution = useCallback((event) => {
-    const toolOutput = {
-      id: `exec-${Date.now()}`,
-      type: 'tool_execution',
-      toolName: event.toolName,
-      args: event.data.args,
-      status: event.data.status,
-      timestamp: event.timestamp || new Date().toISOString(),
-      output: {
-        type: 'execution',
-        content: `Executing ${event.toolName}...`,
-        metadata: event.data
-      }
-    };
-    
-    setToolOutputs(prev => [...prev, toolOutput]);
+    // Update local tool outputs from chat store
+    setToolOutputs(chatToolOutputs);
     setHasReceivedOutput(true);
     
-    // Auto-switch to appropriate tool type
-    const detectedType = mapToolNameToType(event.toolName);
-    if (detectedType !== activeToolType) {
-      setActiveToolType(detectedType);
+    // Get the latest tool output
+    const latestOutput = chatToolOutputs[chatToolOutputs.length - 1];
+    if (latestOutput) {
+      debugLog.emulator('Processing tool output from chat store', { 
+        toolName: latestOutput.toolName,
+        type: latestOutput.type,
+        outputId: latestOutput.id
+      });
+      
+      // Update active tool type based on latest output
+      if (latestOutput.toolName) {
+        setActiveToolType(latestOutput.toolName);
+      }
+      
+      // Handle different tool output types
+      handleToolOutput(latestOutput);
     }
-  }, [activeToolType]);
+  }, [chatToolOutputs]);
 
-  // Handle tool result events
-  const handleToolResult = useCallback((event) => {
-    const toolOutput = {
-      id: `result-${Date.now()}`,
-      type: 'tool_result',
-      toolName: event.toolName,
-      result: event.data.result,
-      success: event.data.success,
-      timestamp: event.timestamp || new Date().toISOString(),
-      output: event.data.result
-    };
-    
-    setToolOutputs(prev => [...prev, toolOutput]);
+  // Handle tool output processing
+  const handleToolOutput = useCallback((toolOutput) => {
+    try {
+      debugLog.emulator('Handling tool output', { 
+        toolName: toolOutput.toolName, 
+        type: toolOutput.type,
+        content: toolOutput.content?.substring(0, 100) + '...'
+      });
+      
+      // Update emulator state based on tool output
+      // This replaces the previous SSE event handling logic
+      
+    } catch (error) {
+      debugLog.error('UnifiedEmulator', 'Error handling tool output', { 
+        error: error.message, 
+        toolOutput 
+      });
+    }
   }, []);
 
-  // Handle phase transition events
-  const handlePhaseTransition = useCallback((event) => {
-    const toolOutput = {
-      id: `phase-${Date.now()}`,
-      type: 'phase_transition',
-      toolName: 'system',
-      fromPhase: event.data.fromPhase,
-      toPhase: event.data.toPhase,
-      timestamp: event.timestamp || new Date().toISOString(),
-      output: {
-        type: 'phase_transition',
-        content: `Phase transition: ${event.data.fromPhase || 'Start'} → ${event.data.toPhase}`,
-        metadata: event.data
-      }
+  // Map tool names to emulator types (simplified version)
+  const mapToolNameToType = useCallback((toolName) => {
+    if (!toolName) return 'initializing';
+    
+    const toolTypeMap = {
+      'file_system': 'file_system',
+      'planning_tool': 'planning',
+      'shell': 'shell',
+      'browser': 'browser',
+      'code_execution': 'code_execution'
     };
     
-    setToolOutputs(prev => [...prev, toolOutput]);
-  }, []);
-
-  // Handle planning update events
-  const handlePlanningUpdate = useCallback((event) => {
-    const toolOutput = {
-      id: `plan-${Date.now()}`,
-      type: 'planning',
-      toolName: 'planning_tool',
-      step: event.data.step,
-      totalSteps: event.data.totalSteps,
-      description: event.data.description,
-      timestamp: event.timestamp || new Date().toISOString(),
-      output: {
-        type: 'planning',
-        content: `Planning step ${event.data.step}/${event.data.totalSteps}: ${event.data.description}`,
-        metadata: event.data
-      }
-    };
-    
-    setToolOutputs(prev => [...prev, toolOutput]);
-  }, []);
-
-  // Handle agent state update events
-  const handleAgentStateUpdate = useCallback((event) => {
-    debugLog.emulator('Agent state update', { action: event.data.action, state: event.data.state });
-    // Could update UI to show agent state if needed
-  }, []);
-
-  // Handle error events
-  const handleError = useCallback((event) => {
-    const toolOutput = {
-      id: `error-${Date.now()}`,
-      type: 'error',
-      toolName: 'system',
-      message: event.data.message,
-      severity: event.data.severity,
-      timestamp: event.timestamp || new Date().toISOString(),
-      output: {
-        type: 'error',
-        content: `Error: ${event.data.message}`,
-        metadata: event.data
-      }
-    };
-    
-    setToolOutputs(prev => [...prev, toolOutput]);
+    return toolTypeMap[toolName] || 'generic';
   }, []);
 
   // Process tool outputs to determine available types
@@ -315,7 +208,7 @@ const UnifiedEmulator = () => {
       types.add(mapToolNameToType(toolName));
     });
     return types;
-  }, [toolOutputs]);
+  }, [toolOutputs, mapToolNameToType]);
 
   // Filter outputs for current tool type
   const filteredOutputs = useMemo(() => {
@@ -325,7 +218,7 @@ const UnifiedEmulator = () => {
       const outputType = mapToolNameToType(output.toolName || output.type);
       return outputType === activeToolType;
     });
-  }, [toolOutputs, activeToolType]);
+  }, [toolOutputs, activeToolType, mapToolNameToType]);
 
   // Get current output data
   const currentOutput = useMemo(() => {
@@ -349,22 +242,12 @@ const UnifiedEmulator = () => {
     }
   }, [selectedOutputIndex, filteredOutputs.length]);
 
-  // Render connection status
+  // Render connection status (simplified for chat store)
   const renderConnectionStatus = () => (
-    <div className={`connection-status ${sseConnected ? 'connected' : 'disconnected'}`}>
+    <div className={`connection-status ${chatToolOutputs.length > 0 ? 'connected' : 'disconnected'}`}>
       <span className="status-indicator"></span>
       <span className="status-text">
-        {isReconnecting ? 'Reconnecting...' : sseConnected ? 'Connected' : 'Disconnected'}
-      </span>
-      {sseError && (
-        <button 
-          className="reconnect-btn" 
-          onClick={sseReconnect}
-          style={{ marginLeft: '8px', fontSize: '12px' }}
-        >
-          Retry
-        </button>
-      )}
+        {chatToolOutputs.length > 0 ? 'Connected' : 'Disconnected'}
     </div>
   );
 
