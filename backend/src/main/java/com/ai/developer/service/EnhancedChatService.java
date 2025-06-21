@@ -1167,6 +1167,16 @@ public class EnhancedChatService {
                         // Refresh workspace context after tool execution
                         refreshWorkspaceContext(sessionId, finalWorkspacePath);
                         
+                        // ✅ NEW: Emit tool output via SSE for emulator
+                        sink.tryEmitNext(ChatResponse.builder()
+                                .aiDeveloperAgentSessionId(sessionId)
+                                .role("tool")
+                                .message(combinedOutput)
+                                .toolCallId(toolCall.getId())
+                                .messageType("tool_result")
+                                .timestamp(Instant.now())
+                                .build());
+                        
                     } catch (Exception e) {
                         log.error("Error processing tool output for session {}: {}", sessionId, e.getMessage(), e);
                     }

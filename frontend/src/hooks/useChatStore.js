@@ -144,6 +144,16 @@ const useChatStore = create(
         }
       },
       
+      // Set session ID
+      setAiDeveloperAgentSessionId: (sessionId) => {
+        try {
+          set({ aiDeveloperAgentSessionId: sessionId });
+        } catch (error) {
+          debugLog.error('ChatStore', 'Error setting session ID', { error: error.message, sessionId });
+          console.error('Error setting session ID:', error);
+        }
+      },
+      
       // Send message with SSE
       sendMessage: async (messageText) => {
         try {
@@ -278,6 +288,24 @@ const useChatStore = create(
                         }
                         
                         return { messages };
+                      });
+                    }
+                    
+                    // ✅ NEW: Handle tool outputs for emulator
+                    if (data.role === 'tool' || data.messageType === 'tool_result') {
+                      debugLog.sse('Received tool output', { 
+                        toolCallId: data.toolCallId, 
+                        messageType: data.messageType,
+                        contentLength: data.message?.length || 0
+                      });
+                      
+                      get().addToolOutput({
+                        id: data.toolCallId || uuidv4(),
+                        toolName: 'unknown', // Will be updated when we have tool call context
+                        type: 'output',
+                        content: data.message || '',
+                        timestamp: data.timestamp || new Date().toISOString(),
+                        sessionId: aiDeveloperAgentSessionId
                       });
                     }
                   } catch (parseError) {

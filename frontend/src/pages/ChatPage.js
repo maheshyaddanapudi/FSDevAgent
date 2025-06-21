@@ -52,6 +52,7 @@ const ChatPage = () => {
   // Issue #5 Fix: Enhanced chat state management with error handling
   const { 
     aiDeveloperAgentSessionId,
+    setAiDeveloperAgentSessionId,
     messages, 
     addMessage, 
     toolOutputs,
@@ -61,6 +62,7 @@ const ChatPage = () => {
     isLoading,
     error: storeError,
     clearError,
+    clearChat,
     initializeSession,
     sendMessage: sendChatMessage,
     // NEW: Human-in-the-loop state and actions
@@ -176,21 +178,38 @@ const ChatPage = () => {
     }
   }, [handleSendMessage]);
 
-  // Clear messages handler - clears local storage and refreshes page
+  // Clear messages handler - clears Zustand store and refreshes page
   const handleClearMessages = useCallback(() => {
     try {
-      // Clear all local storage
-      localStorage.clear();
-      console.log('Local storage cleared');
+      console.log('Clearing chat store and local storage...');
       
-      // Refresh the page
-      window.location.reload();
+      // Clear the Zustand chat store
+      clearChat();
+      
+      // Reset session ID to null
+      setAiDeveloperAgentSessionId(null);
+      
+      // Clear all local storage (including Zustand persistence)
+      localStorage.clear();
+      
+      // Clear session storage as well
+      sessionStorage.clear();
+      
+      console.log('Store and storage cleared, refreshing page...');
+      
+      // Small delay to ensure state is cleared before refresh
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+      
     } catch (error) {
-      console.error('Error clearing local storage:', error);
-      // Still try to refresh even if localStorage.clear() fails
-      window.location.reload();
+      console.error('Error clearing store and storage:', error);
+      // Still try to refresh even if clearing fails
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
     }
-  }, []);
+  }, [clearChat]);
 
   // Refresh handler
   const handleRefresh = useCallback(() => {
