@@ -1,6 +1,6 @@
 package com.ai.developer.service.autonomous;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.model.AgentState;
 import com.ai.developer.service.AgentControlService;
 import lombok.extern.slf4j.Slf4j;
@@ -24,12 +24,12 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class EventStreamingService {
 
-    private final EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private final ToolEventStreamService webSocketHandler;
     private final AgentControlService agentControlService;
     private final ConcurrentHashMap<String, AgentState> agentStates;
     private final ConcurrentHashMap<String, Sinks.Many<ServerSentEvent<String>>> sseEmitters = new ConcurrentHashMap<>();
 
-    public EventStreamingService(EnhancedToolOutputWebSocketHandler webSocketHandler,
+    public EventStreamingService(ToolEventStreamService webSocketHandler,
                                AgentControlService agentControlService,
                                ConcurrentHashMap<String, AgentState> agentStates) {
         this.webSocketHandler = webSocketHandler;
@@ -93,7 +93,7 @@ public class EventStreamingService {
         eventData.put("sessionId", sessionId);
         eventData.put("type", "thinking");
         eventData.put("content", thought);
-        webSocketHandler.broadcastAgentStateUpdate(eventData);
+        toolEventStreamService.broadcastAgentStateUpdate(eventData);
     }
     
     /**
@@ -107,7 +107,7 @@ public class EventStreamingService {
         eventData.put("sessionId", sessionId);
         eventData.put("type", "reasoning");
         eventData.put("content", reasoning);
-        webSocketHandler.broadcastAgentStateUpdate(eventData);
+        toolEventStreamService.broadcastAgentStateUpdate(eventData);
     }
     
     /**
@@ -124,7 +124,7 @@ public class EventStreamingService {
         eventData.put("type", "action");
         eventData.put("content", action);
         eventData.put("details", details);
-        webSocketHandler.broadcastAgentStateUpdate(eventData);
+        toolEventStreamService.broadcastAgentStateUpdate(eventData);
         
         // Update agent state
         AgentState agentState = agentStates.get(sessionId);

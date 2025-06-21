@@ -1,6 +1,6 @@
 package com.ai.developer.service.autonomous;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.llm.ChatContext;
 import com.ai.developer.llm.Message;
 import com.ai.developer.model.AgentState;
@@ -48,7 +48,7 @@ public class AutonomousAgentService {
     private final AgentPromptService agentPromptService;
     private final AgentControlService agentControlService;
     private final TaskExecutorService taskExecutorService;
-    private final EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private final ToolEventStreamService webSocketHandler;
     private final ConcurrentHashMap<String, AgentState> agentStates;
     private final ProjectTemplateManager projectTemplateManager;
     
@@ -65,7 +65,7 @@ public class AutonomousAgentService {
                                  AgentPromptService agentPromptService,
                                  AgentControlService agentControlService,
                                  TaskExecutorService taskExecutorService,
-                                 EnhancedToolOutputWebSocketHandler webSocketHandler,
+                                 ToolEventStreamService webSocketHandler,
                                  ConcurrentHashMap<String, AgentState> agentStates,
                                  ProjectTemplateManager projectTemplateManager) {
         this.enhancedChatService = enhancedChatService;
@@ -121,7 +121,7 @@ public class AutonomousAgentService {
         initialState.put("sessionId", sessionId);
         initialState.put("action", "start");
         initialState.put("state", agentState.toTaskMemory());
-        webSocketHandler.broadcastAgentStateUpdate(initialState);
+        toolEventStreamService.broadcastAgentStateUpdate(initialState);
         
         // Create planning event for initialization
         agentControlService.broadcastPlanningEvent(
@@ -296,7 +296,7 @@ public class AutonomousAgentService {
             completionEvent.put("sessionId", sessionId);
             completionEvent.put("action", "complete");
             completionEvent.put("state", agentState.toTaskMemory());
-            webSocketHandler.broadcastAgentStateUpdate(completionEvent);
+            toolEventStreamService.broadcastAgentStateUpdate(completionEvent);
             
             // Create final planning event
             agentControlService.broadcastPlanningEvent(

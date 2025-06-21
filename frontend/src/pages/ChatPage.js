@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useWebSocket } from '../hooks/useWebSocket';
 import useChatStore from '../hooks/useChatStore';
 import UnifiedEmulator from '../components/UnifiedEmulator/UnifiedEmulator';
 import MessageList from '../components/MessageList';
@@ -70,16 +69,6 @@ const ChatPage = () => {
     submitHumanInput,
     cancelHumanInputRequest
   } = useChatStore();
-  
-  // Issue #5 Fix: Enhanced WebSocket connection with comprehensive status
-  const { 
-    connected: wsConnected, 
-    sendMessage: wsSendMessage,
-    lastMessage: wsLastMessage,
-    isReconnecting,
-    reconnect: wsReconnect,
-    getConnectionStatus
-  } = useWebSocket();
 
   // Enhanced session initialization with better error handling
   const handleSessionInitialization = useCallback(async () => {
@@ -134,13 +123,11 @@ const ChatPage = () => {
     handleSessionInitialization();
   }, [handleSessionInitialization]);
 
-  // Issue #5 Fix: Enhanced WebSocket message handling with proper error handling
+  // WebSocket message processing removed - now using SSE only
   useEffect(() => {
-    if (!wsLastMessage) return;
-
-    try {
-      const data = JSON.parse(wsLastMessage.data);
-      console.log('Processing WebSocket message:', data);
+    // Tool events now handled by UnifiedEmulator via SSE
+    // Chat messages already use SSE via useChatStore
+  }, [addMessage, addToolOutput, setIsProcessing]);
       
       switch (data.type) {
         case 'message':
@@ -165,7 +152,6 @@ const ChatPage = () => {
           break;
           
         case 'error':
-          console.error('WebSocket error:', data);
           addMessage({
             role: 'assistant',
             content: `Error: ${data.message || 'Unknown error occurred'}`,
@@ -179,9 +165,7 @@ const ChatPage = () => {
           console.log('Unknown message type:', data.type);
       }
     } catch (error) {
-      console.error('Error parsing WebSocket message:', error);
     }
-  }, [wsLastMessage, addMessage, addToolOutput, setIsProcessing]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -270,8 +254,6 @@ const ChatPage = () => {
           </div>
           <div className="header-right">
             <div className="connection-status">
-              <span className={`status-indicator ${wsConnected ? 'connected' : 'disconnected'}`}>
-                {wsConnected ? '🟢' : '🔴'}
               </span>
               <span className="status-text">
                 {isLoading ? 'Initializing...' : 
@@ -404,7 +386,6 @@ const ChatPage = () => {
         <div className="emulator-section">
           <UnifiedEmulator 
             toolOutputs={toolOutputs} 
-            wsConnected={wsConnected} 
           />
         </div>
       </div>

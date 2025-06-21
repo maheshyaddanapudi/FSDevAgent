@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import useWebSocket from '../hooks/useWebSocket';
 import EnhancedMessageList from './EnhancedMessageList';
 import TerminalEmulator from './TerminalEmulator';
 import EmulatorErrorBoundary from './EmulatorErrorBoundary';
-import SafeWebSocketComponent from './SafeWebSocketComponent';
 import { Send } from 'react-feather';
 import { debugLog } from '../utils/debugLogger';
 
@@ -14,21 +12,14 @@ const ChatInterface = ({ sessionId }) => {
   const [terminalOutput, setTerminalOutput] = useState('');
   const [error, setError] = useState(null);
   
-  // WebSocket for tool output (wrapped in error handling)
-  const { lastMessage: toolMessage, error: toolWsError } = useWebSocket(`/ws/tool-output`);
   
-  // WebSocket for agent state (wrapped in error handling)  
-  const { lastMessage: agentStateMessage, error: agentWsError } = useWebSocket(`/ws/agent-state`);
   
-  // REMOVED: WebSocket for chat messages - this should use SSE via useChatStore
-  // const { lastMessage: chatMessage } = useWebSocket(`/ws/chat/${sessionId}`);
   
   // Process tool output messages with comprehensive error handling
   useEffect(() => {
     try {
       if (toolMessage) {
         try {
-          debugLog.websocket('Received tool message', { sessionId, rawData: toolMessage.data });
           
           const data = JSON.parse(toolMessage.data);
           debugLog.emulator('Processing tool output', { sessionId, parsedData: data });
@@ -79,7 +70,6 @@ const ChatInterface = ({ sessionId }) => {
     try {
       if (agentStateMessage) {
         try {
-          debugLog.websocket('Received agent state message', { sessionId, rawData: agentStateMessage.data });
           
           const data = JSON.parse(agentStateMessage.data);
           debugLog.emulator('Processing agent state', { sessionId, parsedData: data });
@@ -108,23 +98,18 @@ const ChatInterface = ({ sessionId }) => {
     }
   }, [agentStateMessage, sessionId]);
   
-  // Handle WebSocket errors
   useEffect(() => {
     try {
       if (toolWsError) {
-        debugLog.error('ChatInterface', 'Tool WebSocket error', { sessionId, error: toolWsError });
         setError(`Tool connection error: ${toolWsError}`);
       }
       if (agentWsError) {
-        debugLog.error('ChatInterface', 'Agent WebSocket error', { sessionId, error: agentWsError });
         setError(`Agent connection error: ${agentWsError}`);
       }
     } catch (error) {
-      debugLog.error('ChatInterface', 'Error handling WebSocket errors', {
         sessionId,
         error: error.message
       });
-      console.error('Error handling WebSocket errors:', error);
     }
   }, [toolWsError, agentWsError, sessionId]);
   
@@ -239,24 +224,20 @@ const ChatInterface = ({ sessionId }) => {
         
         {/* Chat Messages */}
         <div className="chat-messages">
-          <SafeWebSocketComponent>
             <EnhancedMessageList 
               messages={messages} 
               isStreaming={isStreaming}
               sessionId={sessionId}
             />
-          </SafeWebSocketComponent>
         </div>
         
         {/* Terminal Emulator */}
         <div className="terminal-section">
           <EmulatorErrorBoundary>
-            <SafeWebSocketComponent>
               <TerminalEmulator 
                 output={terminalOutput}
                 sessionId={sessionId}
               />
-            </SafeWebSocketComponent>
           </EmulatorErrorBoundary>
         </div>
         

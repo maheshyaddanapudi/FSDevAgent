@@ -1,6 +1,6 @@
 package com.ai.developer.tools.impl;
 
-import com.ai.developer.config.ToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.tools.ParameterInfo;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolOutput;
@@ -29,10 +29,10 @@ public class DataVisualizationTool implements Tool {
     // Session workspace root folder parameter name for workspace management
     private static final String SESSION_WORKSPACE_ROOT_FOLDER_PARAM = "sessionWorkspaceRootFolder";
 
-    private final ToolOutputWebSocketHandler webSocketHandler;
+    private final ToolEventStreamService webSocketHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public DataVisualizationTool(ToolOutputWebSocketHandler webSocketHandler) {
+    public DataVisualizationTool(ToolEventStreamService webSocketHandler) {
         this.webSocketHandler = webSocketHandler;
     }
 
@@ -210,7 +210,7 @@ public class DataVisualizationTool implements Tool {
             String visualizationJson = objectMapper.writeValueAsString(visualization);
             
             // Send visualization to WebSocket
-            webSocketHandler.sendToolOutput("data_visualization", visualizationJson);
+            toolEventStreamService.sendToolOutput("data_visualization", visualizationJson);
             
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("visualData", visualization);

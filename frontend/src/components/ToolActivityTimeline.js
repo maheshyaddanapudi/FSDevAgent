@@ -6,7 +6,6 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useEnhancedWebSocket } from '../services/StreamingService';
 import '../styles/ToolActivityTimeline.css';
 
 // Tool type icons mapping
@@ -42,7 +41,6 @@ const ToolActivityTimeline = ({ className = '' }) => {
   const timelineRef = useRef(null);
   const autoScrollRef = useRef(true);
   
-  // Get WebSocket data streams
   const {
     connected,
     planningData,
@@ -50,7 +48,6 @@ const ToolActivityTimeline = ({ className = '' }) => {
     agentStateData,
     phaseData,
     errorData
-  } = useEnhancedWebSocket();
 
   // Process new tool call data
   useEffect(() => {
@@ -370,7 +367,6 @@ const ToolActivityTimeline = ({ className = '' }) => {
         {filteredActivities.length === 0 ? (
           <div className="empty-timeline">
             <p>No activities yet</p>
-            {!connected && <p className="connection-warning">WebSocket disconnected</p>}
           </div>
         ) : (
           filteredActivities.map(activity => (

@@ -1,6 +1,6 @@
 package com.ai.developer.service;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.model.AgentState;
 import com.ai.developer.model.ConversationMode;
 import com.ai.developer.model.DevelopmentPhase;
@@ -24,14 +24,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class AgentControlService {
 
-    private final EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private final ToolEventStreamService toolEventStreamService;
     private final ConcurrentHashMap<String, AgentState> agentStates;
     private final ConcurrentHashMap<String, AtomicBoolean> pauseFlags = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicBoolean> stepFlags = new ConcurrentHashMap<>();
 
-    public AgentControlService(EnhancedToolOutputWebSocketHandler webSocketHandler, 
-                              ConcurrentHashMap<String, AgentState> agentStates) {
-        this.webSocketHandler = webSocketHandler;
+    public AgentControlService(ToolEventStreamService toolEventStreamService, ConcurrentHashMap<String, AgentState> agentStates) {
+        this.toolEventStreamService = toolEventStreamService;
         this.agentStates = agentStates;
         log.info("AgentControlService initialized with enhanced control capabilities");
     }
@@ -56,14 +55,14 @@ public class AgentControlService {
         agentState.setMode(ConversationMode.CONVERSATIONAL);
         
         // Broadcast pause event
-        Map<String, Object> eventData = new HashMap<>();
-        eventData.put("sessionId", sessionId);
-        eventData.put("type", "agent_control");
-        eventData.put("action", "pause");
-        eventData.put("timestamp", Instant.now().toString());
-        eventData.put("state", agentState.toTaskMemory());
-        
-        webSocketHandler.broadcastAgentStateUpdate(eventData);
+        Map<String, Object> eventData = Map.of(
+            "sessionId", sessionId,
+            "type", "agent_control",
+            "action", "pause",
+            "timestamp", Instant.now().toString(),
+            "state", agentState.toTaskMemory()
+        );
+        toolEventStreamService.broadcastAgentStateUpdate(eventData);
         
         return Mono.just(true);
     }
@@ -96,7 +95,7 @@ public class AgentControlService {
         eventData.put("timestamp", Instant.now().toString());
         eventData.put("state", agentState.toTaskMemory());
         
-        webSocketHandler.broadcastAgentStateUpdate(eventData);
+        toolEventStreamService.broadcastAgentStateUpdate(eventData);
         
         return Mono.just(true);
     }
@@ -129,7 +128,7 @@ public class AgentControlService {
         eventData.put("timestamp", Instant.now().toString());
         eventData.put("state", agentState.toTaskMemory());
         
-        webSocketHandler.broadcastAgentStateUpdate(eventData);
+        toolEventStreamService.broadcastAgentStateUpdate(eventData);
         
         return Mono.just(true);
     }
@@ -174,7 +173,7 @@ public class AgentControlService {
             eventData.put("details", details);
         }
         
-        webSocketHandler.broadcastPlanningUpdate(eventData);
+        toolEventStreamService.broadcastPlanningUpdate(eventData);
     }
     
     /**
@@ -191,7 +190,7 @@ public class AgentControlService {
         eventData.put("progress", progress);
         eventData.put("timestamp", Instant.now().toString());
         
-        webSocketHandler.broadcastPhaseTransition(eventData);
+        toolEventStreamService.broadcastPhaseTransition(eventData);
     }
     
     /**
@@ -208,7 +207,7 @@ public class AgentControlService {
         eventData.put("status", status);
         eventData.put("timestamp", Instant.now().toString());
         
-        webSocketHandler.broadcastToolExecution(eventData);
+        toolEventStreamService.broadcastToolExecution(eventData);
     }
     
     /**
@@ -226,7 +225,7 @@ public class AgentControlService {
         eventData.put("success", success);
         eventData.put("timestamp", Instant.now().toString());
         
-        webSocketHandler.broadcastToolResult(eventData);
+        toolEventStreamService.broadcastToolResult(eventData);
     }
     
     /**
@@ -246,7 +245,7 @@ public class AgentControlService {
             eventData.put("details", details);
         }
         
-        webSocketHandler.broadcastErrorEvent(eventData);
+        toolEventStreamService.broadcastError(eventData);
     }
     
     /**
@@ -276,7 +275,7 @@ public class AgentControlService {
             eventData.put("state", agentState.toTaskMemory());
         }
         
-        webSocketHandler.broadcastAgentStateUpdate(eventData);
+        toolEventStreamService.broadcastAgentStateUpdate(eventData);
     }
     
     /**

@@ -2,7 +2,7 @@ package com.ai.developer.service;
 
 import com.ai.developer.model.ToolInvocation;
 
-import com.ai.developer.config.ToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolOutput;
 import com.ai.developer.tools.ToolRegistry;
@@ -32,12 +32,12 @@ public class TaskExecutorService {
     
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
-    private final ToolOutputWebSocketHandler webSocketHandler;
+    private final ToolEventStreamService webSocketHandler;
     private final CodeGenerationService codeGenerationService;
     private final ProjectTemplateManager projectTemplateManager;
     
     public TaskExecutorService(ToolRegistry toolRegistry, ObjectMapper objectMapper, 
-                             ToolOutputWebSocketHandler webSocketHandler,
+                             ToolEventStreamService webSocketHandler,
                              CodeGenerationService codeGenerationService,
                              ProjectTemplateManager projectTemplateManager) {
         this.toolRegistry = toolRegistry;

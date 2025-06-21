@@ -1,7 +1,6 @@
 package com.ai.developer.service;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
-import com.ai.developer.config.ToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.llm.*;
 import com.ai.developer.model.*;
 import com.ai.developer.tools.Tool;
@@ -42,7 +41,7 @@ public class EnhancedChatService {
     private final LLMProvider llmProvider;
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
-    private final EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private final ToolEventStreamService toolEventStreamService;
     private final AgentPromptService agentPromptService;
     
     private final ConcurrentHashMap<String, ChatContext> sessions = new ConcurrentHashMap<>();
@@ -66,14 +65,14 @@ public class EnhancedChatService {
     private static final int MAX_AUTONOMOUS_ITERATIONS = 100;
     
     public EnhancedChatService(LLMProvider llmProvider, ToolRegistry toolRegistry, ObjectMapper objectMapper, 
-                      EnhancedToolOutputWebSocketHandler webSocketHandler, AgentPromptService agentPromptService) {
+                      ToolEventStreamService toolEventStreamService, AgentPromptService agentPromptService) {
         this.llmProvider = llmProvider;
         this.toolRegistry = toolRegistry;
         this.objectMapper = objectMapper;
-        this.webSocketHandler = webSocketHandler;
+        this.toolEventStreamService = toolEventStreamService;
         this.agentPromptService = agentPromptService;
         
-        log.info("EnhancedChatService initialized with TRUE autonomous agent capabilities and multi-turn support");
+        log.info("EnhancedChatService initialized with SSE support for tool events");
     }
     
     /**
@@ -1135,14 +1134,14 @@ public class EnhancedChatService {
                             verifyWorkspaceFiles(finalWorkspacePath, toolCall.getName());
                         }
                         
-                        // Send tool output to websocket
-                        webSocketHandler.broadcastToolOutput(Map.of(
-                                "sessionId", sessionId,
-                                "toolName", toolCall.getName(),
-                                "arguments", toolCall.getArguments(),
-                                "output", combinedOutput,
-                                "timestamp", Instant.now().toString()
-                        ));
+                        // Send tool result via SSE
+                        toolEventStreamService.broadcastToolResult(
+                                sessionId,
+                                toolCall.getName(),
+                                combinedOutput,
+                                toolCall.getId(),
+                                true // success
+                        );
                         
                         // Add tool call and output to context
                         context.getMessages().add(Message.builder()

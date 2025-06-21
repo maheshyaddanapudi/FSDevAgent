@@ -29,7 +29,6 @@ class EmulatorErrorBoundary extends React.Component {
       timestamp: new Date().toISOString(),
       userAgent: navigator.userAgent,
       url: window.location.href,
-      webSocketState: this.getWebSocketDebugInfo(),
       localStorageData: this.getLocalStorageDebugInfo()
     };
 
@@ -50,11 +49,8 @@ class EmulatorErrorBoundary extends React.Component {
     }
   }
 
-  getWebSocketDebugInfo() {
     try {
       return {
-        readyState: window.WebSocket ? 'Available' : 'Not Available',
-        connections: window.fsdevWebSocketConnections || 'None tracked'
       };
     } catch (e) {
       return { error: e.message };
@@ -211,7 +207,6 @@ class EmulatorErrorBoundary extends React.Component {
             <strong>Debug Info:</strong>
             <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
               <li>Timestamp: {this.state.errorDetails.timestamp}</li>
-              <li>WebSocket State: {JSON.stringify(this.state.errorDetails.webSocketState)}</li>
               <li>Chat Store: {JSON.stringify(this.state.errorDetails.localStorageData)}</li>
             </ul>
           </div>

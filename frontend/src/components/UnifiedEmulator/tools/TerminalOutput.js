@@ -97,7 +97,6 @@ const TerminalOutput = ({ data, allOutputs, wsConnected, toolId }) => {
 
         // Write initial status
         terminal.write('\r\n\x1b[32m● Terminal Ready\x1b[0m\r\n');
-        terminal.write(`\x1b[33m● WebSocket: ${wsConnected ? 'Connected' : 'Disconnected'}\x1b[0m\r\n\r\n`);
 
         // Handle resize with debouncing
         let resizeTimeout;

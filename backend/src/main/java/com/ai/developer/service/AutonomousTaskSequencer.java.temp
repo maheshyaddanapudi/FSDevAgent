@@ -1,6 +1,6 @@
 package com.ai.developer.service;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.model.DevelopmentPhase;
 import com.ai.developer.model.TaskMemory;
 import com.ai.developer.service.DevelopmentPhaseManager.PhaseCompletionStatus;
@@ -39,7 +39,7 @@ public class AutonomousTaskSequencer {
     private ErrorRecoveryService errorRecoveryService;
     
     @Autowired
-    private EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private ToolEventStreamService webSocketHandler;
     
     private final Map<String, ExecutionContext> activeExecutions = new ConcurrentHashMap<>();
     private final Map<String, AtomicInteger> stepCounters = new ConcurrentHashMap<>();
@@ -132,7 +132,7 @@ public class AutonomousTaskSequencer {
             planData.put("objective", context.getObjective());
             planData.put("stepCount", steps.size());
             planData.put("timestamp", Instant.now().toString());
-            webSocketHandler.broadcastPlanningUpdate(planData);
+            toolEventStreamService.broadcastPlanningUpdate(planData);
         }
         
         log.info("Created execution plan for session {}, task {} with {} steps", 
@@ -184,7 +184,7 @@ public class AutonomousTaskSequencer {
             stepData.put("stepNumber", stepNumber);
             stepData.put("timestamp", Instant.now().toString());
             stepData.put("status", "started");
-            webSocketHandler.broadcastToolExecution(stepData);
+            toolEventStreamService.broadcastToolExecution(stepData);
         }
         
         log.info("Executing step {} for session {}, task {}: {}", 
@@ -227,7 +227,7 @@ public class AutonomousTaskSequencer {
             completionData.put("success", true);
             completionData.put("timestamp", Instant.now().toString());
             completionData.put("status", "completed");
-            webSocketHandler.broadcastToolResult(completionData);
+            toolEventStreamService.broadcastToolResult(completionData);
         }
         
         return StepExecutionResult.builder()
@@ -322,7 +322,7 @@ public class AutonomousTaskSequencer {
             errorData.put("recovery", recovery.getNextAction().toString());
             errorData.put("timestamp", Instant.now().toString());
             errorData.put("severity", "error");
-            webSocketHandler.broadcastErrorEvent(errorData);
+            toolEventStreamService.broadcastError(errorData);
         }
         
         return result;

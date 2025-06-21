@@ -1,6 +1,6 @@
 package com.ai.developer.service;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.model.TaskMemory;
 import com.ai.developer.model.TaskMemory.TaskStep;
 import com.ai.developer.model.TaskMemory.TaskCheckpoint;
@@ -32,7 +32,7 @@ public class TaskMemoryService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     @Autowired
-    private EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private ToolEventStreamService webSocketHandler;
     
     public TaskMemoryService() {
         // Ensure memory directory exists
@@ -85,7 +85,7 @@ public class TaskMemoryService {
                 stepData.put("step", step.getDescription());
                 stepData.put("timestamp", step.getTimestamp().toString());
                 stepData.put("type", "task_step_completed");
-                webSocketHandler.broadcastToolOutput(stepData);
+                toolEventStreamService.broadcastToolOutput(stepData);
             }
         }
         
@@ -99,7 +99,7 @@ public class TaskMemoryService {
                 pendingData.put("count", update.getPendingSteps().size());
                 pendingData.put("next", update.getPendingSteps().get(0));
                 pendingData.put("type", "task_pending_steps");
-                webSocketHandler.broadcastToolOutput(pendingData);
+                toolEventStreamService.broadcastToolOutput(pendingData);
             }
         }
         
@@ -203,7 +203,7 @@ public class TaskMemoryService {
             checkpointData.put("description", checkpoint.getDescription());
             checkpointData.put("timestamp", checkpoint.getTimestamp().toString());
             checkpointData.put("type", "task_checkpoint_created");
-            webSocketHandler.broadcastToolOutput(checkpointData);
+            toolEventStreamService.broadcastToolOutput(checkpointData);
         }
         
         return checkpoint;

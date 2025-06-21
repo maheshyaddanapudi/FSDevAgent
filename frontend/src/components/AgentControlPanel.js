@@ -6,7 +6,6 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useEnhancedWebSocket } from '../services/StreamingService';
 import '../styles/AgentControlPanel.css';
 
 const AgentControlPanel = ({ className = '' }) => {
@@ -16,7 +15,6 @@ const AgentControlPanel = ({ className = '' }) => {
   const [progress, setProgress] = useState(0);
   const [isControlEnabled, setIsControlEnabled] = useState(true);
   
-  // Get WebSocket controls and data streams
   const {
     connected,
     planningData,
@@ -29,7 +27,6 @@ const AgentControlPanel = ({ className = '' }) => {
     stopExecution,
     skipStep,
     jumpToPhase
-  } = useEnhancedWebSocket();
 
   // Update execution state based on agent state data
   useEffect(() => {

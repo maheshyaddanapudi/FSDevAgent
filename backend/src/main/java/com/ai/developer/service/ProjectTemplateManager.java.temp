@@ -1,6 +1,6 @@
 package com.ai.developer.service;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Builder;
 import lombok.Data;
@@ -39,7 +39,7 @@ public class ProjectTemplateManager {
     }
     
     @Autowired
-    private EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private ToolEventStreamService webSocketHandler;
     
     public ProjectTemplateManager() {
         // Ensure templates directory exists
@@ -282,7 +282,7 @@ public class ProjectTemplateManager {
             templateData.put("fileCount", template.getFiles().size());
             templateData.put("timestamp", Instant.now().toString());
             templateData.put("type", "template_created");
-            webSocketHandler.broadcastToolOutput(templateData);
+            toolEventStreamService.broadcastToolOutput(templateData);
         }
         
         log.info("Created template {} with {} files", template.getName(), templateFiles.size());
@@ -343,7 +343,7 @@ public class ProjectTemplateManager {
             applicationData.put("fileCount", createdFiles.size());
             applicationData.put("timestamp", Instant.now().toString());
             applicationData.put("type", "template_applied");
-            webSocketHandler.broadcastToolOutput(applicationData);
+            toolEventStreamService.broadcastToolOutput(applicationData);
         }
         
         log.info("Applied template {} to {} with {} files", template.getName(), targetDir, createdFiles.size());

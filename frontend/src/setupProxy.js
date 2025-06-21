@@ -10,14 +10,12 @@ module.exports = function(app) {
     })
   );
   
-  // Add WebSocket proxy for /ws routes
   app.use(
     '/ws',
     createProxyMiddleware({
       target: 'http://localhost:8080',
       changeOrigin: true,
       logLevel: 'debug',
-      ws: true, // Enable WebSocket proxying
     })
   );
 };

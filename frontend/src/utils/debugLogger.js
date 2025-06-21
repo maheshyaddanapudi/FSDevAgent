@@ -1,94 +1,96 @@
-// Enhanced logging utility for FSDevAgent debugging
-const DEBUG_ENABLED = true;
-const LOG_PREFIX = '[FSDevAgent-Frontend]';
+/**
+ * Enhanced debug logger with SSE support
+ * Provides consistent logging across the application
+ */
+class DebugLogger {
+  constructor() {
+    this.enabled = process.env.NODE_ENV === 'development';
+    this.logBuffer = [];
+    this.maxBufferSize = 1000;
+  }
 
-export const debugLog = {
-  sse: (action, data) => {
-    if (DEBUG_ENABLED) {
-      console.log(`${LOG_PREFIX}[SSE] ${action}:`, data);
-      // Also log to a file-like structure for persistence
-      if (window.fsdevDebugLogs) {
-        window.fsdevDebugLogs.push({
-          timestamp: new Date().toISOString(),
-          type: 'SSE',
-          action,
-          data: JSON.stringify(data, null, 2)
-        });
-      }
+  log(category, message, data = {}) {
+    if (!this.enabled) return;
+
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      category,
+      message,
+      data
+    };
+
+    // Add to buffer
+    this.logBuffer.push(logEntry);
+    if (this.logBuffer.length > this.maxBufferSize) {
+      this.logBuffer = this.logBuffer.slice(-this.maxBufferSize);
     }
-  },
-  
-  websocket: (action, data) => {
-    if (DEBUG_ENABLED) {
-      console.log(`${LOG_PREFIX}[WebSocket] ${action}:`, data);
-      if (window.fsdevDebugLogs) {
-        window.fsdevDebugLogs.push({
-          timestamp: new Date().toISOString(),
-          type: 'WebSocket',
-          action,
-          data: JSON.stringify(data, null, 2)
-        });
-      }
+
+    // Store in window for error reporting
+    if (typeof window !== 'undefined') {
+      window.fsdevDebugLogs = this.logBuffer;
     }
-  },
-  
-  chat: (action, data) => {
-    if (DEBUG_ENABLED) {
-      console.log(`${LOG_PREFIX}[Chat] ${action}:`, data);
-      if (window.fsdevDebugLogs) {
-        window.fsdevDebugLogs.push({
-          timestamp: new Date().toISOString(),
-          type: 'Chat',
-          action,
-          data: JSON.stringify(data, null, 2)
-        });
-      }
+
+    // Console output
+    console.log(`[${category}] ${message}`, data);
+  }
+
+  error(category, message, data = {}) {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      category,
+      message,
+      data,
+      level: 'error'
+    };
+
+    this.logBuffer.push(logEntry);
+    if (this.logBuffer.length > this.maxBufferSize) {
+      this.logBuffer = this.logBuffer.slice(-this.maxBufferSize);
     }
-  },
-  
-  emulator: (action, data) => {
-    if (DEBUG_ENABLED) {
-      console.log(`${LOG_PREFIX}[Emulator] ${action}:`, data);
-      if (window.fsdevDebugLogs) {
-        window.fsdevDebugLogs.push({
-          timestamp: new Date().toISOString(),
-          type: 'Emulator',
-          action,
-          data: JSON.stringify(data, null, 2)
-        });
-      }
+
+    if (typeof window !== 'undefined') {
+      window.fsdevDebugLogs = this.logBuffer;
     }
-  },
-  
-  error: (component, error, context) => {
-    console.error(`${LOG_PREFIX}[ERROR][${component}]`, error, context);
-    if (window.fsdevDebugLogs) {
-      window.fsdevDebugLogs.push({
-        timestamp: new Date().toISOString(),
-        type: 'ERROR',
-        component,
-        error: error.toString(),
-        context: JSON.stringify(context, null, 2)
-      });
-    }
-  },
-  
-  exportLogs: () => {
-    if (window.fsdevDebugLogs) {
-      const logs = window.fsdevDebugLogs;
-      const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `fsdev-debug-logs-${new Date().toISOString()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+
+    console.error(`[${category}] ${message}`, data);
+  }
+
+  // Category-specific methods
+  emulator(message, data) {
+    this.log('Emulator', message, data);
+  }
+
+  sse(message, data) {
+    this.log('SSE', message, data);
+  }
+
+  chat(message, data) {
+    this.log('Chat', message, data);
+  }
+
+  tool(message, data) {
+    this.log('Tool', message, data);
+  }
+
+  exportLogs() {
+    const blob = new Blob([JSON.stringify(this.logBuffer, null, 2)], {
+      type: 'application/json'
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fsdev-debug-logs-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  clearLogs() {
+    this.logBuffer = [];
+    if (typeof window !== 'undefined') {
+      window.fsdevDebugLogs = [];
     }
   }
-};
-
-// Initialize debug logs array
-if (typeof window !== 'undefined') {
-  window.fsdevDebugLogs = window.fsdevDebugLogs || [];
 }
+
+export const debugLog = new DebugLogger();
 

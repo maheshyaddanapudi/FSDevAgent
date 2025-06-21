@@ -1,6 +1,6 @@
 package com.ai.developer.service;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.model.DevelopmentPhase;
 import lombok.Builder;
 import lombok.Data;
@@ -25,7 +25,7 @@ public class DevelopmentPhaseManager {
     private final Map<String, PhaseTracker> sessionPhases = new ConcurrentHashMap<>();
     
     @Autowired
-    private EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private ToolEventStreamService webSocketHandler;
     
     /**
      * Initialize phase tracking for a session
@@ -84,7 +84,7 @@ public class DevelopmentPhaseManager {
             phaseData.put("fromPhase", previousPhase.toString());
             phaseData.put("toPhase", newPhase.toString());
             phaseData.put("timestamp", Instant.now().toString());
-            webSocketHandler.broadcastPhaseTransition(phaseData);
+            toolEventStreamService.broadcastPhaseTransition(phaseData);
         }
         
         return PhaseTransitionResult.builder()
@@ -157,7 +157,7 @@ public class DevelopmentPhaseManager {
             stateData.put("completionPercentage", completionPercentage);
             stateData.put("status", "Working on " + currentPhase.name().toLowerCase() + " phase");
             stateData.put("timestamp", Instant.now().toString());
-            webSocketHandler.broadcastAgentStateUpdate(stateData);
+            toolEventStreamService.broadcastAgentStateUpdate(stateData);
         }
         
         return PhaseCompletionStatus.builder()
@@ -185,7 +185,7 @@ public class DevelopmentPhaseManager {
                 stateData.put("progress", calculateProgressPercentage(tracker));
                 stateData.put("status", "Completed: " + taskDescription);
                 stateData.put("timestamp", Instant.now().toString());
-                webSocketHandler.broadcastAgentStateUpdate(stateData);
+                toolEventStreamService.broadcastAgentStateUpdate(stateData);
             }
         }
     }

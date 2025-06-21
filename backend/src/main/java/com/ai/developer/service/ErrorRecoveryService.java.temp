@@ -1,6 +1,6 @@
 package com.ai.developer.service;
 
-import com.ai.developer.config.EnhancedToolOutputWebSocketHandler;
+import com.ai.developer.service.ToolEventStreamService;
 import com.ai.developer.model.TaskMemory;
 import com.ai.developer.model.TaskMemory.TaskCheckpoint;
 import lombok.Builder;
@@ -26,7 +26,7 @@ public class ErrorRecoveryService {
     private TaskMemoryService taskMemoryService;
     
     @Autowired
-    private EnhancedToolOutputWebSocketHandler webSocketHandler;
+    private ToolEventStreamService webSocketHandler;
     
     private final Map<String, ErrorPattern> knownErrorPatterns = new ConcurrentHashMap<>();
     private final Map<String, List<ErrorOccurrence>> sessionErrors = new ConcurrentHashMap<>();
@@ -62,7 +62,7 @@ public class ErrorRecoveryService {
             errorData.put("context", context);
             errorData.put("severity", severity.toString());
             errorData.put("timestamp", Instant.now().toString());
-            webSocketHandler.broadcastErrorEvent(errorData);
+            toolEventStreamService.broadcastError(errorData);
         }
         
         // Determine recovery strategy

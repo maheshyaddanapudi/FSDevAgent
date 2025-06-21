@@ -1,7 +1,6 @@
 /**
  * StreamingService.js
  * 
- * This service handles both SSE and WebSocket streaming for agent activities,
  * including planning and tool calls. It provides a unified interface for
  * consuming real-time updates from the autonomous agent.
  */
@@ -212,11 +211,8 @@ export const useSSEStream = (endpoint, options = {}) => {
 };
 
 /**
- * Enhanced WebSocket hook for streaming tool outputs and agent activities
- * This extends the existing useWebSocket hook with additional functionality
  * for handling planning and tool call events
  */
-export const useEnhancedWebSocket = () => {
   const [planningData, setPlanningData] = useState(null);
   const [toolCallData, setToolCallData] = useState(null);
   const [agentStateData, setAgentStateData] = useState(null);
@@ -224,7 +220,6 @@ export const useEnhancedWebSocket = () => {
   const [errorData, setErrorData] = useState(null);
   
   // Get emulator store functions
-  const { processWebSocketMessage } = useEmulatorStore();
   
   // Custom message handler for different event types
   const handleMessage = useCallback((data) => {
@@ -249,15 +244,10 @@ export const useEnhancedWebSocket = () => {
         break;
       default:
         // For other types, just pass to the emulator store
-        if (processWebSocketMessage && typeof processWebSocketMessage === 'function') {
-          processWebSocketMessage(data);
         }
     }
-  }, [processWebSocketMessage]);
   
-  // Use the existing WebSocket hook from the project
   // This is a placeholder - in the actual implementation, you would import and use
-  // the existing useWebSocket hook from the project
   const {
     connected,
     sendMessage,
@@ -268,12 +258,10 @@ export const useEnhancedWebSocket = () => {
     connectionAttempts,
     maxReconnectAttempts,
     getConnectionStatus
-  } = useWebSocketPlaceholder(handleMessage);
   
   // Send a command to the agent
   const sendAgentCommand = useCallback((command, args = {}) => {
     if (!connected) {
-      console.warn('Cannot send command: WebSocket not connected');
       return false;
     }
     
@@ -346,9 +334,7 @@ export const useEnhancedWebSocket = () => {
   };
 };
 
-// Placeholder for the existing useWebSocket hook
 // This would be replaced with the actual import in the implementation
-function useWebSocketPlaceholder(onMessage) {
   // This is just a placeholder to make the code compile
   // In the actual implementation, you would import and use the existing hook
   return {
