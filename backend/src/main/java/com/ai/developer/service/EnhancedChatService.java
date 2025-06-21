@@ -780,6 +780,13 @@ public class EnhancedChatService {
                         .message(accumulatedContent.toString())  // Send accumulated content
                         .timestamp(Instant.now())
                         .build());
+                
+                // Small delay to throttle SSE streaming and prevent browser overwhelm
+                try {
+                    Thread.sleep(200);  // 200ms delay between SSE chunks
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             })
             .doOnComplete(() -> {
                 log.info("Completed LLM response for session {}", sessionId);

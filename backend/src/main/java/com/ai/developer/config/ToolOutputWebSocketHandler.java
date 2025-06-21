@@ -11,8 +11,7 @@ import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
-@Component
-public class ToolOutputWebSocketHandler extends TextWebSocketHandler {
+public abstract class ToolOutputWebSocketHandler extends TextWebSocketHandler {
     
     private final ConcurrentHashMap<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper;
