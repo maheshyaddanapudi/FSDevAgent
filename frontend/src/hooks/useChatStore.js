@@ -229,106 +229,113 @@ const useChatStore = create(
               
               eventSource.onmessage = (event) => {
                 try {
-                  debugLog.sse('Received SSE message', { sessionId: aiDeveloperAgentSessionId, rawData: event.data });
-                  
-                  try {
-                    const data = JSON.parse(event.data);
-                    debugLog.sse('Parsed SSE message', { sessionId: aiDeveloperAgentSessionId, parsedData: data });
-                    
-                    // NEW: Check for human input request
-                    if (data.type === 'tool_call' && data.tool === 'message_ask_user') {
-                      // Close the event source as we need to pause for human input
-                      cleanup();
-                      
-                      // Set the human input request state
-                      set({
-                        waitingForHumanInput: true,
-                        humanInputRequest: {
-                          id: data.id || uuidv4(),
-                          text: data.text || 'Please provide additional information:',
-                          attachments: data.attachments || [],
-                          timestamp: new Date().toISOString()
-                        }
-                      });
-                      
-                      return;
-                    }
-                    
-                    // Handle normal message content
-                    if (data.message) {
-                      set(state => {
-                        const messages = [...state.messages];
-                        const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
-                        
-                        if (lastMessageIndex !== -1) {
-                          const currentContent = messages[lastMessageIndex].content || '';
-                          messages[lastMessageIndex] = {
-                            ...messages[lastMessageIndex],
-                            content: currentContent + data.message,
-                            isComplete: data.isComplete || false
-                          };
-                        }
-                        
-                        return { messages };
-                      });
-                    }
-                    
-                    // Handle tool calls
-                    if (data.toolCall) {
-                      set(state => {
-                        const messages = [...state.messages];
-                        const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
-                        
-                        if (lastMessageIndex !== -1) {
-                          messages[lastMessageIndex] = {
-                            ...messages[lastMessageIndex],
-                            toolCall: data.toolCall,
-                            isComplete: data.isComplete || false
-                          };
-                        }
-                        
-                        return { messages };
-                      });
-                    }
-                    
-                    // ✅ NEW: Handle tool outputs for emulator
-                    if (data.role === 'tool' || data.messageType === 'tool_result') {
-                      debugLog.sse('Received tool output', { 
-                        toolCallId: data.toolCallId, 
-                        messageType: data.messageType,
-                        contentLength: data.message?.length || 0
-                      });
-                      
-                      get().addToolOutput({
-                        id: data.toolCallId || uuidv4(),
-                        toolName: 'unknown', // Will be updated when we have tool call context
-                        type: 'output',
-                        content: data.message || '',
-                        timestamp: data.timestamp || new Date().toISOString(),
-                        sessionId: aiDeveloperAgentSessionId
-                      });
-                    }
-                  } catch (parseError) {
-                    debugLog.error('SSE', 'Error parsing SSE message', { 
-                      error: parseError.message, 
-                      rawData: event.data,
-                      sessionId: aiDeveloperAgentSessionId 
-                    });
-                    console.error('Error parsing SSE message:', parseError, event.data);
-                    
-                    // Continue processing instead of crashing
+                  // Basic validation
+                  if (!event || !event.data) {
+                    console.warn('Invalid SSE event received:', event);
                     return;
                   }
-                } catch (messageHandlingError) {
-                  debugLog.error('SSE', 'Error handling SSE message', { 
-                    error: messageHandlingError.message, 
-                    stack: messageHandlingError.stack,
-                    sessionId: aiDeveloperAgentSessionId 
-                  });
-                  console.error('Error handling SSE message:', messageHandlingError);
-                  
-                  // Continue processing instead of crashing
-                  return;
+
+                  // Parse JSON data
+                  let data;
+                  try {
+                    data = JSON.parse(event.data);
+                  } catch (parseError) {
+                    console.warn('Failed to parse SSE data:', event.data);
+                    return;
+                  }
+
+                  // Log received data for debugging
+                  console.log('SSE message received:', data);
+
+                  // Handle different message types
+                  if (data.type === 'tool_call' && data.tool === 'message_ask_user') {
+                    // Human input request - close SSE and set state
+                    cleanup();
+                    set({
+                      waitingForHumanInput: true,
+                      humanInputRequest: {
+                        id: data.id || Date.now().toString(),
+                        text: data.text || 'Please provide additional information:',
+                        attachments: data.attachments || [],
+                        timestamp: new Date().toISOString()
+                      }
+                    });
+                    return;
+                  }
+
+                  // Handle message content updates
+                  if (data.message) {
+                    set(state => {
+                      const messages = [...state.messages];
+                      const messageIndex = messages.findIndex(m => m.id === assistantMessageId);
+                      
+                      if (messageIndex !== -1) {
+                        messages[messageIndex] = {
+                          ...messages[messageIndex],
+                          content: (messages[messageIndex].content || '') + data.message,
+                          isComplete: data.isComplete || false
+                        };
+                      }
+                      
+                      return { messages };
+                    });
+                  }
+
+                  // Handle tool calls
+                  if (data.toolCall) {
+                    set(state => {
+                      const messages = [...state.messages];
+                      const messageIndex = messages.findIndex(m => m.id === assistantMessageId);
+                      
+                      if (messageIndex !== -1) {
+                        messages[messageIndex] = {
+                          ...messages[messageIndex],
+                          toolCall: data.toolCall,
+                          isComplete: data.isComplete || false
+                        };
+                      }
+                      
+                      return { messages };
+                    });
+                  }
+
+                  // Handle tool outputs for emulator
+                  if (data.role === 'tool' || data.messageType === 'tool_result') {
+                    console.log('Adding tool output:', data);
+                    
+                    // Extract tool name from toolCallId or message content
+                    let toolName = 'unknown';
+                    if (data.toolCallId) {
+                      // Try to extract tool name from toolCallId pattern
+                      const toolMatch = data.toolCallId.match(/^([^_]+)/);
+                      if (toolMatch) {
+                        toolName = toolMatch[1];
+                      }
+                    }
+                    
+                    // Alternative: extract from message content patterns
+                    if (toolName === 'unknown' && data.message) {
+                      if (data.message.includes('TOOL_EXECUTION:') || data.message.includes('TOOL_RESULT:')) {
+                        const toolExecMatch = data.message.match(/TOOL_(?:EXECUTION|RESULT):\s*(?:Starting execution of tool|Tool)\s*'([^']+)'/);
+                        if (toolExecMatch) {
+                          toolName = toolExecMatch[1];
+                        }
+                      }
+                    }
+                    
+                    get().addToolOutput({
+                      id: data.toolCallId || Date.now().toString(),
+                      toolName: toolName,
+                      type: 'output',
+                      content: data.message || '',
+                      timestamp: data.timestamp || new Date().toISOString(),
+                      messageType: data.messageType || 'tool_result'
+                    });
+                  }
+
+                } catch (error) {
+                  console.error('Error in SSE message handler:', error);
+                  // Don't crash - just log and continue
                 }
               };
               
