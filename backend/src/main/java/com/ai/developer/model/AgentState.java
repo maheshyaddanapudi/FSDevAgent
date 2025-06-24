@@ -36,10 +36,6 @@ public class AgentState {
     private Instant updatedAt;
     private String canonicalWorkspacePath;
     
-    // Error tracking fields for enhanced error handling
-    private String lastError;
-    private Instant errorTimestamp;
-    
     /**
      * Convert to TaskMemory for prompt generation
      */

@@ -9,8 +9,6 @@ import com.ai.developer.llm.ToolUseBlock;
 import com.ai.developer.tools.ParameterInfo;
 import com.ai.developer.tools.Tool;
 import com.ai.developer.tools.ToolRegistry;
-import com.ai.developer.service.ClaudeErrorClassifier;
-import com.ai.developer.exception.ClaudeApiException;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -55,7 +53,6 @@ public class ClaudeLLMProvider implements LLMProvider {
     private final LLMConfig config;
     private final ObjectMapper objectMapper;
     private final ToolRegistry toolRegistry;
-    private final ClaudeErrorClassifier errorClassifier;
     private WebClient webClient;
     
     private static final String CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
@@ -809,72 +806,5 @@ public class ClaudeLLMProvider implements LLMProvider {
         private String text;
         private String partialJson;
         private String stopReason;
-    }
-    
-    /**
-     * Enhanced error handling method that classifies Claude API errors
-     * and throws appropriate exceptions for better error management.
-     * This method can be used to wrap existing error handling logic.
-     * 
-     * @param statusCode HTTP status code from Claude API
-     * @param errorBody Error response body
-     * @param retryAfterHeader Retry-After header if present
-     * @throws ClaudeApiException Classified exception based on error type
-     */
-    public void handleClaudeApiError(int statusCode, String errorBody, String retryAfterHeader) throws ClaudeApiException {
-        ClaudeApiException exception = errorClassifier.classifyError(statusCode, errorBody, retryAfterHeader);
-        
-        // Log the classified error with appropriate level
-        if (exception.shouldPauseAgent()) {
-            log.error("Claude API error requiring agent pause: {}", exception.getMessage());
-        } else if (exception.isRetryable()) {
-            log.warn("Retryable Claude API error: {}", exception.getMessage());
-        } else {
-            log.error("Non-retryable Claude API error: {}", exception.getMessage());
-        }
-        
-        throw exception;
-    }
-    
-    /**
-     * Get user-friendly error message for a Claude API exception.
-     * This method can be used by services to provide better user feedback.
-     * 
-     * @param exception The Claude API exception
-     * @return User-friendly error message
-     */
-    public String getUserFriendlyErrorMessage(ClaudeApiException exception) {
-        return errorClassifier.getUserFriendlyMessage(exception);
-    }
-    
-    /**
-     * Get technical details for a Claude API exception.
-     * This method can be used for detailed error reporting and debugging.
-     * 
-     * @param exception The Claude API exception
-     * @return Technical error details
-     */
-    public String getTechnicalErrorDetails(ClaudeApiException exception) {
-        return errorClassifier.getTechnicalDetails(exception);
-    }
-    
-    /**
-     * Check if a Claude API exception should trigger automatic retry.
-     * 
-     * @param exception The Claude API exception
-     * @return true if the error should be retried
-     */
-    public boolean shouldRetryError(ClaudeApiException exception) {
-        return errorClassifier.shouldRetry(exception);
-    }
-    
-    /**
-     * Check if a Claude API exception should trigger automatic agent pause.
-     * 
-     * @param exception The Claude API exception
-     * @return true if the agent should be paused
-     */
-    public boolean shouldPauseAgentForError(ClaudeApiException exception) {
-        return errorClassifier.shouldPauseAgent(exception);
     }
 }
