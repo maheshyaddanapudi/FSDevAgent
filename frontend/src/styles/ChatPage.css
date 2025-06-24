@@ -192,3 +192,269 @@
     padding: 15px;
   }
 }
+
+/* Enhanced UI Integration Styles */
+
+/* UI Toggle Button */
+.ui-toggle {
+  background: #f8f9fa !important;
+  border: 2px solid #e0e0e0 !important;
+  transition: all 0.3s ease !important;
+}
+
+.ui-toggle.enhanced {
+  background: #e6f3ff !important;
+  border-color: #007bff !important;
+  color: #007bff !important;
+}
+
+.ui-toggle.traditional {
+  background: #fff3e0 !important;
+  border-color: #ff9800 !important;
+  color: #ff9800 !important;
+}
+
+.ui-toggle:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Enhanced Header Integration */
+.chat-page .enhanced-header {
+  flex-shrink: 0;
+  z-index: 1000;
+}
+
+/* Enhanced Message List Integration */
+.messages-container .enhanced-message-list {
+  height: 100%;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+}
+
+.messages-container .enhanced-message-list .message-list-content {
+  padding: 12px;
+}
+
+/* Ensure proper layout with enhanced components */
+.chat-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.messages-container {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Enhanced error handling integration */
+.error-alert {
+  flex-shrink: 0;
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+}
+
+/* Human input request styling for enhanced UI */
+.human-input-request {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.human-input-header h3 {
+  margin: 0 0 8px 0;
+  color: #856404;
+  font-size: 16px;
+}
+
+.human-input-header p {
+  margin: 0;
+  color: #856404;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.human-input-attachments {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #ffeaa7;
+}
+
+.human-input-attachments h4 {
+  margin: 0 0 8px 0;
+  color: #856404;
+  font-size: 14px;
+}
+
+.human-input-attachments ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.human-input-attachments li {
+  margin-bottom: 4px;
+}
+
+.human-input-attachments a {
+  color: #007bff;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.human-input-attachments a:hover {
+  text-decoration: underline;
+}
+
+/* Chat input enhancements */
+.chat-input.human-input-mode {
+  background: #fff3cd;
+  border-top-color: #ffeaa7;
+}
+
+.chat-input input.human-input {
+  background: #fff3cd;
+  border-color: #ffeaa7;
+  color: #856404;
+}
+
+.chat-input input.human-input::placeholder {
+  color: #856404;
+  opacity: 0.7;
+}
+
+.send-button.human-input-button {
+  background: #ffc107 !important;
+  color: #212529 !important;
+}
+
+.send-button.human-input-button:hover:not(:disabled) {
+  background: #e0a800 !important;
+}
+
+.cancel-human-input {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 8px;
+  transition: background 0.2s ease;
+}
+
+.cancel-human-input:hover {
+  background: #c82333;
+}
+
+/* Responsive adjustments for enhanced UI */
+@media (max-width: 1024px) {
+  .chat-page {
+    flex-direction: column;
+  }
+  
+  .main-content {
+    flex-direction: column;
+  }
+  
+  .chat-section,
+  .emulator-section {
+    flex: none;
+    height: 50vh;
+  }
+  
+  .enhanced-header .header-content {
+    padding: 8px 16px;
+  }
+  
+  .enhanced-header .app-subtitle {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .input-controls {
+    gap: 4px;
+  }
+  
+  .control-button {
+    padding: 6px 8px;
+    font-size: 14px;
+  }
+  
+  .ui-toggle {
+    min-width: 36px;
+  }
+  
+  .human-input-request {
+    margin: 8px;
+    padding: 12px;
+  }
+  
+  .human-input-header h3 {
+    font-size: 14px;
+  }
+  
+  .human-input-header p {
+    font-size: 13px;
+  }
+}
+
+/* Dark mode support for enhanced components */
+@media (prefers-color-scheme: dark) {
+  .enhanced-header {
+    background: #2d3748;
+    border-bottom-color: #4a5568;
+    color: #e2e8f0;
+  }
+  
+  .enhanced-header .app-title {
+    color: #e2e8f0;
+  }
+  
+  .enhanced-header .app-subtitle {
+    color: #a0aec0;
+  }
+  
+  .enhanced-header .task-label {
+    color: #a0aec0;
+  }
+  
+  .enhanced-header .task-name {
+    color: #e2e8f0;
+  }
+  
+  .enhanced-message-list {
+    background: #1a202c;
+  }
+  
+  .message-list-header {
+    background: #2d3748;
+    border-bottom-color: #4a5568;
+  }
+  
+  .view-toggle {
+    background: #4a5568;
+    border-color: #718096;
+    color: #e2e8f0;
+  }
+  
+  .view-toggle:hover {
+    background: #718096;
+  }
+  
+  .view-toggle.active {
+    background: #3182ce;
+    border-color: #3182ce;
+  }
+}
+

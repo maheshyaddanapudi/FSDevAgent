@@ -1,0 +1,347 @@
+/* Enhanced Header Styles - Based on Wireframe Specifications */
+
+.enhanced-header {
+  background: #ffffff;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 12px 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  min-height: 64px;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* Left Section - Branding and Task Context */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex: 1;
+  min-width: 0; /* Allow shrinking */
+}
+
+.app-branding {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.app-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.app-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333333;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.app-subtitle {
+  font-size: 12px;
+  color: #666666;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.task-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.task-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #666666;
+  flex-shrink: 0;
+}
+
+.task-name {
+  font-size: 14px;
+  font-weight: 400;
+  color: #333333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+/* Right Section - Actions and Status */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-shrink: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  color: #333333;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+.header-action-btn:hover:not(:disabled) {
+  background: #e8e8e8;
+  border-color: #d0d0d0;
+  transform: translateY(-1px);
+}
+
+.header-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+  background: #e0e0e0;
+}
+
+.header-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.header-action-btn .btn-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.header-action-btn .btn-text {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Specific button styles */
+.share-btn:hover:not(:disabled) {
+  background: #e6f3ff;
+  border-color: #007bff;
+  color: #007bff;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #e6f7e6;
+  border-color: #28a745;
+  color: #28a745;
+}
+
+.settings-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #666666;
+  color: #666666;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: #fff3e0;
+  border-color: #ff9800;
+  color: #ff9800;
+}
+
+.clear-btn:hover:not(:disabled) {
+  background: #ffebee;
+  border-color: #dc3545;
+  color: #dc3545;
+}
+
+/* Compact buttons for smaller screens */
+.refresh-btn,
+.clear-btn {
+  padding: 8px;
+}
+
+.refresh-btn .btn-text,
+.clear-btn .btn-text {
+  display: none;
+}
+
+/* Connection Status */
+.connection-status {
+  display: flex;
+  align-items: center;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-text {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Status variants */
+.status-ready {
+  background: #e6f7e6;
+  color: #28a745;
+}
+
+.status-ready .status-dot {
+  background: #28a745;
+}
+
+.status-loading {
+  background: #fff3e0;
+  color: #ff9800;
+}
+
+.status-loading .status-dot {
+  background: #ff9800;
+  animation: pulse 1.5s infinite;
+}
+
+.status-connecting {
+  background: #e6f3ff;
+  color: #007bff;
+}
+
+.status-connecting .status-dot {
+  background: #007bff;
+  animation: pulse 1.5s infinite;
+}
+
+.status-error {
+  background: #ffebee;
+  color: #dc3545;
+}
+
+.status-error .status-dot {
+  background: #dc3545;
+  animation: pulse 1.5s infinite;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .header-content {
+    gap: 16px;
+  }
+  
+  .header-left {
+    gap: 16px;
+  }
+  
+  .task-name {
+    max-width: 200px;
+  }
+  
+  .header-action-btn .btn-text {
+    display: none;
+  }
+  
+  .header-action-btn {
+    padding: 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  .enhanced-header {
+    padding: 8px 16px;
+  }
+  
+  .app-subtitle {
+    display: none;
+  }
+  
+  .task-context {
+    display: none;
+  }
+  
+  .header-actions {
+    gap: 4px;
+  }
+  
+  .header-action-btn {
+    padding: 6px;
+    min-height: 32px;
+  }
+  
+  .header-action-btn .btn-icon {
+    font-size: 16px;
+  }
+  
+  .status-indicator {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  
+  .status-dot {
+    width: 6px;
+    height: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-title {
+    font-size: 16px;
+  }
+  
+  .header-right {
+    gap: 12px;
+  }
+  
+  /* Hide some buttons on very small screens */
+  .share-btn,
+  .save-btn,
+  .settings-btn {
+    display: none;
+  }
+}
+

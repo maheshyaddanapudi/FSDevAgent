@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import useChatStore from '../hooks/useChatStore';
 import UnifiedEmulator from '../components/UnifiedEmulator/UnifiedEmulator';
 import MessageList from '../components/MessageList';
+import EnhancedHeader from '../components/EnhancedHeader';
+import EnhancedMessageList from '../components/EnhancedMessageList';
 import '../styles/ChatPage.css';
 import '../styles/enhanced-error-handling.css';
 
@@ -44,6 +46,10 @@ const ChatPage = () => {
   const [sessionInitialized, setSessionInitialized] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
+  
+  // Enhanced UI state
+  const [useEnhancedUI, setUseEnhancedUI] = useState(true);
+  const [currentTask, setCurrentTask] = useState('AI Developer Agent Session');
   
   // Refs for auto-scroll
   const messagesEndRef = useRef(null);
@@ -236,24 +242,15 @@ const ChatPage = () => {
 
   return (
     <div className="chat-page">
-      {/* Static Responsive Header */}
-      <header className="app-header">
-        <div className="header-content">
-          <div className="header-left">
-            <h1 className="app-title">🤖 AI Developer Agent</h1>
-            <span className="app-subtitle">Your AI-Powered Development Assistant</span>
-          </div>
-          <div className="header-right">
-            <div className="connection-status">
-              <span className="status-text">
-                {isLoading ? 'Initializing...' : 
-                 sessionInitialized ? 'Ready' : 
-                 connectionError ? 'Connection Failed' : 'Connecting...'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </header>
+      {/* Enhanced Header */}
+      <EnhancedHeader
+        sessionInitialized={sessionInitialized}
+        isLoading={isLoading}
+        connectionError={connectionError}
+        onClearMessages={handleClearMessages}
+        onRefresh={handleRefresh}
+        currentTask={currentTask}
+      />
 
       {/* Enhanced Error Alert */}
       <ErrorAlert 
@@ -281,7 +278,16 @@ const ChatPage = () => {
             
             {sessionInitialized && (
               <>
-                <MessageList messages={messages} />
+                {useEnhancedUI ? (
+                  <EnhancedMessageList 
+                    messages={messages}
+                    usePhaseOrganization={true}
+                    showTimestamps={true}
+                    autoScroll={true}
+                  />
+                ) : (
+                  <MessageList messages={messages} />
+                )}
                 
                 {/* Human-in-the-loop UI */}
                 {waitingForHumanInput && humanInputRequest && (
@@ -316,6 +322,13 @@ const ChatPage = () => {
           {/* Chat Input Section */}
           <div className="chat-input-section">
             <div className="input-controls">
+              <button 
+                className={`control-button ui-toggle ${useEnhancedUI ? 'enhanced' : 'traditional'}`}
+                onClick={() => setUseEnhancedUI(!useEnhancedUI)}
+                title={`Switch to ${useEnhancedUI ? 'traditional' : 'enhanced'} UI`}
+              >
+                {useEnhancedUI ? '📋' : '💬'}
+              </button>
               <button 
                 className="control-button clear-button" 
                 onClick={handleClearMessages}

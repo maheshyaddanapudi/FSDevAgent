@@ -1,0 +1,404 @@
+/* Phase Component Styles - Based on Wireframe Specifications */
+
+.phase-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+}
+
+.phase-component {
+  background: #f0f0f0;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
+}
+
+.phase-component.phase-active {
+  background: #e6f3ff;
+  border-color: #007bff;
+  box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+}
+
+.phase-component.phase-expanded {
+  background: #f8f8f8;
+}
+
+.phase-component.phase-active.phase-expanded {
+  background: #f0f8ff;
+}
+
+/* Phase Header */
+.phase-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.phase-header:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.phase-component.phase-active .phase-header:hover {
+  background: rgba(0, 123, 255, 0.1);
+}
+
+.phase-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.expand-icon {
+  font-size: 12px;
+  color: #666666;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.phase-component.phase-expanded .expand-icon {
+  transform: rotate(0deg);
+}
+
+.phase-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.phase-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.phase-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333333;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.phase-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #666666;
+}
+
+.knowledge-recall {
+  background: #e8f4f8;
+  color: #0066cc;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.phase-progress {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.phase-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.task-count {
+  font-size: 12px;
+  color: #666666;
+  font-weight: 500;
+  background: #e0e0e0;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 32px;
+  text-align: center;
+}
+
+.phase-component.phase-active .task-count {
+  background: #007bff;
+  color: white;
+}
+
+.progress-bar-mini {
+  width: 40px;
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill-mini {
+  height: 100%;
+  background: #28a745;
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+.phase-component.phase-active .progress-fill-mini {
+  background: #007bff;
+}
+
+/* Phase Content */
+.phase-content {
+  border-top: 1px solid #ddd;
+  background: #f8f8f8;
+  animation: expandContent 0.3s ease-out;
+  overflow: hidden;
+}
+
+.phase-component.phase-active .phase-content {
+  background: #f0f8ff;
+  border-top-color: #007bff;
+}
+
+@keyframes expandContent {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 500px;
+    opacity: 1;
+  }
+}
+
+.phase-tasks {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: white;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.task-item:hover {
+  background: #f5f5f5;
+  transform: translateX(2px);
+}
+
+.task-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.task-text {
+  flex: 1;
+  color: #333333;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.task-timestamp {
+  font-size: 11px;
+  color: #999999;
+  flex-shrink: 0;
+}
+
+/* Task Status Variants */
+.task-completed {
+  opacity: 0.7;
+  border-left-color: #28a745;
+}
+
+.task-completed .task-icon {
+  color: #28a745;
+}
+
+.task-active {
+  border-left-color: #007bff;
+  background: #e6f3ff;
+}
+
+.task-active .task-icon {
+  color: #007bff;
+  animation: pulse 1.5s infinite;
+}
+
+.task-error {
+  border-left-color: #dc3545;
+  background: #ffebee;
+}
+
+.task-error .task-icon {
+  color: #dc3545;
+}
+
+.task-pending {
+  border-left-color: #ffc107;
+}
+
+.task-pending .task-icon {
+  color: #ffc107;
+}
+
+/* Empty State */
+.phase-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: #999999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.empty-icon {
+  font-size: 24px;
+  opacity: 0.5;
+}
+
+.empty-text {
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Progress Section */
+.phase-progress-section {
+  padding: 12px 16px;
+  border-top: 1px solid #e0e0e0;
+  background: rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #28a745, #20c997);
+  transition: width 0.5s ease;
+  border-radius: 4px;
+}
+
+.phase-component.phase-active .progress-fill {
+  background: linear-gradient(90deg, #007bff, #0056b3);
+}
+
+.progress-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666666;
+  flex-shrink: 0;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.95);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .phase-header {
+    padding: 10px 12px;
+  }
+  
+  .phase-header-left {
+    gap: 8px;
+  }
+  
+  .phase-title {
+    font-size: 13px;
+  }
+  
+  .phase-meta {
+    gap: 8px;
+  }
+  
+  .knowledge-recall {
+    font-size: 10px;
+    padding: 1px 4px;
+  }
+  
+  .task-item {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  
+  .task-icon {
+    font-size: 12px;
+    width: 14px;
+  }
+  
+  .progress-bar-mini {
+    width: 30px;
+    height: 3px;
+  }
+  
+  .phase-tasks {
+    padding: 8px 12px;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .phase-header-right {
+    gap: 8px;
+  }
+  
+  .task-count {
+    font-size: 11px;
+    padding: 1px 4px;
+    min-width: 24px;
+  }
+  
+  .progress-bar-mini {
+    display: none;
+  }
+  
+  .phase-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  
+  .task-timestamp {
+    display: none;
+  }
+}
+
