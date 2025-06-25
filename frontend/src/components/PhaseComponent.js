@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { parseAgentContent } from '../utils/contentParser';
 import '../styles/PhaseComponent.css';
 
 /**
@@ -217,9 +218,16 @@ function organizeMessagesIntoPhases(messages) {
   let phaseCounter = 1;
 
   messages.forEach((message, index) => {
+    // Skip user messages for phase organization
+    if (message.role === 'user') return;
+    
+    // Use message.content instead of message.message
+    const content = message.content || '';
+    if (!content.trim()) return;
+    
     const phaseType = detectPhaseType(message);
     
-    // Start a new phase if type changes or if it's the first message
+    // Start a new phase if type changes or if it's the first assistant message
     if (!currentPhase || currentPhase.type !== phaseType) {
       if (currentPhase) {
         phases.push(currentPhase);
@@ -236,14 +244,35 @@ function organizeMessagesIntoPhases(messages) {
       };
     }
     
-    // Add message as a task to current phase
-    const task = messageToTask(message, index);
-    if (task) {
-      currentPhase.tasks.push(task);
+    // Parse the message content to extract sections
+    const parsedContent = parseAgentContent(content);
+    
+    // Add main response as a task if it exists
+    if (parsedContent.mainResponse && parsedContent.mainResponse.trim()) {
+      const mainTask = {
+        id: `task-${index}-main`,
+        type: 'general',
+        status: 'completed',
+        description: parsedContent.mainResponse.length > 100 
+          ? parsedContent.mainResponse.substring(0, 100) + '...'
+          : parsedContent.mainResponse,
+        timestamp: new Date().toISOString()
+      };
+      currentPhase.tasks.push(mainTask);
+    }
+    
+    // Add tasks from parsed sections
+    if (parsedContent.sections && Array.isArray(parsedContent.sections)) {
+      parsedContent.sections.forEach((section, sectionIndex) => {
+        const task = sectionToTask(section, index, sectionIndex);
+        if (task) {
+          currentPhase.tasks.push(task);
+        }
+      });
     }
     
     // Update phase metadata
-    if (message.message && message.message.includes('Knowledge recalled')) {
+    if (content.includes('Knowledge recalled') || content.includes('knowledge recall')) {
       currentPhase.knowledgeRecallCount++;
     }
   });
@@ -266,21 +295,21 @@ function organizeMessagesIntoPhases(messages) {
  * Detect phase type based on message content
  */
 function detectPhaseType(message) {
-  const content = message.message || '';
+  const content = (message.content || '').toLowerCase();
   
-  if (content.includes('analyzing') || content.includes('analysis') || content.includes('understanding')) {
+  if (content.includes('think') || content.includes('analyzing') || content.includes('analysis') || content.includes('understanding')) {
     return 'analysis';
   }
-  if (content.includes('planning') || content.includes('plan') || content.includes('strategy')) {
+  if (content.includes('reason') || content.includes('planning') || content.includes('plan') || content.includes('strategy')) {
     return 'planning';
   }
-  if (content.includes('implementing') || content.includes('creating') || content.includes('building')) {
+  if (content.includes('act') || content.includes('implementing') || content.includes('creating') || content.includes('building') || content.includes('tool_use')) {
     return 'implementation';
   }
   if (content.includes('testing') || content.includes('validating') || content.includes('checking')) {
     return 'testing';
   }
-  if (content.includes('completed') || content.includes('finished') || content.includes('done')) {
+  if (content.includes('task_complete') || content.includes('completed') || content.includes('finished') || content.includes('done')) {
     return 'completion';
   }
   
@@ -292,11 +321,11 @@ function detectPhaseType(message) {
  */
 function getPhaseTitle(type, number) {
   const titles = {
-    analysis: `Phase ${number}: Analysis & Understanding`,
-    planning: `Phase ${number}: Planning & Strategy`,
-    implementation: `Phase ${number}: Implementation`,
+    analysis: `Phase ${number}: Analysis & Thinking`,
+    planning: `Phase ${number}: Planning & Reasoning`,
+    implementation: `Phase ${number}: Implementation & Actions`,
     testing: `Phase ${number}: Testing & Validation`,
-    completion: `Phase ${number}: Completion`,
+    completion: `Phase ${number}: Task Completion`,
     general: `Phase ${number}: General Tasks`
   };
   
@@ -304,38 +333,84 @@ function getPhaseTitle(type, number) {
 }
 
 /**
- * Convert message to task object
+ * Convert parsed section to task object
  */
-function messageToTask(message, index) {
-  if (!message.message) return null;
+function sectionToTask(section, messageIndex, sectionIndex) {
+  if (!section || !section.content) return null;
   
-  const content = message.message;
   let type = 'general';
   let status = 'completed';
+  let description = section.content;
   
-  // Detect task type from content
-  if (content.includes('Reading file') || content.includes('📄')) {
-    type = 'file_read';
-  } else if (content.includes('Writing file') || content.includes('Creating file')) {
-    type = 'file_write';
-  } else if (content.includes('Editing file') || content.includes('✏️')) {
-    type = 'file_edit';
-  } else if (content.includes('thinking') || content.includes('🔵')) {
-    type = 'thinking';
-    status = 'active';
-  } else if (content.includes('error') || content.includes('❌')) {
-    type = 'error';
-    status = 'error';
-  } else if (content.includes('tool') || content.includes('executing')) {
-    type = 'tool_execution';
+  // Detect task type from section type
+  switch (section.type) {
+    case 'thinking':
+      type = 'thinking';
+      status = 'completed';
+      description = `💭 ${section.content.substring(0, 80)}...`;
+      break;
+    case 'reasoning':
+      type = 'planning';
+      status = 'completed';
+      description = `🧠 ${section.content.substring(0, 80)}...`;
+      break;
+    case 'action':
+      type = 'tool_execution';
+      status = 'completed';
+      description = `⚙️ ${section.content.substring(0, 80)}...`;
+      break;
+    case 'tool_use':
+      type = 'tool_execution';
+      status = 'completed';
+      description = `🔧 Tool: ${section.toolName || 'Unknown'}`;
+      break;
+    case 'observation':
+      type = 'completed';
+      status = 'completed';
+      description = `👁️ ${section.content.substring(0, 80)}...`;
+      break;
+    case 'event':
+      if (section.content && typeof section.content === 'object') {
+        const eventType = section.content.type;
+        const eventData = section.content.data || section.content.title || 'Event';
+        const eventIcon = section.content.icon || '📋';
+        
+        if (eventType === 'TASK_COMPLETE') {
+          type = 'completed';
+          status = 'completed';
+          description = `✅ ${eventData}`;
+        } else if (eventType === 'PROGRESS') {
+          type = 'general';
+          status = 'active';
+          description = `📊 Progress: ${eventData}`;
+        } else if (eventType === 'PHASE_TRANSITION') {
+          type = 'general';
+          status = 'completed';
+          description = `🔄 Phase: ${eventData}`;
+        } else {
+          type = 'general';
+          status = 'completed';
+          description = `${eventIcon} ${eventData}`;
+        }
+      } else {
+        // Fallback for string content
+        type = 'general';
+        status = 'completed';
+        description = `📋 ${section.content || 'Event'}`;
+      }
+      break;
+    default:
+      if (description.length > 100) {
+        description = description.substring(0, 100) + '...';
+      }
   }
   
   return {
-    id: `task-${index}`,
+    id: `task-${messageIndex}-${sectionIndex}`,
     type,
     status,
-    description: content.length > 100 ? content.substring(0, 100) + '...' : content,
-    timestamp: message.timestamp
+    description,
+    timestamp: new Date().toISOString()
   };
 }
 

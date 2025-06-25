@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PhaseManager } from './PhaseComponent';
+import ContentDisplay from './ContentDisplay';
+import { parseAgentContent } from '../utils/contentParser';
 import '../styles/EnhancedMessageList.css';
 
 /**
@@ -12,7 +14,7 @@ const EnhancedMessageList = ({
   showTimestamps = true,
   autoScroll = true 
 }) => {
-  const [viewMode, setViewMode] = useState(usePhaseOrganization ? 'phases' : 'messages');
+  const [viewMode, setViewMode] = useState('messages'); // Default to message view for proper conversation flow
   const [phaseStates, setPhaseStates] = useState({});
   const messagesEndRef = useRef(null);
   const containerRef = useRef(null);
@@ -113,7 +115,11 @@ const EnhancedMessageList = ({
           <div className="message-content">
             {message.content && (
               <div className="message-text">
-                {message.content}
+                {message.role === 'assistant' ? (
+                  <ContentDisplay parsedContent={parseAgentContent(message.content)} />
+                ) : (
+                  message.content
+                )}
               </div>
             )}
             
@@ -153,47 +159,38 @@ const EnhancedMessageList = ({
           </span>
         </div>
       </div>
-      
-      <div className="message-list-content">
-        {viewMode === 'phases' ? (
-          <div className="phase-view">
-            <PhaseManager 
-              messages={messages}
-              onPhaseToggle={handlePhaseToggle}
-            />
-            
-            {/* Show recent messages that don't fit into phases */}
-            {messages.length > 0 && (
-              <div className="recent-messages">
-                {messages.slice(-3).map((message, index) => (
-                  <div 
-                    key={`recent-${index}`} 
-                    className={`recent-message ${getMessageTypeClass(message.messageType)}`}
-                  >
-                    <span className="recent-icon">
-                      {getMessageIcon(message.role, message.messageType)}
-                    </span>
-                    <span className="recent-text">
-                      {message.content && message.content.length > 100 
-                        ? message.content.substring(0, 100) + '...'
-                        : message.content}
-                    </span>
-                    {showTimestamps && message.timestamp && (
-                      <span className="recent-timestamp">
-                        {formatTimestamp(message.timestamp)}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          renderTraditionalMessages()
-        )}
+        <div className="message-list-content">
+        {/* Main Chat Area - Always Visible */}
+        <div className="chat-area">
+          {renderTraditionalMessages()}
+        </div>
         
-        <div ref={messagesEndRef} />
+        {/* Phase Panel - Collapsible Sidebar */}
+        <div className={`phase-panel ${viewMode === 'phases' ? 'expanded' : 'minimized'}`}>
+          <div className="phase-panel-header">
+            <span className="phase-panel-title">📋 Project Phases</span>
+            <button 
+              className="phase-panel-toggle"
+              onClick={handleViewModeToggle}
+              title={viewMode === 'phases' ? 'Minimize phase panel' : 'Expand phase panel'}
+            >
+              {viewMode === 'phases' ? '▶' : '◀'}
+            </button>
+          </div>
+          
+          {viewMode === 'phases' && (
+            <div className="phase-panel-content">
+              <PhaseManager 
+                messages={messages}
+                onPhaseToggle={handlePhaseToggle}
+                showAllPhases={true}
+              />
+            </div>
+          )}
+        </div>
       </div>
+      
+      <div ref={messagesEndRef} />
       
       {messages.length === 0 && (
         <div className="empty-state">
