@@ -327,7 +327,19 @@ const ChatPage = () => {
                 onClick={() => setUseEnhancedUI(!useEnhancedUI)}
                 title={`Switch to ${useEnhancedUI ? 'traditional' : 'enhanced'} UI`}
               >
-                {useEnhancedUI ? '📎' : '💬'}
+                {useEnhancedUI ? '📋' : '💬'}
+              </button>
+              
+              <button 
+                className="control-button attach-btn"
+                title="Attach files"
+                disabled={isInterfaceDisabled}
+                onClick={() => {
+                  // TODO: Implement file attachment functionality
+                  console.log('Attach file functionality - to be implemented');
+                }}
+              >
+                📎
               </button>
             </div>
             

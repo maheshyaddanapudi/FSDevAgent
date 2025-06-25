@@ -235,6 +235,15 @@ const useChatStore = create(
                     const data = JSON.parse(event.data);
                     debugLog.sse('Parsed SSE message', { sessionId: aiDeveloperAgentSessionId, parsedData: data });
                     
+                    // 🔍 COMPREHENSIVE JSON LOGGING FOR DEBUGGING
+                    console.log('=== SSE MESSAGE RECEIVED ===');
+                    console.log('Raw Event Data:', event.data);
+                    console.log('Parsed JSON Structure:', JSON.stringify(data, null, 2));
+                    console.log('Message Field:', data.message);
+                    console.log('Role Field:', data.role);
+                    console.log('Complete Data Object:', data);
+                    console.log('==============================');
+                    
                     // NEW: Check for human input request
                     if (data.type === 'tool_call' && data.tool === 'message_ask_user') {
                       // Close the event source as we need to pause for human input
@@ -256,9 +265,18 @@ const useChatStore = create(
                     
                     // Handle normal message content
                     if (data.message) {
+                      console.log('🔄 PROCESSING MESSAGE FOR STORE UPDATE');
+                      console.log('Assistant Message ID:', assistantMessageId);
+                      console.log('Message Content to Add:', data.message);
+                      
                       set(state => {
                         const messages = [...state.messages];
                         const lastMessageIndex = messages.findIndex(m => m.id === assistantMessageId);
+                        
+                        console.log('📊 STORE STATE BEFORE UPDATE:');
+                        console.log('Total Messages:', messages.length);
+                        console.log('Last Message Index:', lastMessageIndex);
+                        console.log('Current Messages:', JSON.stringify(messages, null, 2));
                         
                         if (lastMessageIndex !== -1) {
                           const currentContent = messages[lastMessageIndex].content || '';
@@ -267,7 +285,17 @@ const useChatStore = create(
                             content: currentContent + data.message,
                             isComplete: data.isComplete || false
                           };
+                          
+                          console.log('✅ MESSAGE UPDATED IN STORE:');
+                          console.log('Updated Message:', JSON.stringify(messages[lastMessageIndex], null, 2));
+                        } else {
+                          console.log('❌ ASSISTANT MESSAGE NOT FOUND IN STORE');
                         }
+                        
+                        console.log('📊 STORE STATE AFTER UPDATE:');
+                        console.log('Total Messages:', messages.length);
+                        console.log('All Messages:', JSON.stringify(messages, null, 2));
+                        
                         
                         return { messages };
                       });

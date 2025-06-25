@@ -72,23 +72,6 @@ const EnhancedHeader = ({
               <span className="btn-icon">⚙️</span>
               <span className="btn-text">Settings</span>
             </button>
-            
-            <button 
-              className="header-action-btn refresh-btn" 
-              onClick={onRefresh}
-              title="Refresh"
-            >
-              <span className="btn-icon">🔄</span>
-            </button>
-            
-            <button 
-              className="header-action-btn clear-btn" 
-              onClick={onClearMessages}
-              disabled={!sessionInitialized}
-              title="Clear Session"
-            >
-              <span className="btn-icon">🗑️</span>
-            </button>
           </div>
           
           <div className="connection-status">
