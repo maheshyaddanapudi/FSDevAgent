@@ -49,14 +49,14 @@
 .app-title {
   font-size: 18px;
   font-weight: 600;
-  color: #333333;
+  color: #1a1a1a;
   margin: 0;
   line-height: 1.2;
 }
 
 .app-subtitle {
   font-size: 12px;
-  color: #666666;
+  color: #4a4a4a;
   font-weight: 400;
   line-height: 1;
 }
@@ -72,14 +72,14 @@
 .task-label {
   font-size: 14px;
   font-weight: 500;
-  color: #666666;
+  color: #4a4a4a;
   flex-shrink: 0;
 }
 
 .task-name {
   font-size: 14px;
   font-weight: 400;
-  color: #333333;
+  color: #1a1a1a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
