@@ -329,21 +329,6 @@ const ChatPage = () => {
               >
                 {useEnhancedUI ? '📋' : '💬'}
               </button>
-              <button 
-                className="control-button clear-button" 
-                onClick={handleClearMessages}
-                disabled={isInterfaceDisabled}
-                title="Clear local storage and refresh page"
-              >
-                🗑️
-              </button>
-              <button 
-                className="control-button refresh-button" 
-                onClick={handleRefresh}
-                title="Refresh page"
-              >
-                🔄
-              </button>
             </div>
             
             <div className={`chat-input ${waitingForHumanInput ? 'human-input-mode' : ''}`}>
