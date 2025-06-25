@@ -93,7 +93,12 @@ const EmulatorErrorFallback = ({ error, resetErrorBoundary }) => {
 /**
  * UnifiedEmulator - Enhanced plugin-based tool output visualization system
  */
-const UnifiedEmulator = () => {
+const UnifiedEmulator = ({ 
+  toolOutputs: propToolOutputs, 
+  sessionInitialized = false, 
+  connectionError = null, 
+  isLoading = false 
+}) => {
   const [activeToolType, setActiveToolType] = useState('initializing');
   const [selectedOutputIndex, setSelectedOutputIndex] = useState(0);
   const [hasReceivedOutput, setHasReceivedOutput] = useState(false);
@@ -242,7 +247,7 @@ const UnifiedEmulator = () => {
     }
   }, [selectedOutputIndex, filteredOutputs.length]);
 
-  // Render connection status (simplified for chat store)
+  // Render connection status (shows disconnected until first tool use)
   const renderConnectionStatus = () => (
     <div className={`connection-status ${chatToolOutputs.length > 0 ? 'connected' : 'disconnected'}`}>
       <span className="status-indicator"></span>

@@ -327,7 +327,7 @@ const ChatPage = () => {
                 onClick={() => setUseEnhancedUI(!useEnhancedUI)}
                 title={`Switch to ${useEnhancedUI ? 'traditional' : 'enhanced'} UI`}
               >
-                {useEnhancedUI ? '📋' : '💬'}
+                {useEnhancedUI ? '📎' : '💬'}
               </button>
             </div>
             
@@ -373,7 +373,10 @@ const ChatPage = () => {
         {/* Right Half - Enhanced Emulator */}
         <div className="emulator-section">
           <UnifiedEmulator 
-            toolOutputs={toolOutputs} 
+            toolOutputs={toolOutputs}
+            sessionInitialized={sessionInitialized}
+            connectionError={connectionError}
+            isLoading={isLoading}
           />
         </div>
       </div>
