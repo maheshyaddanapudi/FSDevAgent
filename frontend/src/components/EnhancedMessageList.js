@@ -111,9 +111,9 @@ const EnhancedMessageList = ({
           </div>
           
           <div className="message-content">
-            {message.message && (
+            {message.content && (
               <div className="message-text">
-                {message.message}
+                {message.content}
               </div>
             )}
             
@@ -174,9 +174,9 @@ const EnhancedMessageList = ({
                       {getMessageIcon(message.role, message.messageType)}
                     </span>
                     <span className="recent-text">
-                      {message.message && message.message.length > 100 
-                        ? message.message.substring(0, 100) + '...'
-                        : message.message}
+                      {message.content && message.content.length > 100 
+                        ? message.content.substring(0, 100) + '...'
+                        : message.content}
                     </span>
                     {showTimestamps && message.timestamp && (
                       <span className="recent-timestamp">
