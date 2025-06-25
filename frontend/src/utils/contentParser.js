@@ -70,8 +70,8 @@ export const parseAgentContent = (content) => {
         title: 'Reasoning Process',
         content: content,
         icon: '🧠',
-        collapsible: true,
-        defaultExpanded: false
+        collapsible: false, // Always visible - part of normal conversation flow
+        defaultExpanded: true
       });
       continue;
     }
