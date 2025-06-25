@@ -153,10 +153,20 @@ export const parseAgentContent = (content) => {
     }
   }
 
-  // Extract any remaining EVENT lines from the entire content and add them as separate sections
-  const allEventMatches = content.match(/EVENT:[^\n\r]*/g) || [];
+  // First, extract EVENT lines from the entire content before processing sections
+  // Handle both "EVENT:TYPE:data" and "TYPEdata" formats
+  const originalContent = content;
+  const allEventMatches = originalContent.match(/(EVENT:[^\n\r]*|(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING)[^\n\r]*)/gm) || [];
+  
+  // Remove EVENT lines from the main content to avoid duplication
+  content = content.replace(/(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING)[^\n\r]*/gm, '');
+  content = content.replace(/EVENT:[^\n\r]*/g, '');
+
+  // Process the extracted events
   allEventMatches.forEach(eventLine => {
-    const eventContent = parseEvent(eventLine.trim());
+    // Clean up the match (remove leading whitespace/newlines)
+    const cleanEventLine = eventLine.replace(/^\s+/, '').trim();
+    const eventContent = parseEvent(cleanEventLine);
     if (eventContent) {
       // Check if this event is already added to avoid duplicates
       const existingEvent = sections.find(section => 
@@ -263,11 +273,24 @@ const parseToolUse = (content) => {
 };
 
 const parseEvent = (content) => {
-  const eventMatch = content.match(/EVENT:([^:]+):?(.*)/);
-  if (!eventMatch) return null;
+  let eventType = '';
+  let eventData = '';
 
-  const eventType = eventMatch[1].trim();
-  const eventData = eventMatch[2].trim();
+  // First try the standard "EVENT:TYPE:data" format
+  const standardEventMatch = content.match(/EVENT:([^:]+):?(.*)/);
+  if (standardEventMatch) {
+    eventType = standardEventMatch[1].trim();
+    eventData = standardEventMatch[2].trim();
+  } else {
+    // Try the compact "TYPEdata" format (e.g., "TASK_COMPLETECreated a simple...")
+    const compactEventMatch = content.match(/^(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING)(.*)$/);
+    if (compactEventMatch) {
+      eventType = compactEventMatch[1].trim();
+      eventData = compactEventMatch[2].trim();
+    } else {
+      return null; // No valid event format found
+    }
+  }
 
   const eventConfig = {
     'TASK_COMPLETE': { title: 'Task Completed', icon: '✅' },
