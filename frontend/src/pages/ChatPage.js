@@ -323,11 +323,11 @@ const ChatPage = () => {
           <div className="chat-input-section">
             <div className="input-controls">
               <button 
-                className={`control-button ui-toggle ${useEnhancedUI ? 'enhanced' : 'traditional'}`}
-                onClick={() => setUseEnhancedUI(!useEnhancedUI)}
-                title={`Switch to ${useEnhancedUI ? 'traditional' : 'enhanced'} UI`}
+                className="control-button clear-btn"
+                onClick={handleClearMessages}
+                title="Clear conversation and refresh"
               >
-                {useEnhancedUI ? '📋' : '💬'}
+                🗑️
               </button>
               
               <button 
