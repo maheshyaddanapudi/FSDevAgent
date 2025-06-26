@@ -156,10 +156,10 @@ export const parseAgentContent = (content) => {
   // First, extract EVENT lines from the entire content before processing sections
   // Handle both "EVENT:TYPE:data" and "TYPEdata" formats
   const originalContent = content;
-  const allEventMatches = originalContent.match(/(EVENT:[^\n\r]*|(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING)[^\n\r]*)/gm) || [];
+  const allEventMatches = originalContent.match(/(EVENT:[^\n\r]*|(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING|OBSERVE)[^\n\r]*)/gm) || [];
   
   // Remove EVENT lines from the main content to avoid duplication
-  content = content.replace(/(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING)[^\n\r]*/gm, '');
+  content = content.replace(/(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING|OBSERVE)[^\n\r]*/gm, '');
   content = content.replace(/EVENT:[^\n\r]*/g, '');
 
   // Process the extracted events
