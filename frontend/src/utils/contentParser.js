@@ -282,8 +282,8 @@ const parseEvent = (content) => {
     eventType = standardEventMatch[1].trim();
     eventData = standardEventMatch[2].trim();
   } else {
-    // Try the compact "TYPEdata" format (e.g., "TASK_COMPLETECreated a simple...")
-    const compactEventMatch = content.match(/^(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING)(.*)$/);
+    // Try the compact "TYPEdata" format (e.g., "TASK_COMPLETECreated a simple..." or "OBSERVE The script executed...")
+    const compactEventMatch = content.match(/^(TASK_COMPLETE|PROGRESS|PHASE_TRANSITION|ERROR|WARNING|OBSERVE)(.*)$/);
     if (compactEventMatch) {
       eventType = compactEventMatch[1].trim();
       eventData = compactEventMatch[2].trim();
@@ -297,7 +297,8 @@ const parseEvent = (content) => {
     'PROGRESS': { title: 'Progress Update', icon: '📊' },
     'PHASE_TRANSITION': { title: 'Phase Change', icon: '🔄' },
     'ERROR': { title: 'Error Occurred', icon: '❌' },
-    'WARNING': { title: 'Warning', icon: '⚠️' }
+    'WARNING': { title: 'Warning', icon: '⚠️' },
+    'OBSERVE': { title: 'Observation', icon: '👁️' }
   };
 
   const config = eventConfig[eventType] || { title: eventType, icon: '📢' };
